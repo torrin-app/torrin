@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/torrin-app/torrin/compare/v1.0.2...v1.0.3) (2026-07-02)
+
+
+### Bug Fixes
+
+* **reseller:** serialize redeemed flag in codes API ([#12](https://github.com/torrin-app/torrin/issues/12)) ([a8720bc](https://github.com/torrin-app/torrin/commit/a8720bc7bcbe26654984ffc2cba8f56a90c86851))
+
 ## [1.0.2](https://github.com/torrin-app/torrin/compare/v1.0.1...v1.0.2) (2026-07-02)
 
 
