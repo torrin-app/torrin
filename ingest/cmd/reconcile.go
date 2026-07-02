@@ -15,7 +15,7 @@ import (
 func sweepScratch(ctx context.Context, repo jobs.Repository, scratch string) {
 	run := func() {
 		active := map[string]bool{}
-		for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusDownloading, jobs.StatusPublishing} {
+		for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing} {
 			list, _ := repo.ListByStatus(ctx, st)
 			for _, j := range list {
 				active[j.InfoHash] = true

@@ -26,6 +26,7 @@ func TestStStatus(t *testing.T) {
 	cases := map[jobs.Status]string{
 		jobs.StatusComplete:    "downloaded",
 		jobs.StatusDownloading: "downloading",
+		jobs.StatusProcessing:  "downloading",
 		jobs.StatusPublishing:  "downloading",
 		jobs.StatusFailed:      "failed",
 		jobs.StatusPending:     "queued",

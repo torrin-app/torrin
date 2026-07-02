@@ -132,6 +132,9 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("download: %w", err)
 	}
 
+	job.Status = jobs.StatusProcessing
+	r.repo.Update(ctx, job)
+
 	pwds := postproc.PasswordCandidates(parsed.Meta["password"], job.Name, parsed.Name())
 	files, err := postproc.Process(outDir, pwds, job.Name)
 	if err != nil {

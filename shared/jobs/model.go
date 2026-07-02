@@ -8,13 +8,14 @@ const (
 	StatusPending     Status = "pending"
 	StatusQueued      Status = "queued"
 	StatusDownloading Status = "downloading"
+	StatusProcessing  Status = "processing"
 	StatusPublishing  Status = "publishing"
 	StatusComplete    Status = "complete"
 	StatusFailed      Status = "failed"
 	StatusEvicted     Status = "evicted"
 )
 
-var activeStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusPublishing}
+var activeStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing}
 
 func (s Status) Active() bool {
 	for _, a := range activeStatuses {

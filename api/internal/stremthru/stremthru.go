@@ -143,7 +143,7 @@ func stStatus(s jobs.Status) string {
 	switch s {
 	case jobs.StatusComplete:
 		return "downloaded"
-	case jobs.StatusDownloading, jobs.StatusPublishing:
+	case jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing:
 		return "downloading"
 	case jobs.StatusFailed:
 		return "failed"

@@ -36,7 +36,8 @@ func TestIsValidKey(t *testing.T) {
 func TestMapStatus(t *testing.T) {
 	cases := map[jobs.Status]string{
 		jobs.StatusComplete: "downloaded", jobs.StatusDownloading: "downloading",
-		jobs.StatusPublishing: "uploading", jobs.StatusFailed: "error",
+		jobs.StatusProcessing: "downloading", jobs.StatusPublishing: "uploading",
+		jobs.StatusFailed:  "error",
 		jobs.StatusPending: "magnet_conversion", jobs.StatusQueued: "queued",
 	}
 	for in, want := range cases {

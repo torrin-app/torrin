@@ -252,7 +252,7 @@ func (s *Server) progressJob(w http.ResponseWriter, r *http.Request) {
 	case job.Status == jobs.StatusDownloading && (job.Source == jobs.SourceUsenet || job.Source == jobs.SourceHDEncode || job.Source == jobs.SourceScenerls || job.Source == jobs.SourceHoster):
 		resp["progress"] = job.Progress
 		resp["speed"] = job.Speed
-	case job.Status == jobs.StatusPublishing:
+	case job.Status == jobs.StatusProcessing || job.Status == jobs.StatusPublishing:
 		resp["progress"] = job.Progress
 	}
 	web.WriteJSON(w, 200, resp)

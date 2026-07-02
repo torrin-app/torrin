@@ -60,7 +60,7 @@ func mapStatus(s jobs.Status) string {
 		return "magnet_conversion"
 	case jobs.StatusQueued:
 		return "queued"
-	case jobs.StatusDownloading:
+	case jobs.StatusDownloading, jobs.StatusProcessing:
 		return "downloading"
 	case jobs.StatusPublishing:
 		return "uploading"
@@ -77,7 +77,7 @@ func progressPct(s jobs.Status) float64 {
 	switch s {
 	case jobs.StatusComplete:
 		return 100
-	case jobs.StatusDownloading, jobs.StatusPublishing:
+	case jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing:
 		return 50
 	default:
 		return 0
