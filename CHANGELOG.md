@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/torrin-app/torrin/compare/v1.0.0...v1.0.1) (2026-07-02)
+
+
+### Bug Fixes
+
+* **stremthru:** include file path in cached magnet check results ([#8](https://github.com/torrin-app/torrin/issues/8)) ([d5f313e](https://github.com/torrin-app/torrin/commit/d5f313ed40bf8313c0eda5e7e447625e3d23f0e3))
+
 ## 1.0.0 (2026-07-02)
 
 
