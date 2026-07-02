@@ -198,9 +198,6 @@ func (h *Handler) instantAvailability(w http.ResponseWriter, r *http.Request, us
 				variant[strconv.Itoa(i+1)] = map[string]any{"filename": f.Name, "filesize": f.Size}
 			}
 			result[hash] = map[string]any{"rd": []any{variant}}
-		} else if k, _ := h.Users.FindRDKeyForHash(r.Context(), hash); k != "" {
-			result[hash] = map[string]any{"rd": []any{map[string]map[string]any{
-				"1": {"filename": "pending", "filesize": 0}}}}
 		} else {
 			result[hash] = map[string]any{}
 		}

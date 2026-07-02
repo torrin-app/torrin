@@ -70,11 +70,11 @@ func main() {
 	sysRD, sysAD := os.Getenv("RD_API_KEY"), os.Getenv("AD_API_KEY")
 	providersFor := func(ctx context.Context, job *jobs.Job) []providers.Provider {
 		var list []providers.Provider
-		userRD := userRDKey(ctx, users, job)
+		userRD, _ := users.GetRDKey(ctx, job.UserID)
 		if userRD != "" {
 			list = append(list, providers.NewRealDebrid(userRD))
 		}
-		if k := resolveTBKey(ctx, users, job); k != "" {
+		if k, _ := users.GetTBKey(ctx, job.UserID); k != "" {
 			list = append(list, providers.NewTorBox(k))
 		}
 		if k, _ := users.GetPMKey(ctx, job.UserID); k != "" {
@@ -269,24 +269,6 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 		}
 		fail(ctx, repo, b, job, msg)
 	}
-}
-
-func userRDKey(ctx context.Context, users *auth.Store, job *jobs.Job) string {
-	if k, _ := users.GetRDKey(ctx, job.UserID); k != "" {
-		return k
-	}
-	k, _ := users.FindRDKeyForHash(ctx, job.InfoHash)
-	return k
-}
-
-func resolveTBKey(ctx context.Context, users *auth.Store, job *jobs.Job) string {
-	if k, _ := users.GetTBKey(ctx, job.UserID); k != "" {
-		return k
-	}
-	if k, _ := users.FindTBKeyForHash(ctx, job.InfoHash); k != "" {
-		return k
-	}
-	return ""
 }
 
 func fail(ctx context.Context, repo jobs.Repository, b *bus.Bus, job *jobs.Job, reason string) {

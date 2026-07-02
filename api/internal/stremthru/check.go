@@ -80,16 +80,8 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		}
 	}
 
-	// Tier 2: synced libraries (RD/TB borrow + system AD) — fast DB lookups.
+	// Tier 2: system AD library (torrin's own shared pool) — fast DB lookup.
 	for _, hash := range uncached() {
-		if k, _ := h.Users.FindRDKeyForHash(r.Context(), hash); k != "" {
-			items[idxOf[hash]]["status"] = "acceleratable"
-			continue
-		}
-		if k, _ := h.Users.FindTBKeyForHash(r.Context(), hash); k != "" {
-			items[idxOf[hash]]["status"] = "acceleratable"
-			continue
-		}
 		if h.Users.IsInADLibrary(r.Context(), hash) {
 			items[idxOf[hash]]["status"] = "acceleratable"
 		}

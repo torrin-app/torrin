@@ -2,9 +2,6 @@ package auth
 
 import (
 	"context"
-	"errors"
-
-	"github.com/jackc/pgx/v5"
 )
 
 type LibraryEntry struct {
@@ -89,16 +86,4 @@ func (s *Store) IsInADLibrary(ctx context.Context, infoHash string) bool {
 	var n int
 	s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ad_library WHERE info_hash=$1`, infoHash).Scan(&n)
 	return n > 0
-}
-
-func (s *Store) FindTBKeyForHash(ctx context.Context, infoHash string) (string, error) {
-	var apiKey string
-	err := s.pool.QueryRow(ctx, `
-		SELECT tc.api_key FROM tb_library tl
-		JOIN tb_credentials tc ON tc.user_id = tl.user_id
-		WHERE tl.info_hash=$1 LIMIT 1`, infoHash).Scan(&apiKey)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	return s.dec(apiKey), err
 }

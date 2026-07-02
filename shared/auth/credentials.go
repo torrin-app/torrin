@@ -59,15 +59,3 @@ func (s *Store) delKey(ctx context.Context, table, userID string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM `+table+` WHERE user_id=$1`, userID)
 	return err
 }
-
-func (s *Store) FindRDKeyForHash(ctx context.Context, infoHash string) (string, error) {
-	var apiKey string
-	err := s.pool.QueryRow(ctx, `
-		SELECT rc.api_key FROM rd_library rl
-		JOIN rd_credentials rc ON rc.user_id = rl.user_id
-		WHERE rl.info_hash=$1 LIMIT 1`, infoHash).Scan(&apiKey)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
-	}
-	return s.dec(apiKey), err
-}
