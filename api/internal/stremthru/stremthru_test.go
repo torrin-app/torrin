@@ -50,6 +50,18 @@ func TestImdbFromSID(t *testing.T) {
 	}
 }
 
+func TestFileEntry(t *testing.T) {
+	e := fileEntry(2, "the.100.s02e01.mkv", 3517219191, "https://beam/link")
+	if e["path"] != "/the.100.s02e01.mkv" {
+		t.Errorf("path = %v, want /the.100.s02e01.mkv", e["path"])
+	}
+	for _, k := range []string{"index", "name", "path", "size", "link"} {
+		if _, ok := e[k]; !ok {
+			t.Errorf("missing key %q", k)
+		}
+	}
+}
+
 func TestDisplayName(t *testing.T) {
 	m := "magnet:?xt=urn:btih:abcdef&dn=Big+Buck+Bunny+2008+1080p&tr=udp://x"
 	if got := displayName(m); got != "Big Buck Bunny 2008 1080p" {

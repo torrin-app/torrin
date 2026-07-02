@@ -108,12 +108,15 @@ func (h *Handler) magnetData(j *jobs.Job) map[string]any {
 	if j.Status == jobs.StatusComplete {
 		files := make([]map[string]any, len(j.Files))
 		for i, f := range j.Files {
-			files[i] = map[string]any{"index": i, "name": f.Name, "path": "/" + f.Name, "size": f.Size,
-				"link": h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour)}
+			files[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour))
 		}
 		m["files"] = files
 	}
 	return m
+}
+
+func fileEntry(index int, name string, size int64, link string) map[string]any {
+	return map[string]any{"index": index, "name": name, "path": "/" + name, "size": size, "link": link}
 }
 
 func (h *Handler) manifestMeta(ctx context.Context, infoHash string) (name string, size int64, files []jobs.File) {
@@ -131,8 +134,7 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) ([]map[strin
 	}
 	out := make([]map[string]any, len(fs))
 	for i, f := range fs {
-		out[i] = map[string]any{"index": i, "name": f.Name, "size": f.Size,
-			"link": h.Store.SignURL(manifest.Key(infoHash, i, f.Name), 24*time.Hour)}
+		out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURL(manifest.Key(infoHash, i, f.Name), 24*time.Hour))
 	}
 	return out, true
 }
