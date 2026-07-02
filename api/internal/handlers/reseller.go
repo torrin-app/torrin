@@ -104,7 +104,7 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "invalid code")
 		return
 	}
-	if rc.Redeemed() {
+	if rc.Redeemed {
 		web.WriteError(w, 400, "this code has already been used")
 		return
 	}

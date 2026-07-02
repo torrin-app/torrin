@@ -12,12 +12,11 @@ type ResellerCode struct {
 	Period     string     `json:"period"`
 	Days       int        `json:"days"`
 	Reseller   string     `json:"reseller"`
+	Redeemed   bool       `json:"redeemed"`
 	RedeemedBy string     `json:"redeemed_by,omitempty"`
 	RedeemedAt *time.Time `json:"redeemed_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 }
-
-func (c *ResellerCode) Redeemed() bool { return c.RedeemedBy != "" }
 
 func (s *Store) CreateResellerCode(ctx context.Context, c *ResellerCode) error {
 	_, err := s.pool.Exec(ctx,
@@ -37,6 +36,7 @@ func (s *Store) GetResellerCode(ctx context.Context, code string) (*ResellerCode
 		return nil, err
 	}
 	c.RedeemedAt = redeemedAt
+	c.Redeemed = c.RedeemedBy != ""
 	return c, nil
 }
 
@@ -80,6 +80,7 @@ func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since 
 			continue
 		}
 		c.RedeemedAt = redeemedAt
+		c.Redeemed = c.RedeemedBy != ""
 		out = append(out, c)
 	}
 	return out, nil
