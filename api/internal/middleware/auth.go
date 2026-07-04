@@ -50,7 +50,7 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 			if time.Now().After(user.ExpiresAt) {
 				if user.PlanID == "free" {
 					path := r.URL.Path
-					if !(path == "/api/me" || path == "/api/plans" || path == "/api/stats") {
+					if !(path == "/api/me" || path == "/api/plans" || path == "/api/stats" || path == "/api/redeem") {
 						web.WriteError(w, 403, "free trial expired — upgrade at https://torrin.app")
 						return
 					}
