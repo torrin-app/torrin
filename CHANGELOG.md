@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.4](https://github.com/torrin-app/torrin/compare/v1.0.3...v1.0.4) (2026-07-04)
+
+
+### Bug Fixes
+
+* **redeem:** allow expired free-trial users to redeem codes ([#14](https://github.com/torrin-app/torrin/issues/14)) ([6d8d94d](https://github.com/torrin-app/torrin/commit/6d8d94dbc7335f918bf018b3246dd1576cc970d5))
+
 ## [1.0.3](https://github.com/torrin-app/torrin/compare/v1.0.2...v1.0.3) (2026-07-02)
 
 
