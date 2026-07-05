@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/torrin-app/torrin/compare/v1.0.4...v1.1.0) (2026-07-05)
+
+
+### Features
+
+* usenet fallback for dead file-hosts + par2-robust downloader ([#16](https://github.com/torrin-app/torrin/issues/16)) ([73b7af4](https://github.com/torrin-app/torrin/commit/73b7af4eb55c398607ce2140fc4112b922987968))
+
 ## [1.0.4](https://github.com/torrin-app/torrin/compare/v1.0.3...v1.0.4) (2026-07-04)
 
 
