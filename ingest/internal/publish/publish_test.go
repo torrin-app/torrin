@@ -46,7 +46,10 @@ func (m *memRepo) ListByInfoHash(_ context.Context, h string) ([]*jobs.Job, erro
 	}
 	return out, nil
 }
-func (m *memRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error)   { return nil, nil }
+func (m *memRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error) { return nil, nil }
+func (m *memRepo) ListByUserBefore(context.Context, string, time.Time, string, int) ([]*jobs.Job, error) {
+	return nil, nil
+}
 func (m *memRepo) ListByStatus(context.Context, jobs.Status) ([]*jobs.Job, error) { return nil, nil }
 func (m *memRepo) Delete(context.Context, string) error                           { return nil }
 func (m *memRepo) ActiveCount(context.Context, string) (int, error)               { return 0, nil }

@@ -67,10 +67,13 @@ func (f *fakeRepo) ActiveCount(context.Context, string) (int, error) { return 0,
 func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)        { return f.budget, nil }
 
 // unused-by-submit stubs (satisfy jobs.Repository)
-func (f *fakeRepo) Update(context.Context, *jobs.Job) error                        { return nil }
-func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error)                 { return nil, nil }
-func (f *fakeRepo) ListByInfoHash(context.Context, string) ([]*jobs.Job, error)    { return nil, nil }
-func (f *fakeRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error)   { return nil, nil }
+func (f *fakeRepo) Update(context.Context, *jobs.Job) error                      { return nil }
+func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error)               { return nil, nil }
+func (f *fakeRepo) ListByInfoHash(context.Context, string) ([]*jobs.Job, error)  { return nil, nil }
+func (f *fakeRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error) { return nil, nil }
+func (f *fakeRepo) ListByUserBefore(context.Context, string, time.Time, string, int) ([]*jobs.Job, error) {
+	return nil, nil
+}
 func (f *fakeRepo) ListByStatus(context.Context, jobs.Status) ([]*jobs.Job, error) { return nil, nil }
 func (f *fakeRepo) Delete(context.Context, string) error                           { return nil }
 func (f *fakeRepo) RecordView(context.Context, string, string) (bool, error)       { return false, nil }

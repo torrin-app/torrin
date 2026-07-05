@@ -111,7 +111,11 @@ func (p *Postgres) ListByInfoHash(ctx context.Context, infoHash string) ([]*Job,
 }
 
 func (p *Postgres) ListByUser(ctx context.Context, userID string, limit int) ([]*Job, error) {
-	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, userID, limit)
+	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE user_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2`, userID, limit)
+}
+
+func (p *Postgres) ListByUserBefore(ctx context.Context, userID string, before time.Time, beforeID string, limit int) ([]*Job, error) {
+	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE user_id=$1 AND (created_at, id) < ($2, $3) ORDER BY created_at DESC, id DESC LIMIT $4`, userID, before, beforeID, limit)
 }
 
 func (p *Postgres) ListByStatus(ctx context.Context, status Status) ([]*Job, error) {

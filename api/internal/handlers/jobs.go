@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
@@ -155,7 +156,25 @@ func (s *Server) jobZip(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
-	list, _ := s.Jobs.ListByUser(r.Context(), user.ID, 50)
+	q := r.URL.Query()
+	limit := 50
+	if n, err := strconv.Atoi(q.Get("limit")); err == nil && n > 0 {
+		limit = n
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	var list []*jobs.Job
+	if bs := q.Get("before"); bs != "" {
+		before, err := time.Parse(time.RFC3339Nano, bs)
+		if err != nil {
+			web.WriteError(w, 400, "invalid before cursor")
+			return
+		}
+		list, _ = s.Jobs.ListByUserBefore(r.Context(), user.ID, before, q.Get("before_id"), limit)
+	} else {
+		list, _ = s.Jobs.ListByUser(r.Context(), user.ID, limit)
+	}
 	for _, j := range list {
 		if !j.Status.Active() && len(j.Files) > 0 {
 			j.StreamURLs = signStreams(s.Store, j)

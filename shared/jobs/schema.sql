@@ -29,6 +29,7 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS node TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_jobs_info_hash ON jobs(info_hash);
 CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON jobs(user_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_priority ON jobs(status, priority DESC, created_at ASC);
 CREATE INDEX IF NOT EXISTS idx_jobs_imdb_id ON jobs(imdb_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_title_norm ON jobs(title_norm);
