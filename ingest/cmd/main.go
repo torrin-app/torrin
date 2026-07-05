@@ -104,13 +104,6 @@ func main() {
 		return sysAD
 	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns)
 
-	releaseRunner := release.NewRunner(func(ctx context.Context, j *jobs.Job) string {
-		return sysAD
-	}, map[jobs.Source]release.Resolver{
-		jobs.SourceHDEncode: hdclient.NewClient(),
-		jobs.SourceScenerls: scenerls.NewClient(),
-	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns)
-
 	usenetRunner := usenet.NewRunner(repo, store, users, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), download.Credentials{
 		Host:     os.Getenv("USENET_HOST"),
 		Port:     atoiOr(os.Getenv("USENET_PORT"), 563),
@@ -120,9 +113,18 @@ func main() {
 		MaxConns: atoiOr(os.Getenv("USENET_MAXCONNS"), 20),
 	})
 
+	usenetFallback := release.NewUsenetFallback(users, usenetRunner, env.Get("USENET_INDEXER_URL", ""), env.Get("USENET_INDEXER_KEY", ""))
+
+	releaseRunner := release.NewRunner(func(ctx context.Context, j *jobs.Job) string {
+		return sysAD
+	}, map[jobs.Source]release.Resolver{
+		jobs.SourceHDEncode: hdclient.NewClient(),
+		jobs.SourceScenerls: scenerls.NewClient(),
+	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns, usenetFallback.Try)
+
 	cancels := newCancelRegistry()
 	if _, err := bus.Subscribe(b, events.JobAssigned, func(a events.Assigned) {
-		go process(ctx, repo, debridRunner, torrentRunner, usenetRunner, hosterRunner, releaseRunner, b, ban, cancels, a)
+		go process(ctx, repo, debridRunner, torrentRunner, usenetRunner, hosterRunner, releaseRunner, usenetFallback, b, ban, cancels, a)
 	}); err != nil {
 		fatal("subscribe", err)
 	}
@@ -196,7 +198,7 @@ func (c *cancelRegistry) cancel(id string) {
 	}
 }
 
-func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, a events.Assigned) {
+func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, uf *release.UsenetFallback, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, a events.Assigned) {
 	job, err := repo.Get(ctx, a.JobID)
 	if err != nil {
 		slog.Error("load job", "id", a.JobID, "err", err)
@@ -250,6 +252,16 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 	}
 
 	canQbit := tr != nil && job.Source == jobs.SourceTorrent && job.UserID != "prewarm"
+
+	debridMiss := !handled && !(err != nil && debrid.IsTerminal(err))
+	if uf != nil && debridMiss && job.Source == jobs.SourceTorrent && job.UserID != "prewarm" {
+		if ferr := uf.Try(jobCtx, job); ferr == nil {
+			return
+		} else {
+			slog.Info("usenet layer unavailable, continuing", "job", job.ID, "err", ferr)
+		}
+	}
+
 	switch {
 	case err != nil && debrid.IsTerminal(err):
 		fail(ctx, repo, b, job, err.Error())
@@ -272,10 +284,11 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 }
 
 func fail(ctx context.Context, repo jobs.Repository, b *bus.Bus, job *jobs.Job, reason string) {
+	clean := jobs.UserError(reason)
 	job.Status = jobs.StatusFailed
-	job.Error = reason
+	job.Error = clean
 	repo.Update(ctx, job)
-	b.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: reason})
+	b.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: clean})
 }
 
 func mustEnv(k string) string {

@@ -119,7 +119,7 @@ func imdbFromDoc(doc *goquery.Document) string {
 	return id
 }
 
-func (c *Client) Resolve(ctx context.Context, postURL, imdbID string) ([]string, error) {
+func (c *Client) Resolve(ctx context.Context, postURL, imdbID, title string) ([][]string, error) {
 	if !isPost(postURL) {
 		return nil, fmt.Errorf("not a scene-rls post url")
 	}
@@ -133,16 +133,16 @@ func (c *Client) Resolve(ctx context.Context, postURL, imdbID string) ([]string,
 			return nil, fmt.Errorf("imdb mismatch: post is %s, want %s", got, want)
 		}
 	}
-	if links := release.BestArchive(doc); len(links) > 0 {
-		return links, nil
+	if parts := release.BestArchive(doc, title); len(parts) > 0 {
+		return parts, nil
 	}
 	for _, v := range orderedViews(doc) {
 		revealed, err := release.FetchDoc(ctx, c.http, http.MethodPost, v, strings.NewReader("submit=submit"))
 		if err != nil {
 			continue
 		}
-		if links := release.BestArchive(revealed); len(links) > 0 {
-			return links, nil
+		if parts := release.BestArchive(revealed, title); len(parts) > 0 {
+			return parts, nil
 		}
 	}
 	return nil, fmt.Errorf("no usable links found")

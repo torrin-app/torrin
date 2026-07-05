@@ -32,41 +32,96 @@ func SplitTitle(text string) (title, size string) {
 	return text, ""
 }
 
-func BestArchive(doc *goquery.Document) []string {
+func BestArchive(doc *goquery.Document, want string) [][]string {
+	byName := map[string][]string{}
+	var order []string
 	for _, host := range Hosts {
-		if links := collectHost(doc, host); len(links) > 0 {
-			return links
-		}
+		doc.Find("a[href]").Each(func(_ int, s *goquery.Selection) {
+			href, _ := s.Attr("href")
+			if !strings.Contains(strings.ToLower(href), host) {
+				return
+			}
+			clean := strings.TrimSuffix(href, ".html")
+			name := strings.ToLower(path.Base(clean))
+			if !isReleaseFile(name) || isSample(name) {
+				return
+			}
+			if _, ok := byName[name]; !ok {
+				order = append(order, name)
+			}
+			byName[name] = appendUnique(byName[name], clean)
+		})
 	}
-	return nil
-}
+	if len(byName) == 0 {
+		return nil
+	}
 
-func collectHost(doc *goquery.Document, host string) []string {
-	seen := map[string]string{}
-	doc.Find("a[href]").Each(func(_ int, s *goquery.Selection) {
-		href, _ := s.Attr("href")
-		if !strings.Contains(strings.ToLower(href), host) {
-			return
+	var parts []string
+	if hasRARParts(order) {
+		for _, n := range order {
+			if strings.HasSuffix(n, ".rar") {
+				parts = append(parts, n)
+			}
 		}
-		clean := strings.TrimSuffix(href, ".html")
-		name := strings.ToLower(path.Base(clean))
-		if !isReleaseFile(name) || isSample(name) {
-			return
-		}
-		if _, dup := seen[name]; !dup {
-			seen[name] = clean
-		}
-	})
-	names := make([]string, 0, len(seen))
-	for n := range seen {
-		names = append(names, n)
+		sort.Slice(parts, func(i, j int) bool { return partNum(parts[i]) < partNum(parts[j]) })
+	} else if best := pickMatch(order, want); best != "" {
+		parts = []string{best}
 	}
-	sort.Slice(names, func(i, j int) bool { return partNum(names[i]) < partNum(names[j]) })
-	out := make([]string, len(names))
-	for i, n := range names {
-		out[i] = seen[n]
+
+	out := make([][]string, len(parts))
+	for i, n := range parts {
+		out[i] = byName[n]
 	}
 	return out
+}
+
+func hasRARParts(names []string) bool {
+	for _, n := range names {
+		if strings.HasSuffix(n, ".rar") {
+			return true
+		}
+	}
+	return false
+}
+
+func pickMatch(names []string, want string) string {
+	wanted := tokenize(want)
+	best, bestScore := "", -1
+	for _, n := range names {
+		if s := overlap(tokenize(n), wanted); s > bestScore {
+			best, bestScore = n, s
+		}
+	}
+	return best
+}
+
+func tokenize(s string) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, t := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		out[t] = struct{}{}
+	}
+	return out
+}
+
+func overlap(a, b map[string]struct{}) int {
+	n := 0
+	for t := range a {
+		if _, ok := b[t]; ok {
+			n++
+		}
+	}
+	return n
+}
+
+func appendUnique(list []string, v string) []string {
+	for _, e := range list {
+		if e == v {
+			return list
+		}
+	}
+	return append(list, v)
 }
 
 func isReleaseFile(name string) bool {

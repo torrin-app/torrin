@@ -23,6 +23,7 @@ type File struct {
 }
 
 func Process(dir string, passwords []string, release string) ([]File, error) {
+	deobfuscateByPar2(dir)
 	repair(dir)
 	if err := extract(dir, passwords); err != nil {
 		return nil, err

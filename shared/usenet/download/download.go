@@ -130,12 +130,15 @@ func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, out
 		if err != nil {
 			return nil, err
 		}
-		err = downloadFile(ctx, pool, file, group, f, &done, total, conns, onProgress)
+		missing, err := downloadFile(ctx, pool, file, group, f, &done, total, conns, onProgress)
 		f.Sync()
 		f.Close()
 		if err != nil {
 			os.Remove(partPath)
 			return nil, err
+		}
+		if missing > 0 {
+			slog.Warn("usenet: missing articles, leaving gaps for par2 repair", "file", name, "missing_mb", missing/1e6)
 		}
 		path := filepath.Join(outDir, name)
 		if err := os.Rename(partPath, path); err != nil {
@@ -156,11 +159,12 @@ func isOptional(name string) bool {
 		strings.HasSuffix(l, ".txt") || strings.HasSuffix(l, ".jpg") || strings.HasSuffix(l, ".png")
 }
 
-func downloadFile(ctx context.Context, pool nntpPool.ConnectionPool, file nzb.File, group string, f *os.File, done *int64, total int64, conns int, onProgress func(done, total int64)) error {
+func downloadFile(ctx context.Context, pool nntpPool.ConnectionPool, file nzb.File, group string, f *os.File, done *int64, total int64, conns int, onProgress func(done, total int64)) (int64, error) {
 	sem := make(chan struct{}, conns)
 	var wg sync.WaitGroup
-	var firstErr error
-	var errOnce sync.Once
+	var fatal error
+	var fatalOnce sync.Once
+	var missing int64
 
 	for _, seg := range file.Segments {
 		wg.Add(1)
@@ -180,15 +184,24 @@ func downloadFile(ctx context.Context, pool nntpPool.ConnectionPool, file nzb.Fi
 					if onProgress != nil && total > 0 {
 						onProgress(n, total)
 					}
+					return
 				}
 			}
-			if err != nil {
-				errOnce.Do(func() { firstErr = err })
+			if ctx.Err() != nil {
+				fatalOnce.Do(func() { fatal = ctx.Err() })
+				return
+			}
+			atomic.AddInt64(&missing, seg.Bytes)
+			if n := atomic.AddInt64(done, seg.Bytes); onProgress != nil && total > 0 {
+				onProgress(n, total)
 			}
 		}(seg)
 	}
 	wg.Wait()
-	return firstErr
+	if fatal != nil {
+		return 0, fatal
+	}
+	return missing, nil
 }
 
 func writeSegment(f *os.File, dec *decoder.YencResult) {
@@ -199,9 +212,11 @@ func writeSegment(f *os.File, dec *decoder.YencResult) {
 	}
 }
 
+const segAttempts = 3
+
 func fetchSegment(ctx context.Context, pool nntpPool.ConnectionPool, msgID, group string) ([]byte, error) {
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < segAttempts; attempt++ {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -222,6 +237,9 @@ func fetchSegment(ctx context.Context, pool nntpPool.ConnectionPool, msgID, grou
 		if err != nil {
 			conn.Close()
 			pool.Put(conn)
+			if isArticleMissing(err) {
+				return nil, err
+			}
 			lastErr = err
 			continue
 		}
@@ -233,7 +251,16 @@ func fetchSegment(ctx context.Context, pool nntpPool.ConnectionPool, msgID, grou
 		}
 		return data, nil
 	}
-	return nil, fmt.Errorf("segment %s after 3 attempts: %w", msgID, lastErr)
+	return nil, fmt.Errorf("segment %s after %d attempts: %w", msgID, segAttempts, lastErr)
+}
+
+func isArticleMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no such article") || strings.Contains(s, "article not found") ||
+		strings.Contains(s, "430 ") || strings.Contains(s, "423 ")
 }
 
 func fileName(f nzb.File) string {

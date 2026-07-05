@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/safeurl"
+	"github.com/torrin-app/torrin/shared/useragent"
 )
 
 type Client struct {
@@ -101,7 +102,7 @@ func (c *Client) DownloadNZB(result *Result) ([]byte, error) {
 	if nzbURL == "" {
 		nzbURL = fmt.Sprintf("%s/api?t=get&id=%s&apikey=%s", c.baseURL, result.ID, c.apiKey)
 	}
-	resp, err := c.httpClient.Get(nzbURL)
+	resp, err := c.get(nzbURL)
 	if err != nil {
 		return nil, fmt.Errorf("download nzb: %w", err)
 	}
@@ -112,8 +113,17 @@ func (c *Client) DownloadNZB(result *Result) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+func (c *Client) get(rawURL string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", useragent.Default)
+	return c.httpClient.Do(req)
+}
+
 func (c *Client) search(params url.Values) ([]Result, error) {
-	resp, err := c.httpClient.Get(fmt.Sprintf("%s/api?%s", c.baseURL, params.Encode()))
+	resp, err := c.get(fmt.Sprintf("%s/api?%s", c.baseURL, params.Encode()))
 	if err != nil {
 		return nil, fmt.Errorf("indexer request: %w", err)
 	}

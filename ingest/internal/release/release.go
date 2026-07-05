@@ -2,11 +2,13 @@ package release
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/torrin-app/torrin/ingest/internal/publish"
@@ -23,8 +25,10 @@ const (
 	partStallTimeout = 5 * time.Minute
 )
 
+var ErrSourceUnavailable = errors.New("release source unavailable")
+
 type Resolver interface {
-	Resolve(ctx context.Context, postURL, imdbID string) ([]string, error)
+	Resolve(ctx context.Context, postURL, imdbID, want string) ([][]string, error)
 }
 
 type ADKeyFor func(context.Context, *jobs.Job) string
@@ -39,13 +43,14 @@ type Runner struct {
 	scratch   string
 	conns     int
 	http      *http.Client
+	fallback  func(context.Context, *jobs.Job) error
 }
 
-func NewRunner(adKeyFor ADKeyFor, resolvers map[jobs.Source]Resolver, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, conns int) *Runner {
+func NewRunner(adKeyFor ADKeyFor, resolvers map[jobs.Source]Resolver, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, conns int, fallback func(context.Context, *jobs.Job) error) *Runner {
 	if conns < 1 {
 		conns = 1
 	}
-	return &Runner{adKeyFor: adKeyFor, resolvers: resolvers, repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, conns: conns, http: &http.Client{}}
+	return &Runner{adKeyFor: adKeyFor, resolvers: resolvers, repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, conns: conns, http: &http.Client{}, fallback: fallback}
 }
 
 func (r *Runner) Handles(src jobs.Source) bool { return r.resolvers[src] != nil }
@@ -53,11 +58,23 @@ func (r *Runner) Handles(src jobs.Source) bool { return r.resolvers[src] != nil 
 func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 	go func() {
 		defer done()
-		if err := r.process(ctx, job); err != nil {
+		err := r.process(ctx, job)
+		if err != nil && errors.Is(err, ErrSourceUnavailable) && r.fallback != nil {
+			slog.Info("release source dead, trying usenet fallback", "job", job.ID, "err", err)
+			if ferr := r.fallback(ctx, job); ferr == nil {
+				return
+			} else {
+				slog.Warn("release usenet fallback failed", "job", job.ID, "err", ferr)
+				err = fmt.Errorf("%w; usenet fallback: %v", err, ferr)
+			}
+		}
+		if err != nil {
+			slog.Warn("release failed", "job", job.ID, "err", err)
+			reason := jobs.UserError(err.Error())
 			job.Status = jobs.StatusFailed
-			job.Error = err.Error()
+			job.Error = reason
 			r.repo.Update(ctx, job)
-			r.bus.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: err.Error()})
+			r.bus.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: reason})
 		}
 	}()
 }
@@ -71,12 +88,12 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	if adKey == "" {
 		return fmt.Errorf("no AllDebrid key configured")
 	}
-	links, err := resolver.Resolve(ctx, job.Magnet, job.IMDBID)
+	parts, err := resolver.Resolve(ctx, job.Magnet, job.IMDBID, job.Name)
 	if err != nil {
 		return fmt.Errorf("resolve: %w", err)
 	}
-	if len(links) == 0 {
-		return fmt.Errorf("no usable links found")
+	if len(parts) == 0 {
+		return fmt.Errorf("no usable links found: %w", ErrSourceUnavailable)
 	}
 
 	dir := filepath.Join(r.scratch, job.InfoHash)
@@ -86,16 +103,16 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	defer os.RemoveAll(dir)
 
 	var total int64
-	for i, link := range links {
-		size, err := r.fetchPart(ctx, adKey, link, i, len(links), dir, job)
+	for i, mirrors := range parts {
+		size, err := r.fetchPart(ctx, adKey, mirrors, i, len(parts), dir, job)
 		if err != nil {
-			return fmt.Errorf("part %d/%d: %w", i+1, len(links), err)
+			return fmt.Errorf("part %d/%d: %w", i+1, len(parts), err)
 		}
 		total += size
 		if job.MaxBytes > 0 && total > job.MaxBytes {
 			return fmt.Errorf("release too large (max %dMB)", job.MaxBytes/1e6)
 		}
-		r.repo.SetProgress(ctx, job.ID, float64(i+1)/float64(len(links))*100, 0)
+		r.repo.SetProgress(ctx, job.ID, float64(i+1)/float64(len(parts))*100, 0)
 	}
 
 	job.FileSize = total
@@ -125,7 +142,28 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	return nil
 }
 
-func (r *Runner) fetchPart(ctx context.Context, adKey, srcLink string, i, n int, dir string, job *jobs.Job) (int64, error) {
+func (r *Runner) fetchPart(ctx context.Context, adKey string, mirrors []string, i, n int, dir string, job *jobs.Job) (int64, error) {
+	var lastErr error
+	for mi, srcLink := range mirrors {
+		size, err := r.fetchMirror(ctx, adKey, srcLink, i, n, dir, job)
+		if err == nil {
+			return size, nil
+		}
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		lastErr = err
+		if mi < len(mirrors)-1 {
+			slog.Warn("release mirror failed, trying next", "job", job.ID, "part", i+1, "mirror", mi+1, "of", len(mirrors), "err", err)
+		}
+	}
+	if isDeadLink(lastErr) {
+		return 0, fmt.Errorf("%w: %w", lastErr, ErrSourceUnavailable)
+	}
+	return 0, lastErr
+}
+
+func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n int, dir string, job *jobs.Job) (int64, error) {
 	var lastErr error
 	for attempt := 0; attempt < partAttempts; attempt++ {
 		if ctx.Err() != nil {
@@ -134,6 +172,9 @@ func (r *Runner) fetchPart(ctx context.Context, adKey, srcLink string, i, n int,
 		name, dl, size, err := providers.HosterUnlock(ctx, adKey, srcLink)
 		if err != nil {
 			lastErr = err
+			if isDeadLink(err) {
+				return 0, err
+			}
 			backoff(ctx, attempt)
 			continue
 		}
@@ -176,6 +217,11 @@ func (r *Runner) fetchPart(ctx context.Context, adKey, srcLink string, i, n int,
 		backoff(ctx, attempt)
 	}
 	return 0, lastErr
+}
+
+func isDeadLink(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "LINK_DOWN") || strings.Contains(s, "HOST_UNAVAILABLE") || strings.Contains(s, "LINK_NOT_SUPPORTED")
 }
 
 func backoff(ctx context.Context, attempt int) {
