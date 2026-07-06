@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/torrin-app/torrin/compare/v1.1.0...v1.1.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* paginate downloads list with keyset cursor ([#18](https://github.com/torrin-app/torrin/issues/18)) ([9f55261](https://github.com/torrin-app/torrin/commit/9f55261013642e445d770611e77050cc7e4cf0d4))
+
 ## [1.1.0](https://github.com/torrin-app/torrin/compare/v1.0.4...v1.1.0) (2026-07-05)
 
 
