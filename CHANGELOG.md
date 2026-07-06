@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/torrin-app/torrin/compare/v1.1.1...v1.2.0) (2026-07-06)
+
+
+### Features
+
+* hosters availability endpoint via alldebrid ([#20](https://github.com/torrin-app/torrin/issues/20)) ([f725705](https://github.com/torrin-app/torrin/commit/f725705d5228409d6a8b346d2840ac4bebb6cc59))
+
 ## [1.1.1](https://github.com/torrin-app/torrin/compare/v1.1.0...v1.1.1) (2026-07-06)
 
 
