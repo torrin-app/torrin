@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/torrin-app/torrin/compare/v1.3.0...v1.3.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* stremthru /magnets returns basenames so pack playback resolves ([#24](https://github.com/torrin-app/torrin/issues/24)) ([1701c17](https://github.com/torrin-app/torrin/commit/1701c17f1857e38ea06ec18b65b11f6fc1329776))
+
 ## [1.3.0](https://github.com/torrin-app/torrin/compare/v1.2.0...v1.3.0) (2026-07-07)
 
 
