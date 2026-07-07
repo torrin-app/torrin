@@ -24,6 +24,36 @@ func NewClient() *Client {
 	return &Client{http: &http.Client{Timeout: 10 * time.Second, Transport: tr}}
 }
 
+func (c *Client) Title(ctx context.Context, imdbID, contentType string) (string, error) {
+	if contentType != "series" {
+		contentType = "movie"
+	}
+	id := "tt" + strings.TrimPrefix(imdbID, "tt")
+	url := fmt.Sprintf("%s/meta/%s/%s.json", base, contentType, id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", useragent.Default)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("cinemeta status %d", resp.StatusCode)
+	}
+	var out struct {
+		Meta struct {
+			Name string `json:"name"`
+		} `json:"meta"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", err
+	}
+	return out.Meta.Name, nil
+}
+
 func (c *Client) SeasonEpisodes(ctx context.Context, imdbID string, season int) (int, error) {
 	id := "tt" + strings.TrimPrefix(imdbID, "tt")
 	url := fmt.Sprintf("%s/meta/series/%s.json", base, id)

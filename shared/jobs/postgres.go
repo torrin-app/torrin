@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -128,6 +129,37 @@ func (p *Postgres) ListByIMDB(ctx context.Context, imdbID string) ([]*Job, error
 
 func (p *Postgres) ListByTitleNorm(ctx context.Context, norm string) ([]*Job, error) {
 	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE title_norm=$1 AND status='complete' ORDER BY created_at DESC`, norm)
+}
+
+func (p *Postgres) BackfillTitleNorm(ctx context.Context) (int, error) {
+	rows, err := p.pool.Query(ctx, `SELECT id, name, COALESCE(title_norm,'') FROM jobs WHERE status IN ('complete','seeding')`)
+	if err != nil {
+		return 0, err
+	}
+	type fix struct{ id, norm string }
+	var fixes []fix
+	for rows.Next() {
+		var id, name, old string
+		if rows.Scan(&id, &name, &old) != nil {
+			continue
+		}
+		want := titleNormFromName(name)
+		if want == "" || want == old {
+			continue
+		}
+		if old != "" && strings.HasPrefix(want, old) && len(want) > len(old) {
+			continue
+		}
+		fixes = append(fixes, fix{id, want})
+	}
+	rows.Close()
+	n := 0
+	for _, f := range fixes {
+		if _, err := p.pool.Exec(ctx, `UPDATE jobs SET title_norm=$2 WHERE id=$1`, f.id, f.norm); err == nil {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (p *Postgres) Delete(ctx context.Context, id string) error {

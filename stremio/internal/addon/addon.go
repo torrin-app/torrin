@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/cinemeta"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/storage"
@@ -17,10 +18,11 @@ type Server struct {
 	users *auth.Store
 	jobs  *jobs.Postgres
 	store *storage.Client
+	meta  *cinemeta.Client
 }
 
 func New(users *auth.Store, j *jobs.Postgres, store *storage.Client) *Server {
-	return &Server{users: users, jobs: j, store: store}
+	return &Server{users: users, jobs: j, store: store, meta: cinemeta.NewClient()}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -68,7 +70,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		streams = append(streams, s.byHash(r.Context(), infoHash)...)
 	}
 	if imdbID != "" {
-		streams = append(streams, s.byIMDB(r.Context(), imdbID)...)
+		streams = append(streams, s.byLibrary(r.Context(), r.PathValue("type"), imdbID)...)
 	}
 
 	if len(streams) > 0 && infoHash != "" {
@@ -108,13 +110,29 @@ func (s *Server) byHash(ctx context.Context, infoHash string) []map[string]any {
 	return out
 }
 
-func (s *Server) byIMDB(ctx context.Context, imdbID string) []map[string]any {
-	list, _ := s.jobs.ListByIMDB(ctx, imdbID)
+func (s *Server) byLibrary(ctx context.Context, contentType, imdbID string) []map[string]any {
+	seen := map[string]bool{}
 	var out []map[string]any
-	for _, j := range list {
-		for i, f := range j.Files {
-			key := manifest.Key(j.InfoHash, i, f.Name)
-			out = append(out, entry(f.Name, s.store.SignURL(key, 24*time.Hour)))
+	add := func(list []*jobs.Job) {
+		for _, j := range list {
+			if seen[j.InfoHash] {
+				continue
+			}
+			seen[j.InfoHash] = true
+			for i, f := range j.Files {
+				key := manifest.Key(j.InfoHash, i, f.Name)
+				out = append(out, entry(f.Name, s.store.SignURL(key, 24*time.Hour)))
+			}
+		}
+	}
+
+	byImdb, _ := s.jobs.ListByIMDB(ctx, imdbID)
+	add(byImdb)
+
+	if title, err := s.meta.Title(ctx, imdbID, contentType); err == nil {
+		if norm := jobs.NormTitle(title); norm != "" {
+			byTitle, _ := s.jobs.ListByTitleNorm(ctx, norm)
+			add(byTitle)
 		}
 	}
 	return out

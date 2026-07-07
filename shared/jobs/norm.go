@@ -3,17 +3,25 @@ package jobs
 import (
 	"strings"
 
-	tnp "github.com/torrin-app/torrent-name-parser"
+	"github.com/moistari/rls"
 )
 
 var titleStopwords = map[string]bool{"the": true, "a": true, "an": true, "of": true, "and": true}
 
 func titleNormFromName(name string) string {
-	info, err := tnp.ParseName(strings.ReplaceAll(name, ".", " "))
-	if err != nil {
-		return ""
+	return NormTitle(rls.ParseString(stripSitePrefix(name)).Title)
+}
+
+func stripSitePrefix(name string) string {
+	s := strings.TrimSpace(name)
+	i := strings.Index(s, " - ")
+	if i <= 0 || i > 40 {
+		return s
 	}
-	return NormTitle(info.Title)
+	if prefix := s[:i]; !strings.Contains(prefix, " ") && strings.Contains(prefix, ".") {
+		return strings.TrimSpace(s[i+3:])
+	}
+	return s
 }
 
 func NormTitle(s string) string {

@@ -120,6 +120,11 @@ func main() {
 	go metricsSnapshot(ctx, jobsRepo, users)
 	startEviction(ctx, jobsRepo, store)
 	startLibrarySync(ctx, users)
+	go func() {
+		if n, err := jobsRepo.BackfillTitleNorm(ctx); err == nil && n > 0 {
+			slog.Info("title_norm backfill", "updated", n)
+		}
+	}()
 	if adKey := env.Get("AD_API_KEY", ""); adKey != "" {
 		startADWorkers(ctx, users, adKey)
 	}
