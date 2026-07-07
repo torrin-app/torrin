@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/torrin-app/torrin/compare/v1.2.0...v1.3.0) (2026-07-07)
+
+
+### Features
+
+* addon searches library by title, not just imdb ([#22](https://github.com/torrin-app/torrin/issues/22)) ([bc6e1f0](https://github.com/torrin-app/torrin/commit/bc6e1f0d6e1ee3f1bab8f7a6d2887169bceae534))
+
 ## [1.2.0](https://github.com/torrin-app/torrin/compare/v1.1.1...v1.2.0) (2026-07-06)
 
 
