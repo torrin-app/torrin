@@ -1,10 +1,70 @@
 package stremthru
 
 import (
+	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/manifest"
 )
+
+type fakeStore struct {
+	manifest []byte
+	err      error
+}
+
+func (f fakeStore) Has(context.Context, string) (bool, error) { return true, nil }
+func (f fakeStore) GetBytes(context.Context, string) ([]byte, error) {
+	return f.manifest, f.err
+}
+func (f fakeStore) SignURL(path string, _ time.Duration) string        { return "sign://" + path }
+func (f fakeStore) SignURLNode(_, path string, _ time.Duration) string { return "sign://" + path }
+
+func packJob() *jobs.Job {
+	return &jobs.Job{
+		InfoHash: "abc", Status: jobs.StatusComplete,
+		Files: []jobs.File{
+			{Name: "Reborn.Rookie.S01.1080p/Reborn.Rookie.S01E01.mkv", Size: 100},
+			{Name: "Reborn.Rookie.S01.1080p/Reborn.Rookie.S01E07.mkv", Size: 200},
+		},
+	}
+}
+
+func TestMagnetDataUsesManifestBasenames(t *testing.T) {
+	m := manifest.Manifest{
+		InfoHash: "abc", Name: "Reborn.Rookie.S01.1080p",
+		Files: []manifest.File{
+			{FileName: "Reborn.Rookie.S01E01.mkv", FileSize: 100},
+			{FileName: "Reborn.Rookie.S01E07.mkv", FileSize: 200},
+		},
+	}
+	data, _ := m.Marshal()
+	h := &Handler{Deps: Deps{Store: fakeStore{manifest: data}}}
+
+	files, _ := h.magnetData(context.Background(), packJob())["files"].([]map[string]any)
+	if len(files) != 2 {
+		t.Fatalf("files = %d, want 2", len(files))
+	}
+	if files[1]["name"] != "Reborn.Rookie.S01E07.mkv" {
+		t.Errorf("name = %q, want basename", files[1]["name"])
+	}
+	if link, _ := files[1]["link"].(string); !strings.Contains(link, "abc/file_1/Reborn.Rookie.S01E07.mkv") {
+		t.Errorf("link = %q, want basename key", link)
+	}
+}
+
+func TestMagnetDataFallsBackToJobFilesWithoutManifest(t *testing.T) {
+	h := &Handler{Deps: Deps{Store: fakeStore{err: context.DeadlineExceeded}}}
+	files, _ := h.magnetData(context.Background(), packJob())["files"].([]map[string]any)
+	if len(files) != 2 {
+		t.Fatalf("files = %d, want 2", len(files))
+	}
+	if files[1]["name"] != "Reborn.Rookie.S01.1080p/Reborn.Rookie.S01E07.mkv" {
+		t.Errorf("fallback name = %q, want job file name", files[1]["name"])
+	}
+}
 
 func TestExtractHash(t *testing.T) {
 	h := "0123456789abcdef0123456789abcdef01234567"

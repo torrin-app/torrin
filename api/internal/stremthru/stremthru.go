@@ -16,14 +16,20 @@ import (
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/qbit"
-	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/torrentclaw"
 )
+
+type store interface {
+	Has(ctx context.Context, key string) (bool, error)
+	GetBytes(ctx context.Context, key string) ([]byte, error)
+	SignURL(path string, expiry time.Duration) string
+	SignURLNode(node, path string, expiry time.Duration) string
+}
 
 type Deps struct {
 	Users    *auth.Store
 	Jobs     *jobs.Postgres
-	Store    *storage.Client
+	Store    store
 	Slots    *middleware.SlotTracker
 	Bus      *bus.Bus
 	TC       *torrentclaw.Client
@@ -99,18 +105,22 @@ func (h *Handler) assign(job *jobs.Job) {
 	})
 }
 
-func (h *Handler) magnetData(j *jobs.Job) map[string]any {
+func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 	m := map[string]any{
 		"id": j.ID, "hash": j.InfoHash, "name": j.Name, "status": stStatus(j.Status),
 		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339),
 		"files": []map[string]any{},
 	}
 	if j.Status == jobs.StatusComplete {
-		files := make([]map[string]any, len(j.Files))
-		for i, f := range j.Files {
-			files[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour))
+		files := j.Files
+		if _, _, mf := h.manifestMeta(ctx, j.InfoHash); mf != nil {
+			files = mf
 		}
-		m["files"] = files
+		out := make([]map[string]any, len(files))
+		for i, f := range files {
+			out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour))
+		}
+		m["files"] = out
 	}
 	return m
 }

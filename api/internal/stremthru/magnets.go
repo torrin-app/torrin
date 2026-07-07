@@ -18,7 +18,7 @@ func (h *Handler) listMagnets(w http.ResponseWriter, r *http.Request, user *auth
 	userJobs, _ := h.Jobs.ListByUser(r.Context(), user.ID, 100)
 	items := []map[string]any{}
 	for _, j := range userJobs {
-		items = append(items, h.magnetData(j))
+		items = append(items, h.magnetData(r.Context(), j))
 	}
 	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "total_items": len(items)}})
 }
@@ -32,7 +32,7 @@ func (h *Handler) getMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	if job.Status == jobs.StatusComplete {
 		h.Jobs.RecordView(r.Context(), job.InfoHash, user.ID)
 	}
-	stJSON(w, 200, map[string]any{"data": h.magnetData(job)})
+	stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), job)})
 }
 
 func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.User) {
@@ -63,7 +63,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		if existingID, loaded := h.dedup.LoadOrStore(infoHash, "pending"); loaded {
 			if id, ok := existingID.(string); ok && id != "pending" {
 				if j, err := h.Jobs.Get(r.Context(), id); err == nil {
-					stJSON(w, 200, map[string]any{"data": h.magnetData(j)})
+					stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), j)})
 					return
 				}
 			}
@@ -81,7 +81,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	if err == nil && existing != nil && existing.Status != jobs.StatusFailed {
 		if existing.UserID == user.ID {
 			h.dedup.Store(infoHash, existing.ID)
-			stJSON(w, 200, map[string]any{"data": h.magnetData(existing)})
+			stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), existing)})
 			return
 		}
 		linked := &jobs.Job{
@@ -102,7 +102,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		if !cached {
 			h.dedup.Store(infoHash, linked.ID)
 		}
-		stJSON(w, 200, map[string]any{"data": h.magnetData(linked)})
+		stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), linked)})
 		return
 	}
 
@@ -131,7 +131,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		h.dedup.Store(infoHash, job.ID)
 		h.assign(job)
 	}
-	stJSON(w, 200, map[string]any{"data": h.magnetData(job)})
+	stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), job)})
 }
 
 func (h *Handler) deleteMagnet(w http.ResponseWriter, r *http.Request, user *auth.User) {
