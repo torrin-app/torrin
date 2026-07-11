@@ -8,22 +8,23 @@ import (
 
 func TestParseProgress(t *testing.T) {
 	cases := []struct {
-		line string
-		n    int64
-		ok   bool
+		line                      string
+		bytes, fragIdx, fragCount int64
+		ok                        bool
 	}{
-		{"dl:123", 123, true},
-		{"dl: 123 ", 123, true},
-		{"dl:0", 0, false},
-		{"dl:NA", 0, false},
-		{"[download] 45%", 0, false},
-		{"dl:", 0, false},
-		{"", 0, false},
+		{"dl:123/0/0", 123, 0, 0, true},       // byte progress
+		{"dl:0/5/57", 0, 5, 57, true},         // fragmented (HLS): use fragment index/count
+		{"dl: 123 / 0 / 0 ", 123, 0, 0, true}, // whitespace tolerated
+		{"dl:0/NA/NA", 0, 0, 0, false},        // no bytes, no fragments
+		{"dl:NA/NA/NA", 0, 0, 0, false},
+		{"dl:123", 0, 0, 0, false}, // wrong field count
+		{"[download] 45%", 0, 0, 0, false},
+		{"", 0, 0, 0, false},
 	}
 	for _, c := range cases {
-		n, ok := parseProgress(c.line)
-		if ok != c.ok || n != c.n {
-			t.Errorf("parseProgress(%q) = (%d,%v), want (%d,%v)", c.line, n, ok, c.n, c.ok)
+		b, fi, fc, ok := parseProgress(c.line)
+		if ok != c.ok || b != c.bytes || fi != c.fragIdx || fc != c.fragCount {
+			t.Errorf("parseProgress(%q) = (%d,%d,%d,%v), want (%d,%d,%d,%v)", c.line, b, fi, fc, ok, c.bytes, c.fragIdx, c.fragCount, c.ok)
 		}
 	}
 }
@@ -63,8 +64,9 @@ func TestNewRunnerDefaults(t *testing.T) {
 	if r.bin != "yt-dlp" {
 		t.Errorf("bin default = %q, want yt-dlp", r.bin)
 	}
-	if r.format != "bv*+ba/b" {
-		t.Errorf("format default = %q, want bv*+ba/b", r.format)
+	wantFormat := "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[vcodec^=avc1]+ba/b[vcodec^=avc1]/bv*+ba/b"
+	if r.format != wantFormat {
+		t.Errorf("format default = %q, want %q", r.format, wantFormat)
 	}
 	r2 := NewRunner(nil, nil, nil, nil, "/scratch", "/usr/bin/yt-dlp", "", "best")
 	if r2.bin != "/usr/bin/yt-dlp" || r2.format != "best" {
@@ -142,6 +144,30 @@ func TestParseMeta(t *testing.T) {
 	}
 	if approxRF.Size != 300 {
 		t.Errorf("requested_formats approx sum = %d, want 300", approxRF.Size)
+	}
+
+	hls, err := parseMeta([]byte(`{"title":"HLS","tbr":8000,"duration":1000}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hls.Size != 1_000_000_000 {
+		t.Errorf("bitrate estimate = %d, want 1000000000 (8000kbps*1000s)", hls.Size)
+	}
+
+	hlsRF, err := parseMeta([]byte(`{"title":"HLS","duration":1000,"requested_formats":[{"tbr":6000},{"tbr":2000}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hlsRF.Size != 1_000_000_000 {
+		t.Errorf("summed-tbr estimate = %d, want 1000000000", hlsRF.Size)
+	}
+
+	filesizeWins, err := parseMeta([]byte(`{"title":"x","filesize":500,"tbr":8000,"duration":1000}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filesizeWins.Size != 500 {
+		t.Errorf("real filesize should win over estimate, got %d", filesizeWins.Size)
 	}
 
 	if _, err := parseMeta([]byte(`not json`)); err == nil {

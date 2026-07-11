@@ -39,7 +39,7 @@ func NewRunner(repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban scr
 		bin = "yt-dlp"
 	}
 	if format == "" {
-		format = "bv*+ba/b"
+		format = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[vcodec^=avc1]+ba/b[vcodec^=avc1]/bv*+ba/b"
 	}
 	return &Runner{repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, bin: bin, proxy: proxy, format: format}
 }
@@ -99,7 +99,7 @@ type meta struct {
 }
 
 func (r *Runner) probe(ctx context.Context, url string) (*meta, error) {
-	out, err := r.capture(ctx, "-J", "--no-warnings", "--no-playlist", url)
+	out, err := r.capture(ctx, "-J", "-f", r.format, "--no-warnings", "--no-playlist", url)
 	if err != nil {
 		return nil, err
 	}
@@ -108,13 +108,16 @@ func (r *Runner) probe(ctx context.Context, url string) (*meta, error) {
 
 func parseMeta(out []byte) (*meta, error) {
 	var j struct {
-		Title            string `json:"title"`
-		Filesize         int64  `json:"filesize"`
-		FilesizeApprox   int64  `json:"filesize_approx"`
-		IsLive           bool   `json:"is_live"`
+		Title            string  `json:"title"`
+		Filesize         int64   `json:"filesize"`
+		FilesizeApprox   int64   `json:"filesize_approx"`
+		Duration         float64 `json:"duration"`
+		Tbr              float64 `json:"tbr"`
+		IsLive           bool    `json:"is_live"`
 		RequestedFormats []struct {
-			Filesize       int64 `json:"filesize"`
-			FilesizeApprox int64 `json:"filesize_approx"`
+			Filesize       int64   `json:"filesize"`
+			FilesizeApprox int64   `json:"filesize_approx"`
+			Tbr            float64 `json:"tbr"`
 		} `json:"requested_formats"`
 	}
 	if err := json.Unmarshal(out, &j); err != nil {
@@ -128,6 +131,17 @@ func parseMeta(out []byte) (*meta, error) {
 	if sum > 0 {
 		size = sum
 	}
+	if size == 0 {
+		tbr := j.Tbr
+		var sumTbr float64
+		for _, f := range j.RequestedFormats {
+			sumTbr += f.Tbr
+		}
+		if sumTbr > 0 {
+			tbr = sumTbr
+		}
+		size = bitrateSize(tbr, j.Duration)
+	}
 	return &meta{Title: j.Title, Size: size, IsLive: j.IsLive}, nil
 }
 
@@ -138,13 +152,21 @@ func fileSize(exact, approx int64) int64 {
 	return approx
 }
 
+func bitrateSize(tbrKbps, durationSec float64) int64 {
+	if tbrKbps <= 0 || durationSec <= 0 {
+		return 0
+	}
+	return int64(tbrKbps * 1000 / 8 * durationSec)
+}
+
 func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total int64) error {
 	cmd := exec.CommandContext(ctx, r.bin, r.args(
 		"-o", filepath.Join(dir, "%(title)s.%(ext)s"),
 		"-f", r.format,
 		"--merge-output-format", "mp4",
 		"--no-playlist", "--no-warnings", "--newline", "--restrict-filenames",
-		"--progress-template", "dl:%(progress.downloaded_bytes)s",
+		"--concurrent-fragments", "4",
+		"--progress-template", "dl:%(progress.downloaded_bytes)s/%(progress.fragment_index)s/%(progress.fragment_count)s",
 		job.Magnet,
 	)...)
 	stdout, err := cmd.StdoutPipe()
@@ -167,12 +189,26 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
-		n, ok := parseProgress(sc.Text())
+		bytes, fragIdx, fragCount, ok := parseProgress(sc.Text())
 		if !ok {
 			continue
 		}
 		watchdog.Reset(stallTimeout)
-		rep(prog.add(n), total)
+
+		cur := prog.add(bytes)
+		if job.MaxBytes > 0 && cur > job.MaxBytes {
+			cancel()
+			return fmt.Errorf("download exceeds your plan limit of %dGB", job.MaxBytes/1e9)
+		}
+
+		switch {
+		case total > 0:
+			rep(cur, total)
+		case fragCount > 0 && fragIdx > 0 && cur > 0:
+			rep(cur, cur*fragCount/fragIdx)
+		case fragCount > 0:
+			rep(fragIdx, fragCount)
+		}
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -216,16 +252,24 @@ func (r *Runner) Extractors(ctx context.Context) ([]byte, error) {
 	return json.Marshal(names)
 }
 
-func parseProgress(line string) (int64, bool) {
+func parseProgress(line string) (bytes, fragIdx, fragCount int64, ok bool) {
 	rest, found := strings.CutPrefix(line, "dl:")
 	if !found {
-		return 0, false
+		return 0, 0, 0, false
 	}
-	n, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
-	if err != nil || n <= 0 {
-		return 0, false
+	parts := strings.Split(rest, "/")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
 	}
-	return n, true
+	bytes = parseNum(parts[0])
+	fragIdx = parseNum(parts[1])
+	fragCount = parseNum(parts[2])
+	return bytes, fragIdx, fragCount, bytes > 0 || fragCount > 0
+}
+
+func parseNum(s string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return n
 }
 
 type progress struct {
