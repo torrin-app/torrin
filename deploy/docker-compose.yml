@@ -151,6 +151,8 @@ services:
       USENET_PASS: "${USENET_PASS:-}"
       USENET_SSL: "${USENET_SSL:-true}"
       USENET_MAXCONNS: "${USENET_MAXCONNS:-20}"
+      # web-download source (yt-dlp); proxy routes only yt-dlp egress, empty = direct
+      YTDLP_PROXY: "${YTDLP_PROXY:-}"
     volumes:
       - /mnt/cache/ingest-scratch:/scratch
       - /mnt/cache/qbit:/downloads # shared with qbittorrent so ingest reads completed files

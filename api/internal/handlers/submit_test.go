@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http/httptest"
@@ -48,6 +49,7 @@ type fakeRepo struct {
 	existing *jobs.Job
 	created  []*jobs.Job
 	budget   int64
+	toGet    *jobs.Job
 }
 
 func (f *fakeRepo) Create(_ context.Context, j *jobs.Job) error {
@@ -68,7 +70,7 @@ func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)        { return f.
 
 // unused-by-submit stubs (satisfy jobs.Repository)
 func (f *fakeRepo) Update(context.Context, *jobs.Job) error                      { return nil }
-func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error)               { return nil, nil }
+func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error)               { return f.toGet, nil }
 func (f *fakeRepo) ListByInfoHash(context.Context, string) ([]*jobs.Job, error)  { return nil, nil }
 func (f *fakeRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error) { return nil, nil }
 func (f *fakeRepo) ListByUserBefore(context.Context, string, time.Time, string, int) ([]*jobs.Job, error) {
@@ -167,6 +169,31 @@ func TestSubmitMagnet_Cached(t *testing.T) {
 	}
 	if len(pub.published) != 0 {
 		t.Error("cached hit should not assign (no download to run)")
+	}
+}
+
+func TestProgressJob_Ytdlp(t *testing.T) {
+	job := &jobs.Job{ID: "j1", UserID: "u1", Source: jobs.SourceYtdlp, Status: jobs.StatusDownloading, Progress: 23, Speed: 1_000_000}
+	s := newTestServer(&fakeRepo{toGet: job}, &fakeStore{}, &fakePub{}, 0)
+	r := httptest.NewRequest("GET", "/api/jobs/j1/progress", nil)
+	r.SetPathValue("id", "j1")
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserContextKey, &auth.User{ID: "u1"}))
+	w := httptest.NewRecorder()
+
+	s.progressJob(w, r)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["progress"] != float64(23) {
+		t.Errorf("progress = %v, want 23 (ytdlp must report DB progress, not fall through to empty)", resp["progress"])
+	}
+	if resp["speed"] != float64(1_000_000) {
+		t.Errorf("speed = %v, want 1000000", resp["speed"])
 	}
 }
 

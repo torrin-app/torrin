@@ -28,6 +28,10 @@ func (s *Server) submitJob(w http.ResponseWriter, r *http.Request) {
 	if s.blockedBySafety(w, r, user.ID, req.Magnet) {
 		return
 	}
+	if isWebURL(req.Magnet) {
+		s.submitMagnet(w, r, urlKey(req.Magnet), req.Magnet, "", jobs.SourceYtdlp, true)
+		return
+	}
 	infoHash := extractInfoHash(req.Magnet)
 	if infoHash == "" {
 		web.WriteError(w, 400, "cannot extract infohash")
@@ -268,7 +272,7 @@ func (s *Server) progressJob(w http.ResponseWriter, r *http.Request) {
 			resp["progress"] = job.Progress
 			resp["speed"] = job.Speed
 		}
-	case job.Status == jobs.StatusDownloading && (job.Source == jobs.SourceUsenet || job.Source == jobs.SourceHDEncode || job.Source == jobs.SourceScenerls || job.Source == jobs.SourceHoster):
+	case job.Status == jobs.StatusDownloading && (job.Source == jobs.SourceUsenet || job.Source == jobs.SourceHDEncode || job.Source == jobs.SourceScenerls || job.Source == jobs.SourceHoster || job.Source == jobs.SourceYtdlp):
 		resp["progress"] = job.Progress
 		resp["speed"] = job.Speed
 	case job.Status == jobs.StatusProcessing || job.Status == jobs.StatusPublishing:

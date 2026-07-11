@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/ingest/internal/torrent"
 	"github.com/torrin-app/torrin/ingest/internal/usenet"
+	"github.com/torrin-app/torrin/ingest/internal/ytdlp"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/env"
@@ -122,9 +124,21 @@ func main() {
 		jobs.SourceScenerls: scenerls.NewClient(),
 	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns, usenetFallback.Try)
 
+	ytdlpRunner := ytdlp.NewRunner(repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), os.Getenv("YTDLP_BIN"), os.Getenv("YTDLP_PROXY"), os.Getenv("YTDLP_FORMAT"))
+	go func() {
+		data, err := ytdlpRunner.Extractors(ctx)
+		if err != nil {
+			slog.Warn("ytdlp extractors list failed", "err", err)
+			return
+		}
+		if err := store.Put(ctx, "meta/extractors.json", bytes.NewReader(data), "application/json"); err != nil {
+			slog.Warn("ytdlp extractors publish failed", "err", err)
+		}
+	}()
+
 	cancels := newCancelRegistry()
 	if _, err := bus.Subscribe(b, events.JobAssigned, func(a events.Assigned) {
-		go process(ctx, repo, debridRunner, torrentRunner, usenetRunner, hosterRunner, releaseRunner, usenetFallback, b, ban, cancels, a)
+		go process(ctx, repo, debridRunner, torrentRunner, usenetRunner, hosterRunner, releaseRunner, ytdlpRunner, usenetFallback, b, ban, cancels, a)
 	}); err != nil {
 		fatal("subscribe", err)
 	}
@@ -198,7 +212,7 @@ func (c *cancelRegistry) cancel(id string) {
 	}
 }
 
-func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, uf *release.UsenetFallback, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, a events.Assigned) {
+func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, yr *ytdlp.Runner, uf *release.UsenetFallback, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, a events.Assigned) {
 	job, err := repo.Get(ctx, a.JobID)
 	if err != nil {
 		slog.Error("load job", "id", a.JobID, "err", err)
@@ -216,6 +230,17 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 		job.Status = jobs.StatusDownloading
 		repo.Update(ctx, job)
 		ur.Run(jobCtx, job, done)
+		return
+	}
+	if job.Source == jobs.SourceYtdlp {
+		if yr == nil {
+			done()
+			fail(ctx, repo, b, job, "web download engine unavailable")
+			return
+		}
+		job.Status = jobs.StatusDownloading
+		repo.Update(ctx, job)
+		yr.Run(jobCtx, job, done)
 		return
 	}
 	if job.Source == jobs.SourceHoster {

@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"html"
 	"net/http"
 	"net/url"
@@ -12,6 +14,16 @@ import (
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
 )
+
+func isWebURL(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+func urlKey(u string) string {
+	sum := sha1.Sum([]byte(strings.TrimSpace(u)))
+	return hex.EncodeToString(sum[:])
+}
 
 func cleanMagnet(m string) string {
 	if decoded, err := url.QueryUnescape(m); err == nil {

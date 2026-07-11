@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"github.com/Tensai75/nntpPool"
+	"github.com/torrin-app/torrin/ingest/internal/jobrun"
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
-	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/storage"
@@ -42,7 +42,7 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 	go func() {
 		defer done()
 		if err := r.process(ctx, job); err != nil {
-			r.fail(ctx, job, err.Error())
+			jobrun.Fail(ctx, r.repo, r.bus, job, err.Error())
 		}
 	}()
 }
@@ -79,7 +79,7 @@ func (r *Runner) RunNZB(ctx context.Context, job *jobs.Job, data []byte) error {
 	if err != nil {
 		return err
 	}
-	return r.finish(ctx, job, files)
+	return jobrun.Complete(ctx, r.repo, r.bus, r.pub, job, files)
 }
 
 func (r *Runner) AssemblePack(ctx context.Context, job *jobs.Job, parts [][]byte) error {
@@ -119,7 +119,7 @@ func (r *Runner) AssemblePack(ctx context.Context, job *jobs.Job, parts [][]byte
 		doneBytes += pn.TotalSize()
 		all = append(all, files...)
 	}
-	return r.finish(ctx, job, all)
+	return jobrun.Complete(ctx, r.repo, r.bus, r.pub, job, all)
 }
 
 func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZB, dir string, onProgress func(int64, int64)) ([]publish.File, error) {
@@ -185,17 +185,6 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	return pubFiles, nil
 }
 
-func (r *Runner) finish(ctx context.Context, job *jobs.Job, files []publish.File) error {
-	job.Status = jobs.StatusProcessing
-	r.repo.Update(ctx, job)
-	if err := r.pub.Publish(ctx, job, files); err != nil {
-		return fmt.Errorf("publish: %w", err)
-	}
-	r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
-	slog.Info("usenet complete", "job", job.ID, "files", len(files))
-	return nil
-}
-
 func stallWatch(ctx context.Context, cancel context.CancelFunc, lastAt *atomic.Int64, jobID string) {
 	t := time.NewTicker(time.Minute)
 	defer t.Stop()
@@ -228,13 +217,4 @@ func (r *Runner) creds(ctx context.Context, userID string) (download.Credentials
 		}
 	}
 	return download.Credentials{}, false
-}
-
-func (r *Runner) fail(ctx context.Context, job *jobs.Job, reason string) {
-	slog.Warn("usenet job failed", "job", job.ID, "err", reason)
-	clean := jobs.UserError(reason)
-	job.Status = jobs.StatusFailed
-	job.Error = clean
-	r.repo.Update(ctx, job)
-	r.bus.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: clean})
 }

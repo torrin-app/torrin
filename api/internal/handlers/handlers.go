@@ -66,6 +66,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.HandleFunc("POST /api/auth/register", s.register)
 	mux.HandleFunc("GET /api/plans", s.plans)
 	mux.HandleFunc("GET /api/hosters", s.hosters)
+	mux.HandleFunc("GET /api/sites", s.sites)
 	mux.HandleFunc("POST /internal/view/{hash}", s.recordView)
 	mux.HandleFunc("POST /api/scrape", s.scrapeHashes)
 	mux.HandleFunc("POST /internal/prewarm", s.prewarm)

@@ -7,7 +7,9 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /ingest ./ingest/cmd
 
 FROM debian:bookworm-slim
 RUN sed -i -E 's/^(Components:.*)/\1 non-free/' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update && apt-get install -y --no-install-recommends par2 unrar ca-certificates \
+    && apt-get update && apt-get install -y --no-install-recommends par2 unrar ffmpeg ca-certificates curl \
+    && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o /usr/local/bin/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /ingest /usr/local/bin/ingest
 EXPOSE 8083

@@ -48,6 +48,7 @@ const (
 	SourceHDEncode Source = "hdencode"
 	SourceScenerls Source = "scenerls"
 	SourceTelegram Source = "telegram"
+	SourceYtdlp    Source = "ytdlp"
 )
 
 type Job struct {
