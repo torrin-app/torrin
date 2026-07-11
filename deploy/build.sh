@@ -13,6 +13,12 @@ for svc in "${services[@]}"; do
 		echo "   -> torrin/ingest:latest"
 		continue
 	fi
+	if [ "$svc" = "hdencode-solver" ]; then
+		echo ">> building hdencode-solver (Dockerfile — Camoufox browser)"
+		docker build -f deploy/Dockerfile.hdencode-solver -t torrin/hdencode-solver:latest .
+		echo "   -> torrin/hdencode-solver:latest"
+		continue
+	fi
 	echo ">> building $svc"
 	img=$(go run github.com/google/ko@latest build --local --base-import-paths "./$svc/cmd" | tail -n1)
 	docker tag "$img" "torrin/$svc:latest"

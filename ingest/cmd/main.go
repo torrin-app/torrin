@@ -120,7 +120,7 @@ func main() {
 	releaseRunner := release.NewRunner(func(ctx context.Context, j *jobs.Job) string {
 		return sysAD
 	}, map[jobs.Source]release.Resolver{
-		jobs.SourceHDEncode: hdclient.NewClient(),
+		jobs.SourceHDEncode: hdclient.NewClient(os.Getenv("HDENCODE_SOLVER_URL")),
 		jobs.SourceScenerls: scenerls.NewClient(),
 	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns, usenetFallback.Try)
 

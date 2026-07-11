@@ -16,7 +16,7 @@ var (
 )
 
 func hdenc() *hd.Client {
-	hdOnce.Do(func() { hdClient = hd.NewClient() })
+	hdOnce.Do(func() { hdClient = hd.NewClient("") })
 	return hdClient
 }
 

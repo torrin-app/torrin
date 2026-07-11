@@ -1,6 +1,12 @@
 package hdencode
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestIsPost(t *testing.T) {
 	cases := map[string]bool{
@@ -32,5 +38,34 @@ func TestFilterEp(t *testing.T) {
 	}
 	if len(filterEp(rs, 0, 0)) != 4 {
 		t.Error("movie (season 0) should return all")
+	}
+}
+
+func TestResolveViaSolver(t *testing.T) {
+	revealed := `<html><body>
+		<a href="https://rapidgator.net/file/abc/Movie.2026.1080p-GRP.part1.rar.html">p1</a>
+		<a href="https://rapidgator.net/file/def/Movie.2026.1080p-GRP.part2.rar.html">p2</a>
+	</body></html>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/resolve" {
+			t.Errorf("path = %s, want /resolve", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]string{"html": revealed})
+	}))
+	defer srv.Close()
+
+	parts, err := NewClient(srv.URL).Resolve(context.Background(), "https://hdencode.org/some-movie-2026-1080p-grp-9-gb/", "", "Movie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 {
+		t.Fatalf("got %d parts, want 2 (multi-part rar)", len(parts))
+	}
+}
+
+func TestResolveNoSolver(t *testing.T) {
+	_, err := NewClient("").Resolve(context.Background(), "https://hdencode.org/some-movie-2026-1080p-grp-9-gb/", "", "Movie")
+	if err == nil {
+		t.Fatal("expected error when solver not configured")
 	}
 }

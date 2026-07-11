@@ -21,3 +21,19 @@ services:
     depends_on:
       gluetun:
         condition: service_healthy
+
+  hdencode-solver:
+    image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/hdencode-solver:${SOLVER_TAG:-latest}"
+    network_mode: "service:gluetun"
+    shm_size: 1gb
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ingest:
+    environment:
+      HDENCODE_SOLVER_URL: "http://gluetun:8090"
+    depends_on:
+      gluetun:
+        condition: service_healthy

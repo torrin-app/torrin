@@ -153,6 +153,8 @@ services:
       USENET_MAXCONNS: "${USENET_MAXCONNS:-20}"
       # web-download source (yt-dlp); proxy routes only yt-dlp egress, empty = direct
       YTDLP_PROXY: "${YTDLP_PROXY:-}"
+      # hdencode reveal solver (Camoufox); set by the vpn overlay to the in-netns service, empty = disabled
+      HDENCODE_SOLVER_URL: "${HDENCODE_SOLVER_URL:-}"
     volumes:
       - /mnt/cache/ingest-scratch:/scratch
       - /mnt/cache/qbit:/downloads # shared with qbittorrent so ingest reads completed files

@@ -1,0 +1,9 @@
+# Headless Camoufox behind an HTTP endpoint; reveals HDEncode links. Must run in the VPN netns.
+FROM python:3.12-slim
+RUN pip install --no-cache-dir camoufox \
+    && python -m playwright install-deps firefox \
+    && python -m camoufox fetch \
+    && rm -rf /var/lib/apt/lists/*
+COPY deploy/hdencode-solver/solver.py /solver.py
+EXPOSE 8090
+CMD ["python", "/solver.py"]

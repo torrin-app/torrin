@@ -50,13 +50,15 @@ jobs:
       - name: Compose image refs
         id: refs
         run: |
-          ingest=""; rclone=""
+          ingest=""; rclone=""; solver=""
           for t in ${{ inputs.tags }}; do
             ingest="$ingest,$REPO/ingest:$t"
             rclone="$rclone,$REPO/rclone:$t"
+            solver="$solver,$REPO/hdencode-solver:$t"
           done
           echo "ingest=${ingest#,}" >> "$GITHUB_OUTPUT"
           echo "rclone=${rclone#,}" >> "$GITHUB_OUTPUT"
+          echo "solver=${solver#,}" >> "$GITHUB_OUTPUT"
       - name: Build & push ingest
         uses: docker/build-push-action@v6
         with:
@@ -79,3 +81,10 @@ jobs:
           tags: ${{ steps.refs.outputs.rclone }}
           build-args: |
             RCLONE_REV=${{ steps.rclonerev.outputs.sha }}
+      - name: Build & push hdencode-solver
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.hdencode-solver
+          push: true
+          tags: ${{ steps.refs.outputs.solver }}

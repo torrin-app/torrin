@@ -1,7 +1,9 @@
 package hdencode
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,10 +23,12 @@ const base = "https://hdencode.org"
 type Result = release.Result
 
 type Client struct {
-	http     *http.Client
-	mu       sync.Mutex
-	cache    map[string]entry
-	cacheTTL time.Duration
+	http      *http.Client
+	solveHTTP *http.Client
+	solverURL string
+	mu        sync.Mutex
+	cache     map[string]entry
+	cacheTTL  time.Duration
 }
 
 type entry struct {
@@ -32,14 +36,16 @@ type entry struct {
 	at      time.Time
 }
 
-func NewClient() *Client {
+func NewClient(solverURL string) *Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.DialContext = safeurl.Dialer(false)
 	jar, _ := cookiejar.New(nil)
 	return &Client{
-		http:     &http.Client{Timeout: 20 * time.Second, Transport: tr, Jar: jar},
-		cache:    map[string]entry{},
-		cacheTTL: 2 * time.Hour,
+		http:      &http.Client{Timeout: 20 * time.Second, Transport: tr, Jar: jar},
+		solveHTTP: &http.Client{Timeout: 120 * time.Second},
+		solverURL: strings.TrimRight(solverURL, "/"),
+		cache:     map[string]entry{},
+		cacheTTL:  2 * time.Hour,
 	}
 }
 
@@ -86,24 +92,39 @@ func (c *Client) Resolve(ctx context.Context, postURL, _, want string) ([][]stri
 	if !isPost(postURL) {
 		return nil, fmt.Errorf("not an hdencode post url")
 	}
-	doc, err := c.fetch(ctx, http.MethodGet, postURL, nil)
+	if c.solverURL == "" {
+		return nil, fmt.Errorf("hdencode solver not configured")
+	}
+	doc, err := c.solve(ctx, postURL)
 	if err != nil {
 		return nil, err
 	}
-	form := url.Values{
-		"content-protector-captcha": {"1"},
-		"content-protector-submit":  {"View links"},
-	}
-	for _, name := range []string{"content-protector-token", "content-protector-ident", "chax-response"} {
-		if v, ok := doc.Find("input[name='" + name + "']").Attr("value"); ok {
-			form.Set(name, v)
-		}
-	}
-	revealed, err := c.fetch(ctx, http.MethodPost, postURL, strings.NewReader(form.Encode()))
+	return release.BestArchive(doc, want), nil
+}
+
+func (c *Client) solve(ctx context.Context, postURL string) (*goquery.Document, error) {
+	body, _ := json.Marshal(map[string]string{"url": postURL})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.solverURL+"/resolve", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	return release.BestArchive(revealed, want), nil
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.solveHTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("hdencode solver: %w", err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		HTML  string `json:"html"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("hdencode solver decode: %w", err)
+	}
+	if out.Error != "" {
+		return nil, fmt.Errorf("hdencode solver: %s", out.Error)
+	}
+	return goquery.NewDocumentFromReader(strings.NewReader(out.HTML))
 }
 
 func (c *Client) fetch(ctx context.Context, method, u string, body io.Reader) (*goquery.Document, error) {
