@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/torrin-app/torrin/compare/v1.3.1...v1.4.0) (2026-07-11)
+
+
+### Features
+
+* yt-dlp web-download source ([#26](https://github.com/torrin-app/torrin/issues/26)) ([7f4d13a](https://github.com/torrin-app/torrin/commit/7f4d13a50c57f033d9b2066e814a6b6cd0027241))
+
 ## [1.3.1](https://github.com/torrin-app/torrin/compare/v1.3.0...v1.3.1) (2026-07-07)
 
 
