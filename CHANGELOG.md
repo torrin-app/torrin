@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/torrin-app/torrin/compare/v1.5.0...v1.5.1) (2026-07-11)
+
+
+### Bug Fixes
+
+* ytdlp fragmented download progress, speed, plan-size, and H.264 playback ([#30](https://github.com/torrin-app/torrin/issues/30)) ([13b4ca1](https://github.com/torrin-app/torrin/commit/13b4ca1007d0fd6880a9ba65727317137eba288e))
+
 ## [1.5.0](https://github.com/torrin-app/torrin/compare/v1.4.0...v1.5.0) (2026-07-11)
 
 
