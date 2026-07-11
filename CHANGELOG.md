@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.2](https://github.com/torrin-app/torrin/compare/v1.5.1...v1.5.2) (2026-07-11)
+
+
+### Bug Fixes
+
+* CORS preflight on REST API ([#32](https://github.com/torrin-app/torrin/issues/32)) ([80bc76d](https://github.com/torrin-app/torrin/commit/80bc76dba25ee28b991351749972e16db5927560))
+
 ## [1.5.1](https://github.com/torrin-app/torrin/compare/v1.5.0...v1.5.1) (2026-07-11)
 
 
