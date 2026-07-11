@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/torrin-app/torrin/compare/v1.4.0...v1.5.0) (2026-07-11)
+
+
+### Features
+
+* hdencode reveal via headless solver behind the VPN ([#28](https://github.com/torrin-app/torrin/issues/28)) ([1ad514f](https://github.com/torrin-app/torrin/commit/1ad514f1976fdc221b0cc55d35b6bc3cf4ed0862))
+
 ## [1.4.0](https://github.com/torrin-app/torrin/compare/v1.3.1...v1.4.0) (2026-07-11)
 
 
