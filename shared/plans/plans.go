@@ -186,6 +186,24 @@ func Get(id string) (Plan, bool) {
 	return p, ok
 }
 
+func PriceCents(planID, billingPeriod string, days int) (int, bool) {
+	plan, ok := All[planID]
+	if !ok {
+		return 0, false
+	}
+	switch billingPeriod {
+	case "lifetime":
+		return plan.LifetimePrice, true
+	case "yearly":
+		return plan.YearlyPrice, true
+	case "days":
+		p, ok := plan.DayPrices[days]
+		return p, ok
+	default:
+		return plan.MonthlyPrice, true
+	}
+}
+
 func ValidatePrice(planID, billingPeriod string, priceCents int) bool {
 	plan, ok := All[planID]
 	if !ok {

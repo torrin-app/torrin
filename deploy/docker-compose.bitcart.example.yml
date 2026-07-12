@@ -1,0 +1,145 @@
+x-coin-net: &coin-net
+  BTC_NETWORK: mainnet
+  LTC_NETWORK: mainnet
+  ETH_NETWORK: mainnet
+  BNB_NETWORK: mainnet
+  TRX_NETWORK: mainnet
+
+x-daemon-hosts: &daemon-hosts
+  DB_HOST: bitcart-db
+  REDIS_HOST: bitcart-redis
+  BTC_HOST: bitcart-bitcoin
+  LTC_HOST: bitcart-litecoin
+  ETH_HOST: bitcart-ethereum
+  BNB_HOST: bitcart-binancecoin
+  TRX_HOST: bitcart-tron
+
+x-plugins: &plugins
+  BITCART_BACKEND_PLUGINS_DIR: /datadir/plugins/backend
+  BITCART_ADMIN_PLUGINS_DIR: /datadir/plugins/admin
+  BITCART_STORE_PLUGINS_DIR: /datadir/plugins/store
+  BITCART_DOCKER_PLUGINS_DIR: /datadir/plugins/docker
+
+services:
+  bitcart-db:
+    image: pgautoupgrade/pgautoupgrade:17-alpine
+    command: ["-c", "random_page_cost=1.0"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: bitcart
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - bitcart_db:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  bitcart-redis:
+    image: redis:alpine
+    restart: unless-stopped
+
+  bitcart-bitcoin:
+    image: bitcart/bitcart-btc:stable
+    environment: { BTC_NETWORK: mainnet }
+    volumes: ["bitcart_btc:/data"]
+    restart: unless-stopped
+  bitcart-litecoin:
+    image: bitcart/bitcart-ltc:stable
+    environment: { LTC_NETWORK: mainnet }
+    volumes: ["bitcart_ltc:/data"]
+    restart: unless-stopped
+  bitcart-ethereum:
+    image: bitcart/bitcart-eth:stable
+    dns: ["1.1.1.1", "8.8.8.8"]
+    environment:
+      ETH_NETWORK: mainnet
+      ETH_SERVER: https://ethereum-rpc.publicnode.com
+      ETH_SEED_SERVER: https://seed-server.bitcart.ai
+    volumes: ["bitcart_eth:/data"]
+    restart: unless-stopped
+  bitcart-binancecoin:
+    image: bitcart/bitcart-bnb:stable
+    dns: ["1.1.1.1", "8.8.8.8"]
+    environment:
+      BNB_NETWORK: mainnet
+      BNB_SERVER: https://bsc-dataseed.binance.org
+      BNB_SEED_SERVER: https://seed-server.bitcart.ai
+    volumes: ["bitcart_bnb:/data"]
+    restart: unless-stopped
+  bitcart-tron:
+    image: bitcart/bitcart-trx:stable
+    dns: ["1.1.1.1", "8.8.8.8"]
+    environment:
+      TRX_NETWORK: mainnet
+      TRX_SERVER: https://tron-rpc.publicnode.com
+      TRX_SEED_SERVER: https://seed-server.bitcart.ai
+    volumes: ["bitcart_trx:/data"]
+    restart: unless-stopped
+
+  bitcart-backend:
+    image: bitcart/bitcart:stable
+    command: just prod-api-up
+    depends_on: [bitcart-db, bitcart-redis, bitcart-bitcoin, bitcart-litecoin, bitcart-ethereum, bitcart-binancecoin, bitcart-tron]
+    environment:
+      <<: [*coin-net, *daemon-hosts, *plugins]
+      BITCART_ENV: production
+      LOG_FILE: bitcart.log
+      BITCART_DATADIR: /datadir
+      BITCART_BACKUPS_DIR: /backups
+      BITCART_VOLUMES: /datadir /backups
+      DB_PORT: 5432
+      BITCART_CRYPTOS: btc,ltc,eth,bnb,trx
+      BITCART_HOST: bitcart-api.example.com
+      BITCART_ADMIN_HOST: bitcart-admin.example.com
+      BITCART_STORE_HOST: pay.example.com
+      BITCART_HTTPS_ENABLED: "true"
+      FORWARDED_ALLOW_IPS: "*"
+    volumes:
+      - bitcart_datadir:/datadir
+      - bitcart_backups:/backups
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  bitcart-worker:
+    image: bitcart/bitcart:stable
+    command: just worker
+    depends_on: [bitcart-backend]
+    environment:
+      <<: [*coin-net, *daemon-hosts, *plugins]
+      BITCART_ENV: production
+      LOG_FILE: bitcart.log
+      BITCART_DATADIR: /datadir
+      BITCART_BACKUPS_DIR: /backups
+      BITCART_VOLUMES: /datadir /backups
+      BITCART_CRYPTOS: btc,ltc,eth,bnb,trx
+    volumes:
+      - bitcart_datadir:/datadir
+      - bitcart_backups:/backups
+    restart: unless-stopped
+
+  bitcart-admin:
+    image: bitcart/bitcart-admin:stable
+    command: yarn start
+    environment:
+      BITCART_ADMIN_API_URL: https://bitcart-api.example.com
+      BITCART_STORE_HOST: pay.example.com
+    ports:
+      - "127.0.0.1:4000:4000"
+    restart: unless-stopped
+
+  bitcart-store:
+    image: bitcart/bitcart-store:stable
+    command: yarn start
+    environment:
+      BITCART_STORE_API_URL: https://bitcart-api.example.com
+      BITCART_ADMIN_HOST: bitcart-admin.example.com
+    restart: unless-stopped
+
+volumes:
+  bitcart_db:
+  bitcart_datadir:
+  bitcart_backups:
+  bitcart_btc:
+  bitcart_ltc:
+  bitcart_eth:
+  bitcart_bnb:
+  bitcart_trx:

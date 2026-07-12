@@ -8,6 +8,7 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/billing"
 	"github.com/torrin-app/torrin/shared/email"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/providers"
@@ -40,6 +41,7 @@ type Deps struct {
 	Scrape  *scrape.Client
 	Mailer  *email.Client
 	RClone  *rclonerc.Client
+	Bitcart *billing.BitcartHandler
 	SignKey []byte
 	Budget  int64
 
@@ -71,6 +73,9 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.HandleFunc("POST /api/scrape", s.scrapeHashes)
 	mux.HandleFunc("POST /internal/prewarm", s.prewarm)
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(s.me)))
+	mux.Handle("POST /api/billing/crypto/checkout", authMW(http.HandlerFunc(s.cryptoCheckout)))
+	mux.HandleFunc("GET /api/billing/crypto/invoice/{id}", s.cryptoInvoice)
+	mux.HandleFunc("POST /api/billing/crypto/invoice/{id}/address", s.cryptoInvoiceAddress)
 	mux.Handle("POST /api/jobs", authMW(http.HandlerFunc(s.submitJob)))
 	mux.Handle("GET /api/jobs", authMW(http.HandlerFunc(s.listJobs)))
 	mux.Handle("GET /api/jobs/{id}", authMW(http.HandlerFunc(s.getJob)))
