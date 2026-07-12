@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.3](https://github.com/torrin-app/torrin/compare/v1.5.2...v1.5.3) (2026-07-12)
+
+
+### Bug Fixes
+
+* global CORS middleware on the api ([#34](https://github.com/torrin-app/torrin/issues/34)) ([4a3f1b1](https://github.com/torrin-app/torrin/commit/4a3f1b1393afe3aaccf4a53b6939d692ae488ce8))
+
 ## [1.5.2](https://github.com/torrin-app/torrin/compare/v1.5.1...v1.5.2) (2026-07-11)
 
 
