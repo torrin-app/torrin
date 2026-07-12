@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.4](https://github.com/torrin-app/torrin/compare/v1.5.3...v1.5.4) (2026-07-12)
+
+
+### Bug Fixes
+
+* usenet test checks saved credentials ([#36](https://github.com/torrin-app/torrin/issues/36)) ([3620fc5](https://github.com/torrin-app/torrin/commit/3620fc5c7c39df3abf667032a45c7cf3734766ef))
+
 ## [1.5.3](https://github.com/torrin-app/torrin/compare/v1.5.2...v1.5.3) (2026-07-12)
 
 
