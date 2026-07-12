@@ -176,12 +176,13 @@ func (s *Server) setUsenetCreds(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) testUsenetCreds(w http.ResponseWriter, r *http.Request) {
-	var c auth.UsenetCreds
-	if json.NewDecoder(r.Body).Decode(&c) != nil || c.Host == "" {
-		web.WriteError(w, 400, "host required")
+	user := middleware.GetUser(r)
+	c, err := s.Users.GetUsenetCreds(r.Context(), user.ID)
+	if err != nil || c == nil || c.Host == "" {
+		web.WriteError(w, 400, "no saved credentials to test")
 		return
 	}
-	if err := normalizeAndTest(r.Context(), &c); err != nil {
+	if err := normalizeAndTest(r.Context(), c); err != nil {
 		web.WriteError(w, 400, "could not connect to usenet provider — check host/port/login")
 		return
 	}
