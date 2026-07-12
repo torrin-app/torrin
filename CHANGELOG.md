@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/torrin-app/torrin/compare/v1.5.4...v1.6.0) (2026-07-12)
+
+
+### Features
+
+* self-hosted crypto payments via Bitcart ([#38](https://github.com/torrin-app/torrin/issues/38)) ([095ce77](https://github.com/torrin-app/torrin/commit/095ce7785b3282df4323db5f42ec8d9a20c6d180))
+
 ## [1.5.4](https://github.com/torrin-app/torrin/compare/v1.5.3...v1.5.4) (2026-07-12)
 
 
