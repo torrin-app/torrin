@@ -138,14 +138,12 @@ func generateShortID() string {
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
 
 func writeRDError(w http.ResponseWriter, httpStatus, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(httpStatus)
 	json.NewEncoder(w).Encode(map[string]any{"error": msg, "error_code": code})
 }

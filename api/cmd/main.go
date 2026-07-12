@@ -132,7 +132,7 @@ func main() {
 	slog.Info("api started", "budget_gb", budget/1e9)
 	exempt := append(strings.Split(env.Get("RATE_LIMIT_EXEMPT", ""), ","), env.Get("TORRIN_SEARCH_KEY", ""))
 	rl := middleware.RateLimit(int(env.Int("RATE_LIMIT_RPS", 30)), int(env.Int("RATE_LIMIT_BURST", 60)), exempt)
-	service.Run("api", "8080", rl(mux))
+	service.Run("api", "8080", middleware.CORS(rl(mux)))
 }
 
 func mustEnv(k string) string {
