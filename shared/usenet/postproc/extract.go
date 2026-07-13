@@ -15,13 +15,31 @@ import (
 
 func extract(dir string, passwords []string) error {
 	deobfuscateRars(dir)
-	first := firstRARVolume(dir)
-	if first == "" {
-		if sz := firstSevenZipVolume(dir); sz != "" {
-			return extract7z(sz, dir, passwords)
-		}
-		return nil
+	if found, err := tryExtract(dir, passwords); found {
+		return err
 	}
+	if runJoins(dir) {
+		if found, err := tryExtract(dir, passwords); found {
+			return err
+		}
+	}
+	return nil
+}
+
+func tryExtract(dir string, passwords []string) (bool, error) {
+	if first := firstRARVolume(dir); first != "" {
+		return true, extractRAR(first, dir, passwords)
+	}
+	if arc := firstSevenZipVolume(dir); arc != "" {
+		return true, extract7z(arc, dir, passwords)
+	}
+	if z := firstZip(dir); z != "" {
+		return true, extract7z(z, dir, passwords)
+	}
+	return false, nil
+}
+
+func extractRAR(first, dir string, passwords []string) error {
 	pws := append([]string{""}, passwords...)
 	if _, err := exec.LookPath("unrar"); err == nil {
 		var lastErr error
@@ -43,6 +61,14 @@ func extract(dir string, passwords []string) error {
 		}
 	}
 	return lastErr
+}
+
+func firstZip(dir string) string {
+	if m, _ := filepath.Glob(filepath.Join(dir, "*.zip")); len(m) > 0 {
+		sort.Strings(m)
+		return m[0]
+	}
+	return ""
 }
 
 func unrarArgs(rarPath, dir, password string) []string {
