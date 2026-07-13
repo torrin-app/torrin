@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.0](https://github.com/torrin-app/torrin/compare/v1.8.0...v1.9.0) (2026-07-13)
+
+
+### Features
+
+* Bachs card payments ([#46](https://github.com/torrin-app/torrin/issues/46)) ([a366c51](https://github.com/torrin-app/torrin/commit/a366c519a70a9b6b0c1314f74956eb89ef821d43))
+
 ## [1.8.0](https://github.com/torrin-app/torrin/compare/v1.7.0...v1.8.0) (2026-07-13)
 
 
