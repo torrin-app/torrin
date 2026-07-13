@@ -11,7 +11,9 @@ func UserError(msg string) string {
 		return msg
 	case strings.Contains(l, "season") && strings.Contains(l, "incomplete"):
 		return "season incomplete on usenet — some episodes aren't available"
-	case strings.Contains(l, "segment") || strings.Contains(l, "no video files") ||
+	case strings.Contains(l, "no video files"):
+		return "no playable video found in this release"
+	case strings.Contains(l, "segment") ||
 		strings.Contains(l, "par2") || strings.Contains(l, "postproc") ||
 		strings.Contains(l, "recovery block") || strings.Contains(l, "no usable links"):
 		return "download incomplete — couldn't fully fetch or repair this release"

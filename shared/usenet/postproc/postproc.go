@@ -2,7 +2,6 @@ package postproc
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/gabriel-vasile/mimetype"
-	"github.com/nwaples/rardecode/v2"
 	"github.com/torrin-app/torrin/shared/video"
 )
 
@@ -136,107 +134,6 @@ func hasMagic(path string, magic []byte) bool {
 		return false
 	}
 	return bytes.Equal(buf, magic)
-}
-
-func extract(dir string, passwords []string) error {
-	deobfuscateRars(dir)
-	first := firstRARVolume(dir)
-	if first == "" {
-		return nil
-	}
-	pws := append([]string{""}, passwords...)
-	if _, err := exec.LookPath("unrar"); err == nil {
-		var lastErr error
-		for _, pw := range pws {
-			if err := unrarExtract(first, dir, pw); err == nil {
-				return nil
-			} else {
-				lastErr = err
-			}
-		}
-		slog.Warn("postproc: unrar failed, falling back to rardecode", "err", lastErr)
-	}
-	var lastErr error
-	for _, pw := range pws {
-		if err := extractWith(first, dir, pw); err == nil {
-			return nil
-		} else {
-			lastErr = err
-		}
-	}
-	return lastErr
-}
-
-func unrarArgs(rarPath, dir, password string) []string {
-	args := []string{"e", "-o+", "-y"}
-	if password != "" {
-		args = append(args, "-p"+password)
-	} else {
-		args = append(args, "-p-")
-	}
-	return append(args, rarPath, dir+"/")
-}
-
-func unrarExtract(rarPath, dir, password string) error {
-	cmd := exec.Command("unrar", unrarArgs(rarPath, dir, password)...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
-	}
-	return nil
-}
-
-func extractWith(rarPath, dir, password string) error {
-	var opts []rardecode.Option
-	if password != "" {
-		opts = append(opts, rardecode.Password(password))
-	}
-	rc, err := rardecode.OpenReader(rarPath, opts...)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-
-	for {
-		h, err := rc.Next()
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if h.IsDir {
-			continue
-		}
-		out := filepath.Join(dir, filepath.Base(h.Name))
-		f, err := os.Create(out)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(f, rc)
-		f.Close()
-		if err != nil {
-			return err
-		}
-	}
-}
-
-func firstRARVolume(dir string) string {
-	for _, pat := range []string{"*.part01.rar", "*.part001.rar", "*.part1.rar"} {
-		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
-			return m[0]
-		}
-	}
-	rars, _ := filepath.Glob(filepath.Join(dir, "*.rar"))
-	for _, r := range rars {
-		if !strings.Contains(strings.ToLower(filepath.Base(r)), ".part") {
-			return r
-		}
-	}
-	if len(rars) > 0 {
-		return rars[0]
-	}
-	return ""
 }
 
 func collectVideos(dir string) []File {
