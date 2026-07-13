@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/torrin-app/torrin/compare/v1.6.0...v1.6.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* extract 7z usenet releases in postproc ([#40](https://github.com/torrin-app/torrin/issues/40)) ([809d0d6](https://github.com/torrin-app/torrin/commit/809d0d6bcd5e995e0df422f41d2bcf17bac1fbb0))
+
 ## [1.6.0](https://github.com/torrin-app/torrin/compare/v1.5.4...v1.6.0) (2026-07-12)
 
 
