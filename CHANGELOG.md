@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/torrin-app/torrin/compare/v1.7.0...v1.8.0) (2026-07-13)
+
+
+### Features
+
+* add AllDebrid as a user debrid provider ([#44](https://github.com/torrin-app/torrin/issues/44)) ([2746447](https://github.com/torrin-app/torrin/commit/2746447bebdccabc52c72e826b8cb67d16cc23b0))
+
 ## [1.7.0](https://github.com/torrin-app/torrin/compare/v1.6.1...v1.7.0) (2026-07-13)
 
 
