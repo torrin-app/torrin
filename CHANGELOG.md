@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/torrin-app/torrin/compare/v1.6.1...v1.7.0) (2026-07-13)
+
+
+### Features
+
+* handle zip, filejoin, and ts-join usenet releases ([#42](https://github.com/torrin-app/torrin/issues/42)) ([206d83f](https://github.com/torrin-app/torrin/commit/206d83f58ab52717501628d0ab9200ab9d795087))
+
 ## [1.6.1](https://github.com/torrin-app/torrin/compare/v1.6.0...v1.6.1) (2026-07-13)
 
 
