@@ -107,6 +107,10 @@ services:
       BITCART_API_URL: "${BITCART_API_URL:-}"
       BITCART_CHECKOUT_URL: "${BITCART_CHECKOUT_URL:-}"
       BITCART_STORE_ID: "${BITCART_STORE_ID:-}"
+      BACHS_API_URL: "${BACHS_API_URL:-}"
+      BACHS_SECRET_KEY: "${BACHS_SECRET_KEY:-}"
+      BACHS_WEBHOOK_SECRET: "${BACHS_WEBHOOK_SECRET:-}"
+      BACHS_PRODUCT_ID: "${BACHS_PRODUCT_ID:-}"
       # BYOS cloud OAuth apps (operator-registered; empty = that provider disabled)
       DROPBOX_CLIENT_ID: "${DROPBOX_CLIENT_ID:-}"
       DROPBOX_CLIENT_SECRET: "${DROPBOX_CLIENT_SECRET:-}"

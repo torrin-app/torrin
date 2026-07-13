@@ -37,7 +37,7 @@ func ValidateRD(ctx context.Context, key string) error {
 			Error string `json:"error"`
 		}
 		if json.Unmarshal(body, &r) == nil && r.Error != "" {
-			return fmt.Errorf("Real-Debrid: %s", r.Error)
+			return fmt.Errorf("%s: %s", "Real-Debrid", r.Error)
 		}
 		return errBadKey
 	})
@@ -60,10 +60,10 @@ func ValidateTB(ctx context.Context, key string) error {
 			return nil
 		}
 		if r.Detail != "" {
-			return fmt.Errorf("TorBox: %s", r.Detail)
+			return fmt.Errorf("%s: %s", "TorBox", r.Detail)
 		}
 		if r.Error != "" {
-			return fmt.Errorf("TorBox: %s", r.Error)
+			return fmt.Errorf("%s: %s", "TorBox", r.Error)
 		}
 		return errBadKey
 	})
@@ -82,7 +82,7 @@ func ValidatePM(ctx context.Context, key string) error {
 			return nil
 		}
 		if r.Message != "" {
-			return fmt.Errorf("Premiumize: %s", r.Message)
+			return fmt.Errorf("%s: %s", "Premiumize", r.Message)
 		}
 		return errBadKey
 	})
@@ -104,7 +104,7 @@ func ValidateAD(ctx context.Context, key string) error {
 			return nil
 		}
 		if r.Error != nil && r.Error.Message != "" {
-			return fmt.Errorf("AllDebrid: %s", r.Error.Message)
+			return fmt.Errorf("%s: %s", "AllDebrid", r.Error.Message)
 		}
 		return errBadKey
 	})

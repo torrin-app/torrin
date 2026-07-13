@@ -42,6 +42,7 @@ type Deps struct {
 	Mailer  *email.Client
 	RClone  *rclonerc.Client
 	Bitcart *billing.BitcartHandler
+	Bachs   *billing.BachsHandler
 	SignKey []byte
 	Budget  int64
 
@@ -74,6 +75,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.HandleFunc("POST /internal/prewarm", s.prewarm)
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(s.me)))
 	mux.Handle("POST /api/billing/crypto/checkout", authMW(http.HandlerFunc(s.cryptoCheckout)))
+	mux.Handle("POST /api/billing/bachs/checkout", authMW(http.HandlerFunc(s.bachsCheckout)))
 	mux.HandleFunc("GET /api/billing/crypto/invoice/{id}", s.cryptoInvoice)
 	mux.HandleFunc("POST /api/billing/crypto/invoice/{id}/address", s.cryptoInvoiceAddress)
 	mux.Handle("POST /api/jobs", authMW(http.HandlerFunc(s.submitJob)))

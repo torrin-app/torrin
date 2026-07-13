@@ -86,10 +86,14 @@ func main() {
 		env.Get("BITCART_API_URL", ""), env.Get("BITCART_CHECKOUT_URL", ""),
 		env.Get("BITCART_STORE_ID", ""),
 		env.Get("API_PUBLIC_URL", ""), env.Get("WEB_URL", ""), users)
+	bachs := billing.NewBachsHandler(
+		env.Get("BACHS_API_URL", ""), env.Get("BACHS_SECRET_KEY", ""),
+		env.Get("BACHS_WEBHOOK_SECRET", ""), env.Get("BACHS_PRODUCT_ID", ""),
+		env.Get("API_PUBLIC_URL", ""), env.Get("WEB_URL", ""), users)
 	srv := handlers.New(handlers.Deps{
 		Jobs: jobsRepo, JobsPG: jobsRepo, Users: users, Store: store, Bus: b,
 		Slots: slots, Qbit: qb, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
-		RClone: rc, Bitcart: bitcart, SignKey: []byte(env.Get("SIGNING_KEY", "")),
+		RClone: rc, Bitcart: bitcart, Bachs: bachs, SignKey: []byte(env.Get("SIGNING_KEY", "")),
 		Internal:        env.Get("SIGNING_KEY", ""),
 		IndexerURL:      env.Get("USENET_INDEXER_URL", ""),
 		IndexerKey:      env.Get("USENET_INDEXER_KEY", ""),
@@ -119,6 +123,10 @@ func main() {
 
 	if bitcart.Enabled() {
 		mux.HandleFunc("POST /webhooks/bitcart", bitcart.HandleWebhook)
+	}
+
+	if bachs.Enabled() {
+		mux.HandleFunc("POST /webhooks/bachs", bachs.HandleWebhook)
 	}
 
 	safety.Refresh(ctx, users.GetBlocklist, time.Hour)

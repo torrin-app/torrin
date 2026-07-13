@@ -42,6 +42,39 @@ func (s *Server) cryptoCheckout(w http.ResponseWriter, r *http.Request) {
 	web.WriteJSON(w, 200, map[string]any{"invoice_id": id})
 }
 
+func (s *Server) bachsCheckout(w http.ResponseWriter, r *http.Request) {
+	if s.Bachs == nil || !s.Bachs.Enabled() {
+		web.WriteError(w, 503, "card payments not available")
+		return
+	}
+	user, _ := r.Context().Value(middleware.UserContextKey).(*auth.User)
+	if user == nil || user.Email == "" {
+		web.WriteError(w, 401, "login required")
+		return
+	}
+
+	var req struct {
+		Plan   string `json:"plan"`
+		Period string `json:"period"`
+		Days   int    `json:"days"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil {
+		web.WriteError(w, 400, "invalid json")
+		return
+	}
+	if !validPeriods[req.Period] {
+		web.WriteError(w, 400, "invalid period")
+		return
+	}
+
+	url, err := s.Bachs.CreateCheckout(r.Context(), user.Email, req.Plan, req.Period, req.Days)
+	if err != nil {
+		web.WriteError(w, 400, "could not create checkout")
+		return
+	}
+	web.WriteJSON(w, 200, map[string]any{"checkout_url": url})
+}
+
 func (s *Server) cryptoInvoice(w http.ResponseWriter, r *http.Request) {
 	if s.Bitcart == nil || !s.Bitcart.Enabled() {
 		web.WriteError(w, 503, "crypto payments not available")
