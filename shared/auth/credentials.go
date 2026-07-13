@@ -17,6 +17,9 @@ func (s *Store) GetPMKey(ctx context.Context, userID string) (string, error) {
 func (s *Store) GetTBKey(ctx context.Context, userID string) (string, error) {
 	return s.getKey(ctx, "tb_credentials", userID)
 }
+func (s *Store) GetADKey(ctx context.Context, userID string) (string, error) {
+	return s.getKey(ctx, "ad_credentials", userID)
+}
 
 func (s *Store) SetRDKey(ctx context.Context, userID, key string) error {
 	return s.setKey(ctx, "rd_credentials", userID, key)
@@ -27,6 +30,9 @@ func (s *Store) SetPMKey(ctx context.Context, userID, key string) error {
 func (s *Store) SetTBKey(ctx context.Context, userID, key string) error {
 	return s.setKey(ctx, "tb_credentials", userID, key)
 }
+func (s *Store) SetADKey(ctx context.Context, userID, key string) error {
+	return s.setKey(ctx, "ad_credentials", userID, key)
+}
 
 func (s *Store) DeleteRDKey(ctx context.Context, userID string) error {
 	return s.delKey(ctx, "rd_credentials", userID)
@@ -36,6 +42,9 @@ func (s *Store) DeletePMKey(ctx context.Context, userID string) error {
 }
 func (s *Store) DeleteTBKey(ctx context.Context, userID string) error {
 	return s.delKey(ctx, "tb_credentials", userID)
+}
+func (s *Store) DeleteADKey(ctx context.Context, userID string) error {
+	return s.delKey(ctx, "ad_credentials", userID)
 }
 
 func (s *Store) getKey(ctx context.Context, table, userID string) (string, error) {

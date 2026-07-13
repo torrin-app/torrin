@@ -76,6 +76,9 @@ func main() {
 		if userRD != "" {
 			list = append(list, providers.NewRealDebrid(userRD))
 		}
+		if k, _ := users.GetADKey(ctx, job.UserID); k != "" {
+			list = append(list, providers.NewAllDebrid(k))
+		}
 		if k, _ := users.GetTBKey(ctx, job.UserID); k != "" {
 			list = append(list, providers.NewTorBox(k))
 		}

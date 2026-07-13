@@ -102,6 +102,9 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 			if k, _ := h.Users.GetRDKey(r.Context(), user.ID); k != "" {
 				checks = append(checks, pk{"real-debrid", k})
 			}
+			if k, _ := h.Users.GetADKey(r.Context(), user.ID); k != "" {
+				checks = append(checks, pk{"alldebrid", k})
+			}
 			if k, _ := h.Users.GetTBKey(r.Context(), user.ID); k != "" {
 				checks = append(checks, pk{"torbox", k})
 			}

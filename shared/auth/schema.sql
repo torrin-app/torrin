@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS rd_credentials (
     api_key    TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS ad_credentials (
+    user_id    TEXT PRIMARY KEY,
+    api_key    TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 CREATE TABLE IF NOT EXISTS pm_credentials (
     user_id    TEXT PRIMARY KEY,
     api_key    TEXT NOT NULL,

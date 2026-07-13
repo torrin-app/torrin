@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 )
@@ -22,9 +23,19 @@ type alldebrid struct {
 func newAlldebrid(key string) *alldebrid {
 	return &alldebrid{
 		key:      key,
-		http:     &http.Client{Timeout: 30 * time.Second},
+		http:     adHTTPClient(30 * time.Second),
 		limiters: sharedLimiters("ad:"+key, limitSpec{12, time.Second}, limitSpec{600, time.Minute}),
 	}
+}
+
+func adHTTPClient(timeout time.Duration) *http.Client {
+	c := &http.Client{Timeout: timeout}
+	if p := os.Getenv("AD_PROXY_URL"); p != "" {
+		if u, err := url.Parse(p); err == nil {
+			c.Transport = &http.Transport{Proxy: http.ProxyURL(u)}
+		}
+	}
+	return c
 }
 
 func NewAllDebrid(apiKey string) Provider { return newAlldebrid(apiKey) }
@@ -115,6 +126,21 @@ func ADListMagnets(ctx context.Context, adKey, status string) ([]ADMagnetItem, e
 		return nil, err
 	}
 	return data.Magnets, nil
+}
+
+func ADLibrary(ctx context.Context, adKey string) ([]LibraryItem, error) {
+	magnets, err := ADListMagnets(ctx, adKey, "ready")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]LibraryItem, 0, len(magnets))
+	for _, m := range magnets {
+		if m.Hash == "" {
+			continue
+		}
+		out = append(out, LibraryItem{Hash: m.Hash, Filename: m.Filename, Size: m.Size})
+	}
+	return out, nil
 }
 
 func ADReapOrphans(ctx context.Context, adKey string) (int, error) {

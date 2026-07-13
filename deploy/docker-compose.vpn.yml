@@ -11,6 +11,7 @@ services:
       WIREGUARD_ADDRESSES: "${VPN_ADDRESSES:-}"
       SERVER_COUNTRIES: "${VPN_COUNTRIES:-Germany}"
       FIREWALL_VPN_INPUT_PORTS: "${QBIT_TORRENT_PORT:-6881}"
+      HTTPPROXY: "on"
     ports:
       - "127.0.0.1:8088:8080"
     restart: unless-stopped
@@ -34,6 +35,14 @@ services:
   ingest:
     environment:
       HDENCODE_SOLVER_URL: "http://gluetun:8090"
+      AD_PROXY_URL: "http://gluetun:8888"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  api:
+    environment:
+      AD_PROXY_URL: "http://gluetun:8888"
     depends_on:
       gluetun:
         condition: service_healthy

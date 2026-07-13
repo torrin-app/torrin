@@ -19,8 +19,10 @@ const libraryPageSize = 20
 
 func (s *Server) registerLibraryRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/rd/library", authMW(http.HandlerFunc(s.rdLibrary)))
+	mux.Handle("GET /api/alldebrid/library", authMW(http.HandlerFunc(s.adLibrary)))
 	mux.Handle("GET /api/torbox/library", authMW(http.HandlerFunc(s.tbLibrary)))
 	mux.Handle("POST /api/rd/import", authMW(http.HandlerFunc(s.importHashes)))
+	mux.Handle("POST /api/alldebrid/import", authMW(http.HandlerFunc(s.importHashes)))
 	mux.Handle("POST /api/torbox/import", authMW(http.HandlerFunc(s.importHashes)))
 }
 
@@ -35,6 +37,11 @@ type libraryItem struct {
 func (s *Server) rdLibrary(w http.ResponseWriter, r *http.Request) {
 	key, _ := s.Users.GetRDKey(r.Context(), middleware.GetUser(r).ID)
 	s.library(w, r, key, providers.RDLibrary)
+}
+
+func (s *Server) adLibrary(w http.ResponseWriter, r *http.Request) {
+	key, _ := s.Users.GetADKey(r.Context(), middleware.GetUser(r).ID)
+	s.library(w, r, key, providers.ADLibrary)
 }
 
 func (s *Server) tbLibrary(w http.ResponseWriter, r *http.Request) {

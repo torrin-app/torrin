@@ -86,6 +86,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.Handle("POST /api/jobs/hoster", authMW(http.HandlerFunc(s.submitHoster)))
 	mux.Handle("GET /api/search", authMW(http.HandlerFunc(s.search)))
 	s.registerCredRoutes(mux, authMW, "/api/rd/credentials", credOps{s.Users.GetRDKey, s.Users.SetRDKey, s.Users.DeleteRDKey, providers.ValidateRD})
+	s.registerCredRoutes(mux, authMW, "/api/alldebrid/credentials", credOps{s.Users.GetADKey, s.Users.SetADKey, s.Users.DeleteADKey, providers.ValidateAD})
 	s.registerCredRoutes(mux, authMW, "/api/premiumize/credentials", credOps{s.Users.GetPMKey, s.Users.SetPMKey, s.Users.DeletePMKey, providers.ValidatePM})
 	s.registerCredRoutes(mux, authMW, "/api/torbox/credentials", credOps{s.Users.GetTBKey, s.Users.SetTBKey, s.Users.DeleteTBKey, providers.ValidateTB})
 	s.registerLibraryRoutes(mux, authMW)
