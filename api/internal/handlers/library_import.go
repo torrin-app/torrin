@@ -108,11 +108,21 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 			UserID: user.ID, InfoHash: h, Magnet: mag, Source: jobs.SourceTorrent,
 			Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 		}
+		hasSlot := s.Slots.Acquire(r.Context(), user.ID, plan)
+		if !hasSlot {
+			job.Status = jobs.StatusQueued
+		}
 		if err := s.Jobs.Create(r.Context(), job); err != nil {
+			if hasSlot {
+				s.Slots.Release(user.ID)
+			}
 			errs = append(errs, h+": "+err.Error())
 			continue
 		}
-		s.assign(job)
+		if hasSlot {
+			s.Slots.Release(user.ID)
+			s.assign(job)
+		}
 		created = append(created, h)
 	}
 	web.WriteJSON(w, 200, map[string]any{"created": created, "errors": errs})

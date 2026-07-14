@@ -28,6 +28,9 @@ func (s Status) Active() bool {
 
 var activeStates = sqlInList(activeStatuses)
 
+var downloadingStatuses = []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing}
+var downloadingStates = sqlInList(downloadingStatuses)
+
 func sqlInList(ss []Status) string {
 	out := "("
 	for i, s := range ss {

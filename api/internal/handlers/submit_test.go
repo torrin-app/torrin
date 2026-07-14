@@ -66,8 +66,9 @@ func (f *fakeRepo) GetByInfoHash(context.Context, string) (*jobs.Job, error) {
 	}
 	return f.existing, nil
 }
-func (f *fakeRepo) ActiveCount(context.Context, string) (int, error) { return 0, nil }
-func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)        { return f.budget, nil }
+func (f *fakeRepo) ActiveCount(context.Context, string) (int, error)      { return 0, nil }
+func (f *fakeRepo) DownloadingCount(context.Context, string) (int, error) { return 0, nil }
+func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)             { return f.budget, nil }
 
 // unused-by-submit stubs (satisfy jobs.Repository)
 func (f *fakeRepo) Update(context.Context, *jobs.Job) error                      { return nil }

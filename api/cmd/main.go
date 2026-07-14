@@ -131,7 +131,7 @@ func main() {
 	}
 
 	safety.Refresh(ctx, users.GetBlocklist, time.Hour)
-	go promoteQueued(ctx, jobsRepo, b, budget)
+	go promoteQueued(ctx, jobsRepo, users, b, budget)
 	go prewarmRetry(ctx, jobsRepo, b, pwMaxBytes, pwMaxActive)
 	go srv.RunRSSWorker(ctx)
 	go metricsSnapshot(ctx, jobsRepo, users)

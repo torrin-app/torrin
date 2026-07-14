@@ -174,6 +174,13 @@ func (p *Postgres) ActiveCount(ctx context.Context, userID string) (int, error) 
 	return n, err
 }
 
+func (p *Postgres) DownloadingCount(ctx context.Context, userID string) (int, error) {
+	var n int
+	err := p.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status IN `+downloadingStates, userID).Scan(&n)
+	return n, err
+}
+
 func (p *Postgres) BudgetUsed(ctx context.Context) (int64, error) {
 	var total int64
 	err := p.pool.QueryRow(ctx,

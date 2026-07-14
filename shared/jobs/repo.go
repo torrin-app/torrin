@@ -19,6 +19,7 @@ type Repository interface {
 	ListByStatus(ctx context.Context, status Status) ([]*Job, error)
 	Delete(ctx context.Context, id string) error
 	ActiveCount(ctx context.Context, userID string) (int, error)
+	DownloadingCount(ctx context.Context, userID string) (int, error)
 	BudgetUsed(ctx context.Context) (int64, error)
 	RecordView(ctx context.Context, infoHash, userID string) (bool, error)
 	SetProgress(ctx context.Context, id string, pct float64, speed int64) error

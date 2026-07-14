@@ -19,6 +19,9 @@ func TestActiveStatesSQL(t *testing.T) {
 	if activeStates != "('pending','queued','downloading','processing','publishing')" {
 		t.Errorf("activeStates drifted: %s", activeStates)
 	}
+	if downloadingStates != "('pending','downloading','processing','publishing')" {
+		t.Errorf("downloadingStates drifted: %s", downloadingStates)
+	}
 }
 
 // Postgres is the Repository implementation; this fails to compile if it drifts.

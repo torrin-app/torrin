@@ -13,11 +13,12 @@ import (
 	"github.com/torrin-app/torrin/shared/eviction"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
+	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
-func promoteQueued(ctx context.Context, repo jobs.Repository, b *bus.Bus, budget int64) {
+func promoteQueued(ctx context.Context, repo jobs.Repository, users *auth.Store, b *bus.Bus, budget int64) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
 	for range t.C {
@@ -29,6 +30,9 @@ func promoteQueued(ctx context.Context, repo jobs.Repository, b *bus.Bus, budget
 			if used, _ := repo.BudgetUsed(ctx); budget-used < 5_000_000_000 {
 				break
 			}
+			if !userDownloadSlotFree(ctx, repo, users, job.UserID) {
+				continue
+			}
 			job.Status = jobs.StatusPending
 			if repo.Update(ctx, job) != nil {
 				continue
@@ -39,6 +43,23 @@ func promoteQueued(ctx context.Context, repo jobs.Repository, b *bus.Bus, budget
 			})
 		}
 	}
+}
+
+func userDownloadSlotFree(ctx context.Context, repo jobs.Repository, users *auth.Store, userID string) bool {
+	user, err := users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return false
+	}
+	planID := user.PlanID
+	if time.Now().After(user.ExpiresAt) {
+		planID = "free"
+	}
+	plan, ok := plans.Get(planID)
+	if !ok {
+		plan = plans.Free
+	}
+	dc, _ := repo.DownloadingCount(ctx, userID)
+	return dc < plan.MaxConcurrent
 }
 
 func startLibrarySync(ctx context.Context, users *auth.Store) {

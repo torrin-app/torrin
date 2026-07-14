@@ -53,6 +53,7 @@ func (m *memRepo) ListByUserBefore(context.Context, string, time.Time, string, i
 func (m *memRepo) ListByStatus(context.Context, jobs.Status) ([]*jobs.Job, error) { return nil, nil }
 func (m *memRepo) Delete(context.Context, string) error                           { return nil }
 func (m *memRepo) ActiveCount(context.Context, string) (int, error)               { return 0, nil }
+func (m *memRepo) DownloadingCount(context.Context, string) (int, error)          { return 0, nil }
 func (m *memRepo) BudgetUsed(context.Context) (int64, error)                      { return 0, nil }
 func (m *memRepo) RecordView(context.Context, string, string) (bool, error)       { return false, nil }
 func (m *memRepo) SetProgress(context.Context, string, float64, int64) error      { return nil }
