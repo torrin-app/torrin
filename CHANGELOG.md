@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.1](https://github.com/torrin-app/torrin/compare/v1.10.0...v1.10.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* enforce concurrency on library import + queue promotion ([#50](https://github.com/torrin-app/torrin/issues/50)) ([78164ce](https://github.com/torrin-app/torrin/commit/78164ce545d7c5004a909d66c8a1c8df58f3b422))
+
 ## [1.10.0](https://github.com/torrin-app/torrin/compare/v1.9.0...v1.10.0) (2026-07-14)
 
 
