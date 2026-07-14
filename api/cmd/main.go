@@ -95,6 +95,7 @@ func main() {
 		Slots: slots, Qbit: qb, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
 		RClone: rc, Bitcart: bitcart, Bachs: bachs, SignKey: []byte(env.Get("SIGNING_KEY", "")),
 		Internal:        env.Get("SIGNING_KEY", ""),
+		AdminKey:        env.Get("ADMIN_KEY", ""),
 		IndexerURL:      env.Get("USENET_INDEXER_URL", ""),
 		IndexerKey:      env.Get("USENET_INDEXER_KEY", ""),
 		TGBotUsername:   env.Get("TELEGRAM_BOT_USERNAME", ""),

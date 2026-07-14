@@ -24,6 +24,7 @@ type Storage interface {
 	SignURL(path string, expiry time.Duration) string
 	SignURLNode(node, path string, expiry time.Duration) string
 	SignURLNodeUser(node, path, userID string, expiry time.Duration) string
+	DeletePrefix(ctx context.Context, prefix string) error
 }
 
 type Publisher interface {
@@ -47,6 +48,7 @@ type Deps struct {
 	Budget  int64
 
 	Internal      string
+	AdminKey      string
 	IndexerURL    string
 	IndexerKey    string
 	TGBotUsername string
@@ -92,6 +94,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerCredRoutes(mux, authMW, "/api/premiumize/credentials", credOps{s.Users.GetPMKey, s.Users.SetPMKey, s.Users.DeletePMKey, providers.ValidatePM})
 	s.registerCredRoutes(mux, authMW, "/api/torbox/credentials", credOps{s.Users.GetTBKey, s.Users.SetTBKey, s.Users.DeleteTBKey, providers.ValidateTB})
 	s.registerLibraryRoutes(mux, authMW)
+	s.registerAdminRoutes(mux)
 	s.registerUsenetRoutes(mux, authMW)
 	s.registerUsenetSearchRoutes(mux, authMW)
 	s.registerHDEncodeRoutes(mux, authMW)
