@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.10.0](https://github.com/torrin-app/torrin/compare/v1.9.0...v1.10.0) (2026-07-14)
+
+
+### Features
+
+* admin endpoints ([#48](https://github.com/torrin-app/torrin/issues/48)) ([ff94552](https://github.com/torrin-app/torrin/commit/ff945524296d7c2f69e2745952880f6b362e1c3e))
+
 ## [1.9.0](https://github.com/torrin-app/torrin/compare/v1.8.0...v1.9.0) (2026-07-13)
 
 
