@@ -7,6 +7,7 @@ import (
 	"hash/crc32"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -133,11 +134,11 @@ func TestPostFileSplitsAndBuildsNZB(t *testing.T) {
 	data := bytes.Repeat([]byte{0xAB}, size)
 	p := &Poster{cfg: Config{Group: "alt.binaries.boneless"}}
 
-	var calls int
+	var calls int64
 	poster := func(_ context.Context, build func(string) []byte) (string, error) {
-		calls++
+		n := atomic.AddInt64(&calls, 1)
 		build("<x@torrin>")
-		return fmt.Sprintf("<seg%d@torrin>", calls), nil
+		return fmt.Sprintf("<seg%d@torrin>", n), nil
 	}
 	out, err := p.postFile(context.Background(), poster, "from@x.com", 1, 1, FileInput{
 		Name: "movie.mkv", Size: int64(size),

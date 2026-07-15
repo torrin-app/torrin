@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Tensai75/nntpPool"
 	"github.com/torrin-app/torrin/shared/usenet/download"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
-	postAttempts = 5
-	postMaxConns = 5
+	postAttempts    = 5
+	postMaxConns    = 10
+	postConcurrency = 10
 )
 
 type Config struct {
@@ -103,42 +108,61 @@ func (p *Poster) postFile(ctx context.Context, poster articlePoster, from string
 	}
 	defer src.Close()
 	date := time.Now().UTC().Format(time.RFC1123Z)
-	buf := make([]byte, partSize)
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(postConcurrency)
+	var mu sync.Mutex
+	var segs []nzb.Segment
+	var done int64
+
 	var begin int64
+	var readErr error
 	for part := int64(1); ; part++ {
-		n, rerr := io.ReadFull(src, buf)
+		chunk := make([]byte, partSize)
+		n, rerr := io.ReadFull(src, chunk)
 		if n > 0 {
-			chunk, pnum, pbegin := buf[:n], part, begin
-			msgID, err := poster(ctx, func(msgID string) []byte {
-				return buildArticle(articleMeta{
-					From: from, Group: p.cfg.Group, MessageID: msgID, Date: date,
-					Subject: out.subject, Name: out.name,
-					FileNum: fileNum, FileTotal: fileTotal,
-					PartNum: pnum, PartTotal: total,
-					FileSize: f.Size, Begin: pbegin,
-				}, chunk)
-			})
-			if err != nil {
-				return out, fmt.Errorf("post %s part %d: %w", out.name, part, err)
-			}
-			out.segments = append(out.segments, nzb.Segment{
-				MessageID: strings.Trim(msgID, "<>"), Number: int(part), Bytes: int64(n),
+			chunk, pnum, pbegin := chunk[:n], part, begin
+			g.Go(func() error {
+				msgID, err := poster(gctx, func(msgID string) []byte {
+					return buildArticle(articleMeta{
+						From: from, Group: p.cfg.Group, MessageID: msgID, Date: date,
+						Subject: out.subject, Name: out.name,
+						FileNum: fileNum, FileTotal: fileTotal,
+						PartNum: pnum, PartTotal: total,
+						FileSize: f.Size, Begin: pbegin,
+					}, chunk)
+				})
+				if err != nil {
+					return fmt.Errorf("post %s part %d: %w", out.name, pnum, err)
+				}
+				mu.Lock()
+				segs = append(segs, nzb.Segment{MessageID: strings.Trim(msgID, "<>"), Number: int(pnum), Bytes: int64(len(chunk))})
+				mu.Unlock()
+				if d := atomic.AddInt64(&done, 1); d%100 == 0 {
+					slog.Info("cairn: post progress", "file", out.name, "part", d, "of", total)
+				}
+				return nil
 			})
 			begin += int64(n)
-			if part%100 == 0 {
-				slog.Info("cairn: post progress", "file", out.name, "part", part, "of", total)
-			}
 		}
 		if rerr != nil {
-			if rerr == io.EOF || rerr == io.ErrUnexpectedEOF {
-				break
+			if rerr != io.EOF && rerr != io.ErrUnexpectedEOF {
+				readErr = rerr
 			}
-			return out, rerr
+			break
 		}
-		if err := ctx.Err(); err != nil {
-			return out, err
+		if gctx.Err() != nil {
+			break
 		}
 	}
+	if err := g.Wait(); err != nil {
+		return out, err
+	}
+	if readErr != nil {
+		return out, readErr
+	}
+	sort.Slice(segs, func(i, j int) bool { return segs[i].Number < segs[j].Number })
+	out.segments = segs
 	return out, nil
 }
 
