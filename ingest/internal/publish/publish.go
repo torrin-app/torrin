@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/mediainfo"
 	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/video"
 )
@@ -60,9 +62,20 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 				return err
 			}
 		}
+		var mi *mediainfo.Info
+		if video.IsVideo(f.Name) {
+			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			info, err := mediainfo.Probe(pctx, f.Path)
+			cancel()
+			if err != nil {
+				slog.Warn("mediainfo probe failed", "file", f.Name, "err", err)
+			} else {
+				mi = info
+			}
+		}
 		os.Remove(f.Path)
 		total += f.Size
-		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size})
+		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, MediaInfo: mi})
 	}
 
 	name := job.Name
@@ -83,7 +96,7 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 		return err
 	}
 
-	return p.complete(ctx, job.InfoHash, name, files, total)
+	return p.complete(ctx, job.InfoHash, name, mfFiles, total)
 }
 
 func (p *Publisher) upload(ctx context.Context, key, path string) error {
@@ -119,10 +132,10 @@ func (s *stallReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (p *Publisher) complete(ctx context.Context, infoHash, name string, files []File, total int64) error {
+func (p *Publisher) complete(ctx context.Context, infoHash, name string, files []manifest.File, total int64) error {
 	jobFiles := make([]jobs.File, len(files))
 	for i, f := range files {
-		jobFiles[i] = jobs.File{Index: i, Name: f.Name, Size: f.Size}
+		jobFiles[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, MediaInfo: f.MediaInfo}
 	}
 	siblings, err := p.repo.ListByInfoHash(ctx, infoHash)
 	if err != nil {

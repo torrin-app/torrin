@@ -11,6 +11,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
+	"github.com/torrin-app/torrin/shared/mediainfo"
 )
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
@@ -45,7 +46,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			if wantEpisode && !fileMatchesEpisode(f.Name, season, episode) {
 				continue
 			}
-			files = append(files, searchFile{FileName: f.Name, Index: f.Index, Size: f.Size})
+			files = append(files, searchFile{FileName: f.Name, Index: f.Index, Size: f.Size, MediaInfo: f.MediaInfo})
 		}
 		if len(files) == 0 {
 			return
@@ -99,9 +100,10 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 }
 
 type searchFile struct {
-	FileName string `json:"file_name"`
-	Index    int    `json:"index"`
-	Size     int64  `json:"size,omitempty"`
+	FileName  string          `json:"file_name"`
+	Index     int             `json:"index"`
+	Size      int64           `json:"size,omitempty"`
+	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
 }
 
 type searchResult struct {

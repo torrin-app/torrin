@@ -15,6 +15,7 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/mediainfo"
 	"github.com/torrin-app/torrin/shared/qbit"
 	"github.com/torrin-app/torrin/shared/torrentclaw"
 )
@@ -118,15 +119,19 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 		}
 		out := make([]map[string]any, len(files))
 		for i, f := range files {
-			out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour))
+			out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour), f.MediaInfo)
 		}
 		m["files"] = out
 	}
 	return m
 }
 
-func fileEntry(index int, name string, size int64, link string) map[string]any {
-	return map[string]any{"index": index, "name": name, "path": "/" + name, "size": size, "link": link}
+func fileEntry(index int, name string, size int64, link string, mi *mediainfo.Info) map[string]any {
+	e := map[string]any{"index": index, "name": name, "path": "/" + name, "size": size, "link": link}
+	if mi != nil {
+		e["media_info"] = mi
+	}
+	return e
 }
 
 func (h *Handler) manifestMeta(ctx context.Context, infoHash string) (name string, size int64, files []jobs.File) {
@@ -144,7 +149,7 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) ([]map[strin
 	}
 	out := make([]map[string]any, len(fs))
 	for i, f := range fs {
-		out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURL(manifest.Key(infoHash, i, f.Name), 24*time.Hour))
+		out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURL(manifest.Key(infoHash, i, f.Name), 24*time.Hour), f.MediaInfo)
 	}
 	return out, true
 }

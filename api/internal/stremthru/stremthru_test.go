@@ -112,7 +112,7 @@ func TestImdbFromSID(t *testing.T) {
 }
 
 func TestFileEntry(t *testing.T) {
-	e := fileEntry(2, "the.100.s02e01.mkv", 3517219191, "https://beam/link")
+	e := fileEntry(2, "the.100.s02e01.mkv", 3517219191, "https://beam/link", nil)
 	if e["path"] != "/the.100.s02e01.mkv" {
 		t.Errorf("path = %v, want /the.100.s02e01.mkv", e["path"])
 	}

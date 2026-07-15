@@ -1,6 +1,10 @@
 package jobs
 
-import "time"
+import (
+	"time"
+
+	"github.com/torrin-app/torrin/shared/mediainfo"
+)
 
 type Status string
 
@@ -78,9 +82,10 @@ type Job struct {
 }
 
 type File struct {
-	Index int    `json:"index"`
-	Name  string `json:"name"`
-	Size  int64  `json:"size"`
+	Index     int             `json:"index"`
+	Name      string          `json:"name"`
+	Size      int64           `json:"size"`
+	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
 }
 
 type Stream struct {

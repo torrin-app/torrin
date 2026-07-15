@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/mediainfo"
 )
 
 const FileName = "manifest.json"
@@ -29,9 +30,10 @@ type Manifest struct {
 }
 
 type File struct {
-	FileName  string `json:"file_name"`
-	DirectURL string `json:"direct_url"`
-	FileSize  int64  `json:"file_size"`
+	FileName  string          `json:"file_name"`
+	DirectURL string          `json:"direct_url"`
+	FileSize  int64           `json:"file_size"`
+	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
 }
 
 func Path(infoHash string) string {
