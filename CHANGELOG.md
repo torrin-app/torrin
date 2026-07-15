@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/torrin-app/torrin/compare/v1.11.0...v1.12.0) (2026-07-15)
+
+
+### Features
+
+* media info (ffprobe) at ingest, exposed to addon ([#56](https://github.com/torrin-app/torrin/issues/56)) ([3d069c4](https://github.com/torrin-app/torrin/commit/3d069c499ff546917ac0dc4e81070943ea881d72))
+
+
+### Performance Improvements
+
+* parallel Cairn posting ([#54](https://github.com/torrin-app/torrin/issues/54)) ([d6c6cd3](https://github.com/torrin-app/torrin/commit/d6c6cd3a723a55197d7ea1339a4d1f2b22a4385b))
+
 ## [1.11.0](https://github.com/torrin-app/torrin/compare/v1.10.1...v1.11.0) (2026-07-15)
 
 
