@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -28,6 +29,12 @@ func (f *fakeStore) GetBytes(context.Context, string) ([]byte, error) {
 		return nil, errors.New("not found")
 	}
 	return f.bytes, nil
+}
+func (f *fakeStore) GetReader(context.Context, string) (io.ReadCloser, error) {
+	if f.bytes == nil {
+		return nil, errors.New("not found")
+	}
+	return io.NopCloser(bytes.NewReader(f.bytes)), nil
 }
 func (f *fakeStore) Put(context.Context, string, io.Reader, string) error { return nil }
 func (f *fakeStore) SignURL(path string, _ time.Duration) string          { return "signed://" + path }

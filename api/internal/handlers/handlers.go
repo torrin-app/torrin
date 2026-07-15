@@ -20,6 +20,7 @@ import (
 type Storage interface {
 	Has(ctx context.Context, key string) (bool, error)
 	GetBytes(ctx context.Context, key string) ([]byte, error)
+	GetReader(ctx context.Context, key string) (io.ReadCloser, error)
 	Put(ctx context.Context, key string, body io.Reader, contentType string) error
 	SignURL(path string, expiry time.Duration) string
 	SignURLNode(node, path string, expiry time.Duration) string
@@ -96,6 +97,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerLibraryRoutes(mux, authMW)
 	s.registerAdminRoutes(mux)
 	s.registerUsenetRoutes(mux, authMW)
+	s.registerCairnRoutes(mux, authMW)
 	s.registerUsenetSearchRoutes(mux, authMW)
 	s.registerHDEncodeRoutes(mux, authMW)
 	s.registerScenerlsRoutes(mux, authMW)

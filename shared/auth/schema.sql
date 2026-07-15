@@ -175,3 +175,18 @@ CREATE TABLE IF NOT EXISTS telegram_link_codes (
     user_id    TEXT NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS cairn_archives (
+    info_hash  TEXT PRIMARY KEY,
+    nzb_key    TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    size       BIGINT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS user_cairns (
+    user_id    TEXT NOT NULL,
+    info_hash  TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, info_hash)
+);

@@ -90,6 +90,14 @@ func (c *Client) GetBytes(ctx context.Context, key string) ([]byte, error) {
 	return io.ReadAll(o.Body)
 }
 
+func (c *Client) GetReader(ctx context.Context, key string) (io.ReadCloser, error) {
+	o, err := c.Get(ctx, key, "")
+	if err != nil {
+		return nil, err
+	}
+	return o.Body, nil
+}
+
 func (c *Client) Head(ctx context.Context, key string) (*Object, error) {
 	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &c.bucket, Key: &key})
 	if err != nil {

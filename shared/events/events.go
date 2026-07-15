@@ -31,3 +31,7 @@ type Failed struct {
 type Deleted struct {
 	JobID string `json:"job_id"`
 }
+
+type CairnRequest struct {
+	InfoHash string `json:"info_hash"`
+}

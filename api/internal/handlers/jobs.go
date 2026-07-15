@@ -104,6 +104,30 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		return
 	}
 
+	// 2b. Re-hydrate from a Cairn usenet archive instead of re-leeching the source.
+	if s.Users != nil {
+		if _, _, ok := s.Users.GetCairnArchive(r.Context(), infoHash); ok {
+			if !s.Slots.Acquire(r.Context(), user.ID, plan) {
+				web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
+				return
+			}
+			job := &jobs.Job{
+				UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: name,
+				Source: jobs.SourceUsenet, Status: jobs.StatusPending,
+				MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
+			}
+			err := s.Jobs.Create(r.Context(), job)
+			s.Slots.Release(user.ID)
+			if err != nil {
+				web.WriteError(w, 500, "failed to create job")
+				return
+			}
+			s.assign(job)
+			web.WriteJSON(w, 202, job)
+			return
+		}
+	}
+
 	// 3. New download — slot limit.
 	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
 		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))

@@ -39,7 +39,7 @@ jobs:
       - name: Build & push Go services (ko)
         run: |
           kotags="$(echo '${{ inputs.tags }}' | tr ' ' ',')"
-          for svc in api stream stremio webdav byos telegram catalog scheduler; do
+          for svc in api stream stremio webdav byos telegram catalog scheduler cairn; do
             echo ">> $svc ($kotags)"
             KO_DOCKER_REPO="$REPO/$svc" \
               go run github.com/google/ko@latest build \

@@ -171,6 +171,22 @@ services:
       qbittorrent: { condition: service_started }
     restart: *restart
 
+  cairn: # posts cached files to usenet (Cairn archive); isolated so api/ingest deploys don't interrupt uploads
+    image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/cairn:${TORRIN_TAG:-latest}"
+    environment:
+      <<: *s3
+      PORT: "8087"
+      DATABASE_URL: *db
+      NATS_URL: *nats
+      USENET_POST_HOST: "${USENET_POST_HOST:-}" # usenet posting server; empty = cairn disabled
+      USENET_POST_PORT: "${USENET_POST_PORT:-563}"
+      USENET_POST_USER: "${USENET_POST_USER:-}"
+      USENET_POST_PASS: "${USENET_POST_PASS:-}"
+      USENET_POST_GROUP: "${USENET_POST_GROUP:-alt.binaries.boneless}"
+      USENET_POST_FROM: "${USENET_POST_FROM:-}"
+    depends_on: *needs-db
+    restart: *restart
+
   stream:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/stream:${TORRIN_TAG:-latest}"
     environment:

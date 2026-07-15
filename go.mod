@@ -16,6 +16,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/lindell/go-burner-email-providers v1.0.119
+	github.com/madcowfred/yencode v0.0.0-20131230050637-de9ab62fc100
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/moistari/rls v0.6.0
 	github.com/nats-io/nats.go v1.52.0
@@ -23,7 +24,6 @@ require (
 	github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745
 	github.com/torrin-app/torrent-name-parser v0.5.3
 	golang.org/x/time v0.15.0
-	modernc.org/sqlite v1.34.4
 )
 
 require (
@@ -55,7 +55,6 @@ require (
 	github.com/gotd/ige v0.2.2 // indirect
 	github.com/gotd/neo v0.1.5 // indirect
 	github.com/gotd/td v0.132.0 // indirect
-	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
@@ -91,11 +90,9 @@ require (
 	golang.org/x/tools v0.45.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gorm.io/gorm v1.25.12 // indirect
-	modernc.org/gc/v3 v3.0.0-20240107210532-573471604cb6 // indirect
 	modernc.org/libc v1.61.8 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.8.2 // indirect
-	modernc.org/strutil v1.2.1 // indirect
-	modernc.org/token v1.1.0 // indirect
+	modernc.org/sqlite v1.34.4 // indirect
 	rsc.io/qr v0.2.0 // indirect
 )

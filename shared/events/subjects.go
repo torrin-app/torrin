@@ -9,5 +9,7 @@ const (
 	JobFailed     = "jobs.failed"
 	JobDeleted    = "jobs.deleted"
 
+	CairnRequested = "cairn.requested"
+
 	NodeHeartbeat = "nodes.heartbeat"
 )
