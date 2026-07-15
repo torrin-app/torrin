@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.0](https://github.com/torrin-app/torrin/compare/v1.10.1...v1.11.0) (2026-07-15)
+
+
+### Features
+
+* Cairn usenet-backed permanent archive ([#52](https://github.com/torrin-app/torrin/issues/52)) ([5c1dba9](https://github.com/torrin-app/torrin/commit/5c1dba9d8847c8ab706deafa659a5361aa10cfd1))
+
 ## [1.10.1](https://github.com/torrin-app/torrin/compare/v1.10.0...v1.10.1) (2026-07-14)
 
 
