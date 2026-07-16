@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.3](https://github.com/torrin-app/torrin/compare/v1.12.2...v1.12.3) (2026-07-16)
+
+
+### Bug Fixes
+
+* **usenet:** mark job processing during post-download (par2/unrar) ([#61](https://github.com/torrin-app/torrin/issues/61)) ([ce744f6](https://github.com/torrin-app/torrin/commit/ce744f60b02f635e6b4b5d63a276339b4f6f14e2))
+
 ## [1.12.2](https://github.com/torrin-app/torrin/compare/v1.12.1...v1.12.2) (2026-07-16)
 
 
