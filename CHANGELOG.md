@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.1](https://github.com/torrin-app/torrin/compare/v1.12.0...v1.12.1) (2026-07-16)
+
+
+### Bug Fixes
+
+* **usenet:** validate yEnc pcrc32 on decode ([#57](https://github.com/torrin-app/torrin/issues/57)) ([00c5166](https://github.com/torrin-app/torrin/commit/00c5166819b0dad4f70d90951cb5bb407f582d83))
+
 ## [1.12.0](https://github.com/torrin-app/torrin/compare/v1.11.0...v1.12.0) (2026-07-15)
 
 
