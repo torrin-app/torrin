@@ -32,19 +32,27 @@ type SubTrack struct {
 	Title    string `json:"title,omitempty"`
 }
 
-func resolution(h int) string {
+func isImageCodec(name string) bool {
+	switch name {
+	case "mjpeg", "mjpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "ppm":
+		return true
+	}
+	return false
+}
+
+func resolution(w, h int) string {
 	switch {
-	case h == 0:
+	case w == 0 && h == 0:
 		return ""
-	case h >= 2000:
+	case w >= 3400 || h >= 1700:
 		return "2160p"
-	case h >= 1400:
+	case w >= 2500 || h >= 1300:
 		return "1440p"
-	case h >= 1000:
+	case w >= 1800 || h >= 900:
 		return "1080p"
-	case h >= 700:
+	case w >= 1200 || h >= 620:
 		return "720p"
-	case h >= 500:
+	case w >= 950 || h >= 560:
 		return "576p"
 	default:
 		return "480p"
@@ -92,11 +100,11 @@ func parse(b []byte) (*Info, error) {
 	for _, s := range raw.Streams {
 		switch s.CodecType {
 		case "video":
-			if s.Width == 0 && s.Height == 0 {
+			if isImageCodec(s.CodecName) || (s.Width == 0 && s.Height == 0) {
 				continue
 			}
 			info.Width, info.Height, info.VideoCodec = s.Width, s.Height, s.CodecName
-			info.Resolution = resolution(s.Height)
+			info.Resolution = resolution(s.Width, s.Height)
 			if info.Bitrate == 0 {
 				info.Bitrate, _ = strconv.ParseInt(s.BitRate, 10, 64)
 			}

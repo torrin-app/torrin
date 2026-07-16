@@ -39,6 +39,28 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestParseSkipsCoverArt(t *testing.T) {
+	// A poster image muxed as an mjpeg attached_pic must not be read as the video.
+	// The real Black Panther file: real hevc + a flagged poster + an UNFLAGGED
+	// mjpeg thumbnail. Both mjpeg streams must be ignored as images.
+	const withCover = `{
+	  "streams": [
+	    {"codec_type":"video","codec_name":"hevc","width":1920,"height":1040},
+	    {"codec_type":"video","codec_name":"mjpeg","width":2000,"height":3000,"disposition":{"attached_pic":1}},
+	    {"codec_type":"video","codec_name":"mjpeg","width":640,"height":268},
+	    {"codec_type":"audio","codec_name":"aac","channels":2,"tags":{"language":"eng"}}
+	  ],
+	  "format": {"bit_rate":"2000000","duration":"8100"}
+	}`
+	info, err := parse([]byte(withCover))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.VideoCodec != "hevc" || info.Height != 1040 {
+		t.Errorf("picked an image stream instead of video: %s %dp", info.VideoCodec, info.Height)
+	}
+}
+
 func TestParseHDR10AndResolutions(t *testing.T) {
 	info, _ := parse([]byte(`{"streams":[{"codec_type":"video","codec_name":"h264","width":1920,"height":1080,"color_transfer":"smpte2084"}],"format":{}}`))
 	if info.HDR != "HDR10" {
@@ -47,7 +69,31 @@ func TestParseHDR10AndResolutions(t *testing.T) {
 	if info.Resolution != "1080p" {
 		t.Errorf("resolution = %q, want 1080p", info.Resolution)
 	}
-	if r := resolution(0); r != "" {
-		t.Errorf("zero height resolution = %q, want empty", r)
+	if r := resolution(0, 0); r != "" {
+		t.Errorf("zero resolution = %q, want empty", r)
+	}
+}
+
+func TestResolutionWidthAware(t *testing.T) {
+	cases := []struct {
+		w, h int
+		want string
+	}{
+		{3840, 2160, "2160p"},
+		{3840, 1600, "2160p"},
+		{2560, 1440, "1440p"},
+		{1920, 1080, "1080p"},
+		{1920, 804, "1080p"},
+		{1440, 1080, "1080p"},
+		{1280, 720, "720p"},
+		{1280, 536, "720p"},
+		{1024, 576, "576p"},
+		{854, 480, "480p"},
+		{640, 480, "480p"},
+	}
+	for _, c := range cases {
+		if got := resolution(c.w, c.h); got != c.want {
+			t.Errorf("resolution(%d,%d) = %q, want %q", c.w, c.h, got, c.want)
+		}
 	}
 }
