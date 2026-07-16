@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/torrin-app/torrin/compare/v1.12.1...v1.12.2) (2026-07-16)
+
+
+### Bug Fixes
+
+* **mediainfo:** ignore image streams, width-aware resolution ([#59](https://github.com/torrin-app/torrin/issues/59)) ([5276a7a](https://github.com/torrin-app/torrin/commit/5276a7adfd8cfc686ec5f898dcfab6297ff79acf))
+
 ## [1.12.1](https://github.com/torrin-app/torrin/compare/v1.12.0...v1.12.1) (2026-07-16)
 
 
