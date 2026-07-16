@@ -170,6 +170,9 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 		return nil, fmt.Errorf("download: %w", err)
 	}
 
+	job.Status = jobs.StatusProcessing
+	r.repo.Update(ctx, job)
+
 	pwds := postproc.PasswordCandidates(parsed.Meta["password"], job.Name, parsed.Name())
 	files, err := postproc.Process(dir, pwds, job.Name)
 	if err != nil {
