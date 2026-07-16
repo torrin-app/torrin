@@ -7,11 +7,20 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/storage"
 )
+
+var copyBufPool = sync.Pool{New: func() any { b := make([]byte, 256*1024); return &b }}
+
+func streamCopy(dst io.Writer, src io.Reader) (int64, error) {
+	buf := copyBufPool.Get().(*[]byte)
+	defer copyBufPool.Put(buf)
+	return io.CopyBuffer(dst, src, *buf)
+}
 
 type Storage interface {
 	Get(ctx context.Context, key, rng string) (*storage.Object, error)
@@ -129,7 +138,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, key string) {
 		h.Set("Content-Length", strconv.FormatInt(obj.Size, 10))
 	}
 	w.WriteHeader(status)
-	io.Copy(w, obj.Body)
+	streamCopy(w, obj.Body)
 }
 
 func (s *Server) recordView(r *http.Request, key string) {

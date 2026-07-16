@@ -2,7 +2,6 @@ package server
 
 import (
 	"archive/zip"
-	"io"
 	"net/http"
 	"strings"
 
@@ -61,7 +60,7 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 			obj.Body.Close()
 			return
 		}
-		_, copyErr := io.Copy(entry, obj.Body)
+		_, copyErr := streamCopy(entry, obj.Body)
 		obj.Body.Close()
 		if copyErr != nil {
 			return

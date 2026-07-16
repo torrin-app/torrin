@@ -21,13 +21,23 @@ func RunHealth(name, defaultPort string) {
 	Run(name, defaultPort, mux)
 }
 
-func Run(name, defaultPort string, h http.Handler) {
+type Option func(*http.Server)
+
+func WithWriteTimeout(d time.Duration) Option {
+	return func(s *http.Server) { s.WriteTimeout = d }
+}
+
+func Run(name, defaultPort string, h http.Handler, opts ...Option) {
 	addr := ":" + env.Get("PORT", defaultPort)
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      h,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+	}
+	for _, o := range opts {
+		o(srv)
 	}
 
 	go func() {

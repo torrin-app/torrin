@@ -13,5 +13,5 @@ func main() {
 
 	srv := server.New(store, env.Get("CORS_ORIGIN", "*"), env.Get("API_URL", ""))
 	slog.Info("stream server started")
-	service.Run("stream", "8084", srv.Handler())
+	service.Run("stream", "8084", srv.Handler(), service.WithWriteTimeout(0))
 }
