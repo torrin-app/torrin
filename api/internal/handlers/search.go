@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		if len(files) == 0 {
 			return
 		}
+		sort.Slice(files, func(a, b int) bool { return files[a].Size > files[b].Size })
 		seen[j.InfoHash] = true
 		out = append(out, searchResult{
 			Name:     j.Name,
