@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.13.0](https://github.com/torrin-app/torrin/compare/v1.12.3...v1.13.0) (2026-07-17)
+
+
+### Features
+
+* **stream:** optional rclone read-through cache (RCLONE_CACHE_URL) ([#65](https://github.com/torrin-app/torrin/issues/65)) ([450cad7](https://github.com/torrin-app/torrin/commit/450cad7cb7db4ed723fe8997c4fd8348097b7ac2))
+
+
+### Bug Fixes
+
+* **stream:** disable write timeout for streaming, use 256KB buffered copy ([#63](https://github.com/torrin-app/torrin/issues/63)) ([29f5d16](https://github.com/torrin-app/torrin/commit/29f5d16227147e3ae5e5dc26b9410a70e76e4f12))
+
 ## [1.12.3](https://github.com/torrin-app/torrin/compare/v1.12.2...v1.12.3) (2026-07-16)
 
 
