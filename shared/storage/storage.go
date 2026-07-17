@@ -3,8 +3,11 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
+	"net/http"
 	"strings"
 	"time"
 
@@ -21,9 +24,21 @@ type Client struct {
 	publicURL  string
 	signingKey []byte
 	nodeBases  map[string]string
+	rcloneURL  string
+	hc         *http.Client
 }
 
 func (c *Client) SetNodeBases(m map[string]string) { c.nodeBases = m }
+
+func (c *Client) SetRcloneCache(rcloneURL string) {
+	c.rcloneURL = strings.TrimRight(rcloneURL, "/")
+	c.hc = &http.Client{Transport: &http.Transport{
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+		ResponseHeaderTimeout: 30 * time.Second,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+	}}
+}
 
 func (c *Client) baseFor(node string) string {
 	if node != "" {
@@ -60,6 +75,9 @@ type Object struct {
 }
 
 func (c *Client) Get(ctx context.Context, key, rng string) (*Object, error) {
+	if c.rcloneURL != "" {
+		return c.rcloneGet(ctx, key, rng)
+	}
 	in := &s3.GetObjectInput{Bucket: &c.bucket, Key: &key}
 	if rng != "" {
 		in.Range = &rng
@@ -98,7 +116,53 @@ func (c *Client) GetReader(ctx context.Context, key string) (io.ReadCloser, erro
 	return o.Body, nil
 }
 
+func (c *Client) rcloneGet(ctx context.Context, key, rng string) (*Object, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.rcloneURL+"/"+escapePath(key), nil)
+	if err != nil {
+		return nil, err
+	}
+	if rng != "" {
+		req.Header.Set("Range", rng)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("rclone get %s: %d", key, resp.StatusCode)
+	}
+	return &Object{
+		Body:         resp.Body,
+		Size:         resp.ContentLength,
+		ContentType:  resp.Header.Get("Content-Type"),
+		ContentRange: resp.Header.Get("Content-Range"),
+	}, nil
+}
+
+func (c *Client) rcloneHead(ctx context.Context, key string) (*Object, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, c.rcloneURL+"/"+escapePath(key), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("rclone head %s: %d", key, resp.StatusCode)
+	}
+	return &Object{
+		Size:        resp.ContentLength,
+		ContentType: resp.Header.Get("Content-Type"),
+	}, nil
+}
+
 func (c *Client) Head(ctx context.Context, key string) (*Object, error) {
+	if c.rcloneURL != "" {
+		return c.rcloneHead(ctx, key)
+	}
 	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &c.bucket, Key: &key})
 	if err != nil {
 		return nil, err
