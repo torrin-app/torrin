@@ -94,7 +94,7 @@ func main() {
 		return list
 	}
 	dlConns := atoiOr(os.Getenv("DOWNLOAD_CONNS"), 6)
-	debridRunner := debrid.NewRunner(providersFor, pub, repo, env.Get("SCRATCH_DIR", "/scratch"), ban, dlConns)
+	debridRunner := debrid.NewRunner(providersFor, pub, repo, env.Get("SCRATCH_DIR", "/scratch"), ban, dlConns, users.AddDebridUsage)
 
 	var torrentRunner *torrent.Runner
 	if qbURL := os.Getenv("QBIT_URL"); qbURL != "" {

@@ -94,6 +94,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerCredRoutes(mux, authMW, "/api/alldebrid/credentials", credOps{s.Users.GetADKey, s.Users.SetADKey, s.Users.DeleteADKey, providers.ValidateAD})
 	s.registerCredRoutes(mux, authMW, "/api/premiumize/credentials", credOps{s.Users.GetPMKey, s.Users.SetPMKey, s.Users.DeletePMKey, providers.ValidatePM})
 	s.registerCredRoutes(mux, authMW, "/api/torbox/credentials", credOps{s.Users.GetTBKey, s.Users.SetTBKey, s.Users.DeleteTBKey, providers.ValidateTB})
+	mux.Handle("GET /api/debrid/usage", authMW(http.HandlerFunc(s.debridUsage)))
 	s.registerLibraryRoutes(mux, authMW)
 	s.registerAdminRoutes(mux)
 	s.registerUsenetRoutes(mux, authMW)

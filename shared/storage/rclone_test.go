@@ -61,3 +61,29 @@ func TestRcloneCacheRead(t *testing.T) {
 		t.Error("expected error on 404 from rclone")
 	}
 }
+
+func TestRcloneCacheFallbackToOrigin(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "5")
+		w.Header().Set("Content-Type", "video/x-matroska")
+		w.Write([]byte("world"))
+	}))
+	defer origin.Close()
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer broken.Close()
+
+	c := NewClient(origin.URL, "garage", "k", "s", "bucket", "", "")
+	c.SetRcloneCache(broken.URL)
+
+	o, err := c.Get(context.Background(), "abc/file_0/movie.mkv", "")
+	if err != nil {
+		t.Fatalf("expected fallback to origin, got %v", err)
+	}
+	b, _ := io.ReadAll(o.Body)
+	o.Body.Close()
+	if string(b) != "world" {
+		t.Errorf("body = %q, want world (served direct from origin)", b)
+	}
+}

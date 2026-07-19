@@ -98,7 +98,7 @@ func TestRunDownloadsAndPublishes(t *testing.T) {
 	pub := &capturePub{}
 	provsFor := func(context.Context, *jobs.Job) []providers.Provider { return []providers.Provider{prov} }
 	prog := &fakeProgress{}
-	r := NewRunner(provsFor, pub, prog, t.TempDir(), nil, 1)
+	r := NewRunner(provsFor, pub, prog, t.TempDir(), nil, 1, nil)
 
 	handled, err := r.Run(context.Background(), &jobs.Job{ID: "j1", InfoHash: "hash1"})
 	if err != nil {
@@ -125,7 +125,7 @@ func TestRunNotCached(t *testing.T) {
 	provsFor := func(context.Context, *jobs.Job) []providers.Provider {
 		return []providers.Provider{&fakeProv{res: nil}}
 	}
-	r := NewRunner(provsFor, &capturePub{}, &fakeProgress{}, t.TempDir(), nil, 1)
+	r := NewRunner(provsFor, &capturePub{}, &fakeProgress{}, t.TempDir(), nil, 1, nil)
 	handled, err := r.Run(context.Background(), &jobs.Job{ID: "j1", InfoHash: "h"})
 	if err != nil || handled {
 		t.Fatalf("want (false,nil), got (%v,%v)", handled, err)
@@ -137,7 +137,7 @@ func TestRunOverPlanLimit(t *testing.T) {
 		Files: []providers.Link{{Name: "big.mkv", Size: 5_000_000_000}},
 	}}
 	provsFor := func(context.Context, *jobs.Job) []providers.Provider { return []providers.Provider{prov} }
-	r := NewRunner(provsFor, &capturePub{}, &fakeProgress{}, t.TempDir(), nil, 1)
+	r := NewRunner(provsFor, &capturePub{}, &fakeProgress{}, t.TempDir(), nil, 1, nil)
 	handled, err := r.Run(context.Background(), &jobs.Job{ID: "j1", InfoHash: "h", MaxBytes: 1_000_000_000})
 	if !handled || err == nil {
 		t.Fatalf("want handled with error, got (%v,%v)", handled, err)

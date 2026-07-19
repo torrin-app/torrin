@@ -190,3 +190,11 @@ CREATE TABLE IF NOT EXISTS user_cairns (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, info_hash)
 );
+
+CREATE TABLE IF NOT EXISTS debrid_usage (
+    user_id  TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    month    TEXT NOT NULL,
+    bytes    BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, provider, month)
+);

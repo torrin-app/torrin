@@ -76,8 +76,16 @@ type Object struct {
 
 func (c *Client) Get(ctx context.Context, key, rng string) (*Object, error) {
 	if c.rcloneURL != "" {
-		return c.rcloneGet(ctx, key, rng)
+		o, err := c.rcloneGet(ctx, key, rng)
+		if err == nil || c.s3 == nil {
+			return o, err
+		}
+		slog.Warn("rclone cache read failed, serving direct from origin", "key", key, "err", err)
 	}
+	return c.s3Get(ctx, key, rng)
+}
+
+func (c *Client) s3Get(ctx context.Context, key, rng string) (*Object, error) {
 	in := &s3.GetObjectInput{Bucket: &c.bucket, Key: &key}
 	if rng != "" {
 		in.Range = &rng
@@ -161,8 +169,16 @@ func (c *Client) rcloneHead(ctx context.Context, key string) (*Object, error) {
 
 func (c *Client) Head(ctx context.Context, key string) (*Object, error) {
 	if c.rcloneURL != "" {
-		return c.rcloneHead(ctx, key)
+		o, err := c.rcloneHead(ctx, key)
+		if err == nil || c.s3 == nil {
+			return o, err
+		}
+		slog.Warn("rclone cache head failed, serving direct from origin", "key", key, "err", err)
 	}
+	return c.s3Head(ctx, key)
+}
+
+func (c *Client) s3Head(ctx context.Context, key string) (*Object, error) {
 	out, err := c.s3.HeadObject(ctx, &s3.HeadObjectInput{Bucket: &c.bucket, Key: &key})
 	if err != nil {
 		return nil, err

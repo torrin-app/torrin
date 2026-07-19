@@ -83,16 +83,24 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		URL      string          `json:"url"`
 		Name     string          `json:"name"`
 		Filter   string          `json:"filter"`
 		Criteria json.RawMessage `json:"criteria"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		web.WriteError(w, 400, "invalid body")
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
+		web.WriteError(w, 400, "url required")
 		return
 	}
+	if _, err := rss.FetchFeed(r.Context(), req.URL); err != nil {
+		web.WriteError(w, 400, "invalid feed url")
+		return
+	}
+	if req.Name == "" {
+		req.Name = req.URL
+	}
 	crit, _ := json.Marshal(rss.ParseFilter(req.Criteria))
-	if err := s.Users.UpdateRSSFeed(r.Context(), r.PathValue("id"), middleware.GetUser(r).ID, req.Name, req.Filter, crit); err != nil {
+	if err := s.Users.UpdateRSSFeed(r.Context(), r.PathValue("id"), middleware.GetUser(r).ID, req.URL, req.Name, req.Filter, crit); err != nil {
 		web.WriteError(w, 500, "failed to save")
 		return
 	}

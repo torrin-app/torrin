@@ -28,13 +28,13 @@ func (s *Store) AddRSSFeed(ctx context.Context, f *RSSFeed) error {
 	return err
 }
 
-func (s *Store) UpdateRSSFeed(ctx context.Context, id, userID, name, filter string, criteria json.RawMessage) error {
+func (s *Store) UpdateRSSFeed(ctx context.Context, id, userID, url, name, filter string, criteria json.RawMessage) error {
 	if len(criteria) == 0 {
 		criteria = json.RawMessage("{}")
 	}
 	_, err := s.pool.Exec(ctx,
-		`UPDATE rss_feeds SET name=$1, filter=$2, criteria=$3 WHERE id=$4 AND user_id=$5`,
-		name, filter, criteria, id, userID)
+		`UPDATE rss_feeds SET url=$1, name=$2, filter=$3, criteria=$4 WHERE id=$5 AND user_id=$6`,
+		url, name, filter, criteria, id, userID)
 	return err
 }
 

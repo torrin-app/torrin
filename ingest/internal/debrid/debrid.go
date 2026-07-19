@@ -35,6 +35,8 @@ type jobStore interface {
 
 type ProvidersFor func(ctx context.Context, job *jobs.Job) []providers.Provider
 
+type UsageRecorder func(ctx context.Context, userID, provider string, bytes int64) error
+
 type Runner struct {
 	providersFor ProvidersFor
 	pub          Publisher
@@ -43,13 +45,14 @@ type Runner struct {
 	ban          screen.BanFunc
 	conns        int
 	http         *http.Client
+	usage        UsageRecorder
 }
 
-func NewRunner(providersFor ProvidersFor, pub Publisher, repo jobStore, scratch string, ban screen.BanFunc, conns int) *Runner {
+func NewRunner(providersFor ProvidersFor, pub Publisher, repo jobStore, scratch string, ban screen.BanFunc, conns int, usage UsageRecorder) *Runner {
 	if conns < 1 {
 		conns = 1
 	}
-	return &Runner{providersFor: providersFor, pub: pub, repo: repo, scratch: scratch, ban: ban, conns: conns, http: &http.Client{}}
+	return &Runner{providersFor: providersFor, pub: pub, repo: repo, scratch: scratch, ban: ban, conns: conns, http: &http.Client{}, usage: usage}
 }
 
 func (r *Runner) Run(ctx context.Context, job *jobs.Job) (bool, error) {
@@ -93,6 +96,16 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job) (bool, error) {
 	files, err := r.download(ctx, dir, job.ID, res.Files)
 	if err != nil {
 		return true, err
+	}
+
+	if r.usage != nil {
+		var got int64
+		for _, f := range files {
+			got += f.Size
+		}
+		if err := r.usage(context.WithoutCancel(ctx), job.UserID, prov.Name(), got); err != nil {
+			slog.Warn("debrid usage record failed", "job", job.ID, "err", err)
+		}
 	}
 
 	slog.Info("debrid download complete, publishing", "job", job.ID, "files", len(files))
