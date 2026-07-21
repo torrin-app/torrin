@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.15.0](https://github.com/torrin-app/torrin/compare/v1.14.0...v1.15.0) (2026-07-21)
+
+
+### Features
+
+* resumable, ranged zip downloads ([#68](https://github.com/torrin-app/torrin/issues/68)) ([97f9ba1](https://github.com/torrin-app/torrin/commit/97f9ba1653a26dd0a5665b8ac69e6b3718a48b95))
+
 ## [1.14.0](https://github.com/torrin-app/torrin/compare/v1.13.0...v1.14.0) (2026-07-19)
 
 
