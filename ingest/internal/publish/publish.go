@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log/slog"
 	"os"
@@ -57,10 +58,15 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 	var total int64
 	for i, f := range files {
 		key := manifest.Key(job.InfoHash, i, f.Name)
+		var crc uint32
 		if obj, err := p.store.Head(ctx, key); err != nil || obj.Size != f.Size {
-			if err := p.upload(ctx, key, f.Path); err != nil {
+			c, err := p.upload(ctx, key, f.Path)
+			if err != nil {
 				return err
 			}
+			crc = c
+		} else if c, err := crcFile(f.Path); err == nil {
+			crc = c
 		}
 		var mi *mediainfo.Info
 		if video.IsVideo(f.Name) {
@@ -75,7 +81,7 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 		}
 		os.Remove(f.Path)
 		total += f.Size
-		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, MediaInfo: mi})
+		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, Crc32: crc, MediaInfo: mi})
 	}
 
 	name := job.Name
@@ -99,10 +105,10 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 	return p.complete(ctx, job.InfoHash, name, mfFiles, total)
 }
 
-func (p *Publisher) upload(ctx context.Context, key, path string) error {
+func (p *Publisher) upload(ctx context.Context, key, path string) (uint32, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer f.Close()
 
@@ -110,12 +116,26 @@ func (p *Publisher) upload(ctx context.Context, key, path string) error {
 	defer cancel()
 	watchdog := time.AfterFunc(uploadStallTimeout, cancel)
 	defer watchdog.Stop()
-	r := &stallReader{r: f, timer: watchdog, timeout: uploadStallTimeout}
+	h := crc32.NewIEEE()
+	r := &stallReader{r: io.TeeReader(f, h), timer: watchdog, timeout: uploadStallTimeout}
 
 	if err := p.store.StreamUpload(ctx, key, r, video.ContentType(path)); err != nil {
-		return fmt.Errorf("upload %s: %w", key, err)
+		return 0, fmt.Errorf("upload %s: %w", key, err)
 	}
-	return nil
+	return h.Sum32(), nil
+}
+
+func crcFile(path string) (uint32, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	h := crc32.NewIEEE()
+	if _, err := io.Copy(h, f); err != nil {
+		return 0, err
+	}
+	return h.Sum32(), nil
 }
 
 type stallReader struct {

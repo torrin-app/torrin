@@ -33,6 +33,7 @@ type File struct {
 	FileName  string          `json:"file_name"`
 	DirectURL string          `json:"direct_url"`
 	FileSize  int64           `json:"file_size"`
+	Crc32     uint32          `json:"crc32,omitempty"`
 	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
 }
 
