@@ -140,6 +140,7 @@ services:
   ingest:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/ingest:${TORRIN_TAG:-latest}"
     user: "0:0" # writes to /scratch + reads the shared qbit downloads
+    dns_opt: ["single-request-reopen"] # split A/AAAA source ports so usenet DNS lookups survive load
     environment:
       <<: *s3
       PORT: "8083"
@@ -173,6 +174,7 @@ services:
 
   cairn: # posts cached files to usenet (Cairn archive); isolated so api/ingest deploys don't interrupt uploads
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/cairn:${TORRIN_TAG:-latest}"
+    dns_opt: ["single-request-reopen"] # split A/AAAA source ports so usenet DNS lookups survive load
     environment:
       <<: *s3
       PORT: "8087"
