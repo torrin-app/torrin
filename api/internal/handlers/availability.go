@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -29,12 +28,12 @@ func (s *Server) signJob(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "job not complete")
 		return
 	}
-	web.WriteJSON(w, 200, map[string]any{"job_id": job.ID, "streams": signStreams(s.Store, job)})
+	web.WriteJSON(w, 200, map[string]any{"job_id": job.ID, "streams": signStreams(s.Store, job, r)})
 }
 
 func (s *Server) availabilityOne(w http.ResponseWriter, r *http.Request) {
 	hash := r.PathValue("hash")
-	files, ok := s.cachedFiles(r.Context(), hash)
+	files, ok := s.cachedFiles(r, hash)
 	if !ok {
 		web.WriteJSON(w, 200, map[string]any{"available": false, "info_hash": hash})
 		return
@@ -56,14 +55,14 @@ func (s *Server) availabilityBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make(map[string]any, len(req.Hashes))
 	for _, h := range req.Hashes {
-		files, ok := s.cachedFiles(r.Context(), h)
+		files, ok := s.cachedFiles(r, h)
 		out[h] = map[string]any{"available": ok, "files": files}
 	}
 	web.WriteJSON(w, 200, out)
 }
 
-func (s *Server) cachedFiles(ctx context.Context, infoHash string) ([]map[string]any, bool) {
-	data, err := s.Store.GetBytes(ctx, manifest.Path(infoHash))
+func (s *Server) cachedFiles(r *http.Request, infoHash string) ([]map[string]any, bool) {
+	data, err := s.Store.GetBytes(r.Context(), manifest.Path(infoHash))
 	if err != nil {
 		return nil, false
 	}
@@ -75,7 +74,7 @@ func (s *Server) cachedFiles(ctx context.Context, infoHash string) ([]map[string
 	for i, f := range m.Files {
 		out[i] = map[string]any{
 			"file_name": f.FileName, "size": f.FileSize,
-			"url": s.Store.SignURL(manifest.Key(infoHash, i, f.FileName), 24*time.Hour),
+			"url": georouteURL(r, s.Store.SignURL(manifest.Key(infoHash, i, f.FileName), 24*time.Hour)),
 		}
 	}
 	return out, true

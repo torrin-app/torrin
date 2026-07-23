@@ -64,7 +64,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			web.WriteError(w, 500, "cache read failed")
 			return
 		}
-		job.StreamURLs = signStreams(s.Store, job)
+		job.StreamURLs = signStreams(s.Store, job, r)
 		web.WriteJSON(w, 200, job)
 		return
 	}
@@ -73,7 +73,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 	if existing, err := s.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
 		if existing.UserID == user.ID {
 			if !existing.Status.Active() {
-				existing.StreamURLs = signStreams(s.Store, existing)
+				existing.StreamURLs = signStreams(s.Store, existing, r)
 			}
 			web.WriteJSON(w, 200, existing)
 			return
@@ -98,7 +98,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			s.Slots.Release(user.ID)
 		}
 		if !linked.Status.Active() {
-			linked.StreamURLs = signStreams(s.Store, linked)
+			linked.StreamURLs = signStreams(s.Store, linked, r)
 		}
 		web.WriteJSON(w, 200, linked)
 		return
@@ -163,7 +163,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !job.Status.Active() {
-		job.StreamURLs = signStreams(s.Store, job)
+		job.StreamURLs = signStreams(s.Store, job, r)
 	}
 	web.WriteJSON(w, 200, job)
 }
@@ -179,7 +179,7 @@ func (s *Server) jobZip(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 409, "job not complete")
 		return
 	}
-	http.Redirect(w, r, s.Store.SignURLNodeUser(job.Node, manifest.ZipKey(job.InfoHash), user.ID, 24*time.Hour), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, georouteURL(r, s.Store.SignURLNodeUser(job.Node, manifest.ZipKey(job.InfoHash), user.ID, 24*time.Hour)), http.StatusTemporaryRedirect)
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +205,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, j := range list {
 		if !j.Status.Active() && len(j.Files) > 0 {
-			j.StreamURLs = signStreams(s.Store, j)
+			j.StreamURLs = signStreams(s.Store, j, r)
 		}
 	}
 	web.WriteJSON(w, 200, list)

@@ -90,7 +90,7 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 			web.WriteError(w, 500, "cache read failed")
 			return
 		}
-		job.StreamURLs = signStreams(s.Store, job)
+		job.StreamURLs = signStreams(s.Store, job, r)
 		web.WriteJSON(w, 200, job)
 		return
 	}

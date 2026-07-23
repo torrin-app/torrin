@@ -60,14 +60,14 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func signStreams(store Storage, job *jobs.Job) []jobs.Stream {
+func signStreams(store Storage, job *jobs.Job, r *http.Request) []jobs.Stream {
 	out := make([]jobs.Stream, len(job.Files))
 	for i, f := range job.Files {
 		key := manifest.Key(job.InfoHash, i, f.Name)
 		out[i] = jobs.Stream{
 			FileName:  f.Name,
 			Size:      f.Size,
-			SignedURL: store.SignURLNode(job.Node, key, 24*time.Hour),
+			SignedURL: georouteURL(r, store.SignURLNode(job.Node, key, 24*time.Hour)),
 		}
 	}
 	return out

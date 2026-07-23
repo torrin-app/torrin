@@ -86,7 +86,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			return
 		}
 		job.Name = name
-		job.StreamURLs = signStreams(s.Store, job)
+		job.StreamURLs = signStreams(s.Store, job, r)
 		web.WriteJSON(w, 200, job)
 		return
 	}
@@ -94,7 +94,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 	if existing, err := s.Jobs.GetByInfoHash(r.Context(), hash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
 		if existing.UserID == user.ID {
 			if !existing.Status.Active() {
-				existing.StreamURLs = signStreams(s.Store, existing)
+				existing.StreamURLs = signStreams(s.Store, existing, r)
 			}
 			web.WriteJSON(w, 200, existing)
 			return
@@ -119,7 +119,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			s.Slots.Release(user.ID)
 		}
 		if !linked.Status.Active() {
-			linked.StreamURLs = signStreams(s.Store, linked)
+			linked.StreamURLs = signStreams(s.Store, linked, r)
 		}
 		web.WriteJSON(w, 200, linked)
 		return
