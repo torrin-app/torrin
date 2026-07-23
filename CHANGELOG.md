@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.16.0](https://github.com/torrin-app/torrin/compare/v1.15.0...v1.16.0) (2026-07-23)
+
+
+### Features
+
+* geo-route download links to nearest relay ([#70](https://github.com/torrin-app/torrin/issues/70)) ([f69bbce](https://github.com/torrin-app/torrin/commit/f69bbce3e92d1bd2a7e58c1169c5673d08041379))
+
+
+### Bug Fixes
+
+* single-request-reopen dns for ingest + cairn ([#72](https://github.com/torrin-app/torrin/issues/72)) ([4bac804](https://github.com/torrin-app/torrin/commit/4bac8048f3e005f38b75fbb80e17e779070ffc51))
+
 ## [1.15.0](https://github.com/torrin-app/torrin/compare/v1.14.0...v1.15.0) (2026-07-21)
 
 
