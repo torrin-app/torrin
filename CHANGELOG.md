@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.0](https://github.com/torrin-app/torrin/compare/v1.16.0...v1.17.0) (2026-07-24)
+
+
+### Features
+
+* referral partner tracking ([#73](https://github.com/torrin-app/torrin/issues/73)) ([85bc0a3](https://github.com/torrin-app/torrin/commit/85bc0a36e9ae7283c4be2f314c2312a98738a0a6))
+
 ## [1.16.0](https://github.com/torrin-app/torrin/compare/v1.15.0...v1.16.0) (2026-07-23)
 
 
