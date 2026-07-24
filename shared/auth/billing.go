@@ -30,8 +30,9 @@ func (s *Store) HasProcessedSale(ctx context.Context, saleID string) bool {
 	return n > 0
 }
 
-func (s *Store) RecordProcessedSale(ctx context.Context, saleID string) {
-	s.pool.Exec(ctx, `INSERT INTO processed_sales (sale_id) VALUES ($1) ON CONFLICT DO NOTHING`, saleID)
+func (s *Store) RecordProcessedSale(ctx context.Context, saleID, userID string, amountCents int, currency string) {
+	s.pool.Exec(ctx, `INSERT INTO processed_sales (sale_id, user_id, amount_cents, currency)
+		VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`, saleID, userID, amountCents, currency)
 }
 
 func (s *Store) GetReferrerID(ctx context.Context, refereeID string) string {

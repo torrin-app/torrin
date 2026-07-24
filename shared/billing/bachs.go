@@ -195,6 +195,7 @@ func (b *BachsHandler) activate(ctx context.Context, eventID string, meta map[st
 		slog.Error("bachs update plan", "err", err)
 		return
 	}
-	b.users.RecordProcessedSale(ctx, eventID)
+	cents, _ := plans.PriceCents(planID, period, days)
+	b.users.RecordProcessedSale(ctx, eventID, user.ID, cents, "USD")
 	slog.Info("plan activated via bachs", "email", email, "plan", planID, "period", period, "expires", expiresAt.Format("2006-01-02"))
 }

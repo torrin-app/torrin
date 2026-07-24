@@ -120,7 +120,8 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 		return
 	}
 	if saleID != "" {
-		g.userStore.RecordProcessedSale(ctx, saleID)
+		saleCents, _ := strconv.Atoi(v.Get("price"))
+		g.userStore.RecordProcessedSale(ctx, saleID, user.ID, saleCents, v.Get("currency"))
 	}
 	slog.Info("plan activated", "email", email, "plan", planID, "recurrence", recurrence, "expires", expiresAt.Format("2006-01-02"))
 

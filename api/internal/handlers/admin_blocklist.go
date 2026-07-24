@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/torrin-app/torrin/api/internal/web"
@@ -59,6 +60,24 @@ func (s *Server) adminReferrals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"referrers": refs})
+}
+
+func (s *Server) adminPartnerReport(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if code == "" {
+		web.WriteError(w, 400, "code required")
+		return
+	}
+	pct := 30
+	if v, err := strconv.Atoi(r.URL.Query().Get("pct")); err == nil && v > 0 && v <= 100 {
+		pct = v
+	}
+	rep, err := s.Users.PartnerReport(r.Context(), code, pct)
+	if err != nil {
+		web.WriteError(w, 500, "internal error")
+		return
+	}
+	web.WriteJSON(w, 200, rep)
 }
 
 func (s *Server) adminSendKeys(w http.ResponseWriter, r *http.Request) {

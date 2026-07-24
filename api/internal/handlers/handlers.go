@@ -70,6 +70,8 @@ func New(d Deps) *Server { return &Server{d} }
 
 func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.HandleFunc("POST /api/auth/register", s.register)
+	mux.HandleFunc("GET /r/{code}", s.referralRedirect)
+	mux.HandleFunc("GET /api/partner/report", s.partnerReport)
 	mux.HandleFunc("GET /api/plans", s.plans)
 	mux.HandleFunc("GET /api/hosters", s.hosters)
 	mux.HandleFunc("GET /api/sites", s.sites)

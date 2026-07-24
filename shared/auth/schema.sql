@@ -39,6 +39,25 @@ CREATE TABLE IF NOT EXISTS processed_sales (
     sale_id    TEXT PRIMARY KEY,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE processed_sales ADD COLUMN IF NOT EXISTS user_id      TEXT NOT NULL DEFAULT '';
+ALTER TABLE processed_sales ADD COLUMN IF NOT EXISTS amount_cents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE processed_sales ADD COLUMN IF NOT EXISTS currency     TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_processed_sales_user ON processed_sales(user_id);
+
+CREATE TABLE IF NOT EXISTS referral_clicks (
+    id         BIGSERIAL PRIMARY KEY,
+    code       TEXT NOT NULL,
+    ip_hash    TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_referral_clicks_code ON referral_clicks(code);
+
+CREATE TABLE IF NOT EXISTS partner_tokens (
+    token      TEXT PRIMARY KEY,
+    code       TEXT NOT NULL,
+    revoked    BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id         BIGSERIAL PRIMARY KEY,

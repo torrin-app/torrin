@@ -21,6 +21,11 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if req.Ref == "" {
 		req.Ref = r.URL.Query().Get("ref")
 	}
+	if req.Ref == "" {
+		if c, err := r.Cookie("torrin_ref"); err == nil {
+			req.Ref = c.Value
+		}
+	}
 	if existing, err := s.Users.GetByEmail(r.Context(), req.Email); err == nil && existing != nil {
 		web.WriteError(w, 409, "account already exists - use your API key to log in")
 		return

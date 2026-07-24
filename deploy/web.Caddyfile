@@ -12,6 +12,9 @@
 	handle /api/* {
 		reverse_proxy api:8080
 	}
+	handle /r/* {
+		reverse_proxy api:8080
+	}
 	handle /webhooks/* {
 		reverse_proxy api:8080
 	}

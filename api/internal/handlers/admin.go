@@ -41,6 +41,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/admin/blocklist", a(http.HandlerFunc(s.adminAddBlocklist)))
 	mux.Handle("DELETE /api/admin/blocklist/{term}", a(http.HandlerFunc(s.adminDelBlocklist)))
 	mux.Handle("GET /api/admin/referrals", a(http.HandlerFunc(s.adminReferrals)))
+	mux.Handle("GET /api/admin/partner/{code}", a(http.HandlerFunc(s.adminPartnerReport)))
+	mux.Handle("POST /api/admin/partner/{code}/token", a(http.HandlerFunc(s.adminMintPartnerToken)))
 	mux.Handle("POST /api/admin/send-keys", a(http.HandlerFunc(s.adminSendKeys)))
 }
 

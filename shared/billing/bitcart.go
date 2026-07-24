@@ -280,7 +280,8 @@ func (b *BitcartHandler) activate(ctx context.Context, inv *bitcartInvoice) {
 		slog.Error("bitcart update plan", "err", err)
 		return
 	}
-	b.users.RecordProcessedSale(ctx, inv.ID)
+	cents, _ := plans.PriceCents(planID, period, days)
+	b.users.RecordProcessedSale(ctx, inv.ID, user.ID, cents, "USD")
 	slog.Info("plan activated via bitcart", "email", email, "plan", planID, "period", period, "expires", expiresAt.Format("2006-01-02"))
 }
 
