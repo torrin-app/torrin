@@ -215,10 +215,14 @@ func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *a
 	}
 	parts := strings.Split(key, "/")
 	filename := parts[len(parts)-1]
+	download := h.Store.SignURL(key, 24*time.Hour)
+	if creds, err := h.Users.GetStorageCreds(r.Context(), user.ID); err == nil && creds != nil && creds.Enabled && creds.IsRclone() {
+		download = h.Store.SignURLNodeUser("", key, user.ID, 24*time.Hour) + "&byos=1"
+	}
 	writeJSON(w, 200, map[string]any{
 		"id": generateShortID(), "filename": filename, "mimeType": mimeFor(filename),
 		"filesize": 0, "link": link, "host": "torrin.app", "chunks": 16, "crc": 1,
-		"download": h.Store.SignURL(key, 24*time.Hour), "streamable": 1,
+		"download": download, "streamable": 1,
 	})
 }
 
