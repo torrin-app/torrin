@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.17.1](https://github.com/torrin-app/torrin/compare/v1.17.0...v1.17.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* credit referrals on all payment rails ([#75](https://github.com/torrin-app/torrin/issues/75)) ([6eb1e71](https://github.com/torrin-app/torrin/commit/6eb1e71af6eb44e54f9c685725cf6c8bfb055bde))
+
 ## [1.17.0](https://github.com/torrin-app/torrin/compare/v1.16.0...v1.17.0) (2026-07-24)
 
 
