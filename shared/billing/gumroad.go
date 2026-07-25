@@ -125,11 +125,8 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 	}
 	slog.Info("plan activated", "email", email, "plan", planID, "recurrence", recurrence, "expires", expiresAt.Format("2006-01-02"))
 
-	if (recurrence == "monthly" || recurrence == "yearly") && g.userStore.GetReferrerID(ctx, user.ID) != "" {
-		referrer := g.userStore.GetReferrerID(ctx, user.ID)
-		g.userStore.MarkReferralPaid(ctx, user.ID)
-		g.userStore.ApplyReferralReward(ctx, referrer)
-		slog.Info("referral credit applied", "referrer", referrer, "referee", user.ID)
+	if recurrence == "monthly" || recurrence == "yearly" {
+		g.userStore.CreditReferral(ctx, user.ID)
 	}
 }
 

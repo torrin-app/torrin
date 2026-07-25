@@ -197,5 +197,8 @@ func (b *BachsHandler) activate(ctx context.Context, eventID string, meta map[st
 	}
 	cents, _ := plans.PriceCents(planID, period, days)
 	b.users.RecordProcessedSale(ctx, eventID, user.ID, cents, "USD")
+	if period == "monthly" || period == "yearly" {
+		b.users.CreditReferral(ctx, user.ID)
+	}
 	slog.Info("plan activated via bachs", "email", email, "plan", planID, "period", period, "expires", expiresAt.Format("2006-01-02"))
 }

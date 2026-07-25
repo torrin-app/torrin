@@ -282,6 +282,9 @@ func (b *BitcartHandler) activate(ctx context.Context, inv *bitcartInvoice) {
 	}
 	cents, _ := plans.PriceCents(planID, period, days)
 	b.users.RecordProcessedSale(ctx, inv.ID, user.ID, cents, "USD")
+	if period == "monthly" || period == "yearly" {
+		b.users.CreditReferral(ctx, user.ID)
+	}
 	slog.Info("plan activated via bitcart", "email", email, "plan", planID, "period", period, "expires", expiresAt.Format("2006-01-02"))
 }
 

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -44,6 +45,16 @@ func (s *Store) GetReferrerID(ctx context.Context, refereeID string) string {
 func (s *Store) MarkReferralPaid(ctx context.Context, refereeID string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE referrals SET paid=TRUE WHERE referee_id=$1 AND paid=FALSE`, refereeID)
 	return err
+}
+
+func (s *Store) CreditReferral(ctx context.Context, refereeID string) {
+	referrer := s.GetReferrerID(ctx, refereeID)
+	if referrer == "" {
+		return
+	}
+	s.MarkReferralPaid(ctx, refereeID)
+	s.ApplyReferralReward(ctx, referrer)
+	slog.Info("referral credit applied", "referrer", referrer, "referee", refereeID)
 }
 
 func (s *Store) GetReferralCode(ctx context.Context, userID string) string {
