@@ -28,7 +28,7 @@ func (s *Server) signJob(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "job not complete")
 		return
 	}
-	web.WriteJSON(w, 200, map[string]any{"job_id": job.ID, "streams": signStreams(s.Store, job, r)})
+	web.WriteJSON(w, 200, map[string]any{"job_id": job.ID, "streams": s.signStreams(job, r)})
 }
 
 func (s *Server) availabilityOne(w http.ResponseWriter, r *http.Request) {

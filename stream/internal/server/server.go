@@ -35,6 +35,7 @@ type Server struct {
 	apiURL string
 	view   *http.Client
 	zips   *zipGuard
+	byos   *byosBackend
 }
 
 func New(store Storage, corsOrigin, apiURL string) *Server {
@@ -83,6 +84,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 
 	if hash, ok := manifest.ZipHash(key); ok {
 		s.serveZip(w, r, hash)
+		return
+	}
+	if q.Get("byos") == "1" && s.serveBYOS(w, r, key, user) {
 		return
 	}
 	if r.Method == http.MethodHead {

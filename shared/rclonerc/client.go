@@ -117,3 +117,24 @@ func UserRemoteName(userID string) string {
 	}
 	return "u_" + id
 }
+
+func (c *Client) EnsureUserRemote(ctx context.Context, userID, backend string, params map[string]string, obscure bool, cryptPassword, basePath string) (string, error) {
+	remote := UserRemoteName(userID)
+	if cryptPassword == "" {
+		return remote, c.CreateRemote(ctx, remote, backend, params, obscure)
+	}
+	src := remote + "_src"
+	if err := c.CreateRemote(ctx, src, backend, params, obscure); err != nil {
+		return "", err
+	}
+	crypt := map[string]string{
+		"remote":                    src + ":" + basePath,
+		"password":                  cryptPassword,
+		"filename_encryption":       "standard",
+		"directory_name_encryption": "true",
+	}
+	if err := c.CreateRemote(ctx, remote, "crypt", crypt, true); err != nil {
+		return "", err
+	}
+	return remote, nil
+}

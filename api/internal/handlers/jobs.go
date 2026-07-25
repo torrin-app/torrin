@@ -64,7 +64,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			web.WriteError(w, 500, "cache read failed")
 			return
 		}
-		job.StreamURLs = signStreams(s.Store, job, r)
+		job.StreamURLs = s.signStreams(job, r)
 		web.WriteJSON(w, 200, job)
 		return
 	}
@@ -73,7 +73,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 	if existing, err := s.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
 		if existing.UserID == user.ID {
 			if !existing.Status.Active() {
-				existing.StreamURLs = signStreams(s.Store, existing, r)
+				existing.StreamURLs = s.signStreams(existing, r)
 			}
 			web.WriteJSON(w, 200, existing)
 			return
@@ -98,7 +98,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			s.Slots.Release(user.ID)
 		}
 		if !linked.Status.Active() {
-			linked.StreamURLs = signStreams(s.Store, linked, r)
+			linked.StreamURLs = s.signStreams(linked, r)
 		}
 		web.WriteJSON(w, 200, linked)
 		return
@@ -163,7 +163,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !job.Status.Active() {
-		job.StreamURLs = signStreams(s.Store, job, r)
+		job.StreamURLs = s.signStreams(job, r)
 	}
 	web.WriteJSON(w, 200, job)
 }
@@ -205,7 +205,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, j := range list {
 		if !j.Status.Active() && len(j.Files) > 0 {
-			j.StreamURLs = signStreams(s.Store, j, r)
+			j.StreamURLs = s.signStreams(j, r)
 		}
 	}
 	web.WriteJSON(w, 200, list)

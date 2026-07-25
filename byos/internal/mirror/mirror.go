@@ -39,8 +39,8 @@ func MirrorRclone(ctx context.Context, rc *rclonerc.Client, srcFs string, job *j
 	if err := json.Unmarshal([]byte(creds.ConfigJSON), &params); err != nil || len(params) == 0 {
 		return fmt.Errorf("bad rclone config")
 	}
-	remote := rclonerc.UserRemoteName(job.UserID)
-	if err := rc.CreateRemote(ctx, remote, creds.Backend, params, true); err != nil {
+	remote, err := rc.EnsureUserRemote(ctx, job.UserID, creds.Backend, params, true, creds.CryptPass, creds.Bucket)
+	if err != nil {
 		return fmt.Errorf("create remote: %w", err)
 	}
 	for i, f := range job.Files {

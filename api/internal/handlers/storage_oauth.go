@@ -19,7 +19,6 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/auth"
-	"github.com/torrin-app/torrin/shared/rclonerc"
 )
 
 type oauthProvider struct {
@@ -176,9 +175,8 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		params["drive_id"], params["drive_type"] = id, dtype
 	}
 
-	remote := rclonerc.UserRemoteName(userID)
-	if s.RClone.CreateRemote(ctx, remote, p.backend, params, false) != nil ||
-		s.RClone.CheckAccess(ctx, remote+":") != nil {
+	remote, rerr := s.RClone.EnsureUserRemote(ctx, userID, p.backend, params, false, "", "")
+	if rerr != nil || s.RClone.CheckAccess(ctx, remote+":") != nil {
 		done("error")
 		return
 	}

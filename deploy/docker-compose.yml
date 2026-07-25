@@ -196,6 +196,8 @@ services:
       PORT: "8084"
       CORS_ORIGIN: "${CORS_ORIGIN:-*}"
       API_URL: "${API_URL:-http://api:8080}"
+      DATABASE_URL: *db
+      RCLONE_RC_URL: "${RCLONE_RC_URL:-http://rclone:5572}" # serves rclone-backed BYOS streams
     restart: *restart
     ports: ["8084:8084"]
 

@@ -11,8 +11,6 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/auth"
-	"github.com/torrin-app/torrin/shared/rclonerc"
-	"github.com/torrin-app/torrin/shared/storage"
 )
 
 var rcloneBackends = map[string]bool{
@@ -82,12 +80,23 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		Pass      string `json:"pass"`
 		Token     string `json:"token"`
 		Config    string `json:"config"`
+		Encrypt   bool   `json:"encrypt"`
+		CryptPass string `json:"crypt_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		web.WriteError(w, 400, "invalid request")
 		return
 	}
 	req.Provider = strings.TrimSpace(req.Provider)
+
+	cryptPass := ""
+	if req.Encrypt {
+		cryptPass = strings.TrimSpace(req.CryptPass)
+		if cryptPass == "" {
+			web.WriteError(w, 400, "an encryption passphrase is required")
+			return
+		}
+	}
 
 	if strings.TrimSpace(req.Config) != "" {
 		if s.RClone == nil {
@@ -101,9 +110,9 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 		defer cancel()
-		remote := rclonerc.UserRemoteName(user.ID)
-		if err := s.RClone.CreateRemote(ctx, remote, backend, params, false); err != nil {
-			web.WriteError(w, 400, "could not set up that connection: "+err.Error())
+		remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, backend, params, false, cryptPass, "")
+		if rerr != nil {
+			web.WriteError(w, 400, "could not set up that connection: "+rerr.Error())
 			return
 		}
 		if err := s.RClone.CheckAccess(ctx, remote+":"); err != nil {
@@ -114,6 +123,7 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		creds := &auth.StorageCreds{
 			Provider: backend, Backend: backend, ConfigJSON: string(cfg),
 			Prefix: strings.TrimSpace(req.Prefix), Enabled: true,
+			Encrypted: cryptPass != "", CryptPass: cryptPass,
 		}
 		s.saveStorage(w, r, user.ID, creds, backend)
 		return
@@ -131,9 +141,9 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 		defer cancel()
-		remote := rclonerc.UserRemoteName(user.ID)
-		if err := s.RClone.CreateRemote(ctx, remote, req.Provider, params, true); err != nil {
-			web.WriteError(w, 400, "could not set up that connection: "+err.Error())
+		remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, req.Provider, params, true, cryptPass, "")
+		if rerr != nil {
+			web.WriteError(w, 400, "could not set up that connection: "+rerr.Error())
 			return
 		}
 		if err := s.RClone.CheckAccess(ctx, remote+":"); err != nil {
@@ -144,6 +154,7 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		creds := &auth.StorageCreds{
 			Provider: req.Provider, Backend: req.Provider, ConfigJSON: string(cfg),
 			Prefix: strings.TrimSpace(req.Prefix), Enabled: true,
+			Encrypted: cryptPass != "", CryptPass: cryptPass,
 		}
 		s.saveStorage(w, r, user.ID, creds, req.Provider)
 		return
@@ -158,19 +169,41 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(req.Endpoint, "http") {
 		req.Endpoint = "https://" + req.Endpoint
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-	client := storage.NewClient(req.Endpoint, req.Region, req.AccessKey, req.SecretKey, req.Bucket, "", "")
-	if err := client.TestWrite(ctx); err != nil {
-		web.WriteError(w, 400, "could not write to that bucket — check the endpoint, bucket name and keys: "+err.Error())
+	if s.RClone == nil {
+		web.WriteError(w, 503, "cloud storage connections are temporarily unavailable")
 		return
 	}
 
+	params := map[string]string{
+		"provider":          "Other",
+		"access_key_id":     req.AccessKey,
+		"secret_access_key": req.SecretKey,
+		"endpoint":          req.Endpoint,
+		"region":            req.Region,
+		"force_path_style":  "true",
+	}
+	prefix := strings.TrimSpace(req.Prefix)
+	checkFs := ":"
+	if cryptPass == "" {
+		prefix = req.Bucket + "/" + prefix
+		checkFs = ":" + req.Bucket
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, "s3", params, false, cryptPass, req.Bucket)
+	if rerr != nil {
+		web.WriteError(w, 400, "could not set up that bucket: "+rerr.Error())
+		return
+	}
+	if err := s.RClone.CheckAccess(ctx, remote+checkFs); err != nil {
+		web.WriteError(w, 400, "couldn't access that bucket — check the endpoint, bucket name and keys: "+err.Error())
+		return
+	}
+	cfg, _ := json.Marshal(params)
 	creds := &auth.StorageCreds{
-		Provider: req.Provider, Endpoint: req.Endpoint, Region: req.Region,
-		Bucket: req.Bucket, AccessKey: req.AccessKey, SecretKey: req.SecretKey,
-		Prefix: strings.TrimSpace(req.Prefix), Enabled: true,
+		Provider: req.Provider, Backend: "s3", Bucket: req.Bucket, ConfigJSON: string(cfg),
+		Prefix: prefix, Enabled: true,
+		Encrypted: cryptPass != "", CryptPass: cryptPass,
 	}
 	s.saveStorage(w, r, user.ID, creds, req.Bucket)
 }

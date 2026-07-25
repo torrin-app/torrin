@@ -111,6 +111,5 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerAccountRoutes(mux, authMW)
 	s.registerResellerRoutes(mux, authMW)
 	s.registerAvailabilityRoutes(mux, authMW)
-	s.registerRcloneStreamRoutes(mux)
 	s.registerStorageOAuthRoutes(mux, authMW)
 }

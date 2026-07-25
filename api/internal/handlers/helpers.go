@@ -60,15 +60,23 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func signStreams(store Storage, job *jobs.Job, r *http.Request) []jobs.Stream {
+func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
+	byos := false
+	if s.Users != nil {
+		if creds, err := s.Users.GetStorageCreds(r.Context(), job.UserID); err == nil && creds != nil && creds.Enabled && creds.IsRclone() {
+			byos = true
+		}
+	}
 	out := make([]jobs.Stream, len(job.Files))
 	for i, f := range job.Files {
 		key := manifest.Key(job.InfoHash, i, f.Name)
-		out[i] = jobs.Stream{
-			FileName:  f.Name,
-			Size:      f.Size,
-			SignedURL: georouteURL(r, store.SignURLNode(job.Node, key, 24*time.Hour)),
+		var u string
+		if byos {
+			u = s.Store.SignURLNodeUser(job.Node, key, job.UserID, 24*time.Hour) + "&byos=1"
+		} else {
+			u = s.Store.SignURLNode(job.Node, key, 24*time.Hour)
 		}
+		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georouteURL(r, u)}
 	}
 	return out
 }

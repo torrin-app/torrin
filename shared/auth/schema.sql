@@ -109,6 +109,8 @@ CREATE TABLE IF NOT EXISTS storage_credentials (
     config_json TEXT NOT NULL DEFAULT '',
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS encrypted      BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS crypt_password TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS usenet_credentials (
     user_id    TEXT PRIMARY KEY,
