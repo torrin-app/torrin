@@ -64,13 +64,14 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	byos := s.userHasBYOS(r.Context(), user.ID)
 	imdbID, infoHash := parseID(contentID)
 	var streams []map[string]any
 	if infoHash != "" {
-		streams = append(streams, s.byHash(r.Context(), infoHash)...)
+		streams = append(streams, s.byHash(r.Context(), infoHash, user.ID, byos)...)
 	}
 	if imdbID != "" {
-		streams = append(streams, s.byLibrary(r.Context(), r.PathValue("type"), imdbID)...)
+		streams = append(streams, s.byLibrary(r.Context(), r.PathValue("type"), imdbID, user.ID, byos)...)
 	}
 
 	if len(streams) > 0 && infoHash != "" {
@@ -94,7 +95,7 @@ func parseID(contentID string) (imdbID, infoHash string) {
 	return "", ""
 }
 
-func (s *Server) byHash(ctx context.Context, infoHash string) []map[string]any {
+func (s *Server) byHash(ctx context.Context, infoHash, userID string, byos bool) []map[string]any {
 	data, err := s.store.GetBytes(ctx, manifest.Path(infoHash))
 	if err != nil {
 		return nil
@@ -105,12 +106,24 @@ func (s *Server) byHash(ctx context.Context, infoHash string) []map[string]any {
 	}
 	var out []map[string]any
 	for _, f := range man.Files {
-		out = append(out, entry(f.FileName, s.store.SignURL(f.DirectURL, 24*time.Hour)))
+		out = append(out, entry(f.FileName, s.streamURL(f.DirectURL, userID, byos)))
 	}
 	return out
 }
 
-func (s *Server) byLibrary(ctx context.Context, contentType, imdbID string) []map[string]any {
+func (s *Server) userHasBYOS(ctx context.Context, userID string) bool {
+	creds, err := s.users.GetStorageCreds(ctx, userID)
+	return err == nil && creds != nil && creds.Enabled && creds.IsRclone()
+}
+
+func (s *Server) streamURL(key, userID string, byos bool) string {
+	if byos {
+		return s.store.SignURLNodeUser("", key, userID, 24*time.Hour) + "&byos=1"
+	}
+	return s.store.SignURL(key, 24*time.Hour)
+}
+
+func (s *Server) byLibrary(ctx context.Context, contentType, imdbID, userID string, byos bool) []map[string]any {
 	seen := map[string]bool{}
 	var out []map[string]any
 	add := func(list []*jobs.Job) {
@@ -121,13 +134,18 @@ func (s *Server) byLibrary(ctx context.Context, contentType, imdbID string) []ma
 			seen[j.InfoHash] = true
 			for i, f := range j.Files {
 				key := manifest.Key(j.InfoHash, i, f.Name)
-				out = append(out, entry(f.Name, s.store.SignURL(key, 24*time.Hour)))
+				out = append(out, entry(f.Name, s.streamURL(key, userID, byos)))
 			}
 		}
 	}
 
 	byImdb, _ := s.jobs.ListByIMDB(ctx, imdbID)
 	add(byImdb)
+
+	if byos {
+		byosOwn, _ := s.jobs.ListUserByosByIMDB(ctx, userID, imdbID)
+		add(byosOwn)
+	}
 
 	if title, err := s.meta.Title(ctx, imdbID, contentType); err == nil {
 		if norm := jobs.NormTitle(title); norm != "" {

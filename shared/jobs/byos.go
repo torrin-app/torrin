@@ -68,6 +68,11 @@ func (p *Postgres) HasBYOSObject(ctx context.Context, jobID string) bool {
 	return x == 1
 }
 
+func (p *Postgres) ListUserByosByIMDB(ctx context.Context, userID, imdbID string) ([]*Job, error) {
+	return p.query(ctx, `SELECT `+cols+` FROM jobs
+		WHERE imdb_id=$1 AND info_hash IN (SELECT info_hash FROM byos_objects WHERE user_id=$2)`, imdbID, userID)
+}
+
 func (p *Postgres) GetBYOSObject(ctx context.Context, jobID string) (*BYOSObject, bool) {
 	return p.scanBYOS(p.pool.QueryRow(ctx,
 		`SELECT user_id, bucket, info_hash, name, streams_json FROM byos_objects WHERE job_id=$1`, jobID))
