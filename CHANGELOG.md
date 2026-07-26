@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.18.0](https://github.com/torrin-app/torrin/compare/v1.17.1...v1.18.0) (2026-07-26)
+
+
+### Features
+
+* encrypted BYOS, streamed from the user's own storage ([#77](https://github.com/torrin-app/torrin/issues/77)) ([4450fe4](https://github.com/torrin-app/torrin/commit/4450fe4793ef4dbf1f4f6c8cbc014cc297dca220))
+* geo-route native addon, share georoute package ([#81](https://github.com/torrin-app/torrin/issues/81)) ([fc2ce61](https://github.com/torrin-app/torrin/commit/fc2ce61939fd6d808e07cfbb3613b3771d20eaae))
+
+
+### Bug Fixes
+
+* route BYOS users' Stremio playback to their own storage ([#79](https://github.com/torrin-app/torrin/issues/79)) ([45e8b3f](https://github.com/torrin-app/torrin/commit/45e8b3fb0156d0489bc120b8d11fb4137f652201))
+* stremio addon streams BYOS users from their own storage ([#80](https://github.com/torrin-app/torrin/issues/80)) ([1a17566](https://github.com/torrin-app/torrin/commit/1a175667ecf3067f42cd43353224fa248850694f))
+
 ## [1.17.1](https://github.com/torrin-app/torrin/compare/v1.17.0...v1.17.1) (2026-07-25)
 
 
