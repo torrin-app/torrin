@@ -16,19 +16,32 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/torrin-app/torrin/shared/crypto"
 )
 
 type Client struct {
-	s3         *s3.Client
-	bucket     string
-	publicURL  string
-	signingKey []byte
-	nodeBases  map[string]string
-	rcloneURL  string
-	hc         *http.Client
+	s3             *s3.Client
+	bucket         string
+	publicURL      string
+	signingKey     []byte
+	nodeBases      map[string]string
+	rcloneURL      string
+	hc             *http.Client
+	manifestCipher *crypto.Cipher
 }
 
 func (c *Client) SetNodeBases(m map[string]string) { c.nodeBases = m }
+
+func (c *Client) SetStorageKey(hexKey string) error {
+	cipher, err := crypto.New(hexKey)
+	if err != nil {
+		return err
+	}
+	c.manifestCipher = cipher
+	return nil
+}
+
+func isManifestKey(key string) bool { return strings.HasSuffix(key, "/manifest.json") }
 
 func (c *Client) SetRcloneCache(rcloneURL string) {
 	c.rcloneURL = strings.TrimRight(rcloneURL, "/")
@@ -113,7 +126,14 @@ func (c *Client) GetBytes(ctx context.Context, key string) ([]byte, error) {
 		return nil, err
 	}
 	defer o.Body.Close()
-	return io.ReadAll(o.Body)
+	data, err := io.ReadAll(o.Body)
+	if err != nil {
+		return nil, err
+	}
+	if c.manifestCipher != nil && isManifestKey(key) {
+		return []byte(c.manifestCipher.Decrypt(string(data))), nil
+	}
+	return data, nil
 }
 
 func (c *Client) GetReader(ctx context.Context, key string) (io.ReadCloser, error) {
@@ -205,6 +225,13 @@ func (c *Client) Has(ctx context.Context, key string) (bool, error) {
 }
 
 func (c *Client) Put(ctx context.Context, key string, body io.Reader, contentType string) error {
+	if c.manifestCipher != nil && isManifestKey(key) {
+		data, err := io.ReadAll(body)
+		if err != nil {
+			return err
+		}
+		body = strings.NewReader(c.manifestCipher.Encrypt(string(data)))
+	}
 	_, err := c.s3.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: &c.bucket, Key: &key, Body: body, ContentType: &contentType,
 	})
@@ -229,6 +256,11 @@ func (c *Client) StreamUpload(ctx context.Context, key string, body io.Reader, c
 	_, err := up.Upload(ctx, &s3.PutObjectInput{
 		Bucket: &c.bucket, Key: &key, Body: body, ContentType: &contentType,
 	})
+	return err
+}
+
+func (c *Client) Delete(ctx context.Context, key string) error {
+	_, err := c.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &c.bucket, Key: &key})
 	return err
 }
 

@@ -85,6 +85,8 @@ type File struct {
 	Index     int             `json:"index"`
 	Name      string          `json:"name"`
 	Size      int64           `json:"size"`
+	Key       string          `json:"key,omitempty"`
+	Enc       bool            `json:"enc,omitempty"`
 	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
 }
 

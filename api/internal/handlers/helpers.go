@@ -70,13 +70,14 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 	}
 	out := make([]jobs.Stream, len(job.Files))
 	for i, f := range job.Files {
-		key := manifest.Key(job.InfoHash, i, f.Name)
+		key := manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name)
 		var u string
 		if byos {
 			u = s.Store.SignURLNodeUser(job.Node, key, job.UserID, 24*time.Hour) + "&byos=1"
 		} else {
 			u = s.Store.SignURLNode(job.Node, key, 24*time.Hour)
 		}
+		u += manifest.StreamQuery(job.InfoHash, key, f.Enc)
 		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return out

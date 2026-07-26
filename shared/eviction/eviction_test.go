@@ -11,6 +11,7 @@ type fakeRepo struct {
 	candidates []jobs.EvictionCandidate
 	total      int64
 	evicted    map[string]bool
+	orphans    map[string][]string
 }
 
 func (f *fakeRepo) GetEvictionCandidates(context.Context) ([]jobs.EvictionCandidate, error) {
@@ -26,11 +27,28 @@ func (f *fakeRepo) Update(_ context.Context, j *jobs.Job) error {
 	}
 	return nil
 }
+func (f *fakeRepo) DropBlobRefs(_ context.Context, infoHash string) ([]string, error) {
+	if f.orphans == nil {
+		return nil, nil
+	}
+	return f.orphans[infoHash], nil
+}
+func (f *fakeRepo) DeleteBlob(context.Context, string) error { return nil }
 
-type fakeStorage struct{ deleted map[string]bool }
+type fakeStorage struct {
+	deleted     map[string]bool
+	deletedKeys map[string]bool
+}
 
 func (f *fakeStorage) DeletePrefix(_ context.Context, prefix string) error {
 	f.deleted[prefix] = true
+	return nil
+}
+func (f *fakeStorage) Delete(_ context.Context, key string) error {
+	if f.deletedKeys == nil {
+		f.deletedKeys = map[string]bool{}
+	}
+	f.deletedKeys[key] = true
 	return nil
 }
 
@@ -57,6 +75,26 @@ func TestTTLEviction(t *testing.T) {
 		if store.deleted[h+"/"] {
 			t.Errorf("%s should NOT be evicted", h)
 		}
+	}
+}
+
+func TestEvictPurgesOnlyOrphanBlobs(t *testing.T) {
+	repo := &fakeRepo{
+		evicted: map[string]bool{},
+		orphans: map[string][]string{"cold": {"b_orphan"}, "shared": nil},
+		candidates: []jobs.EvictionCandidate{
+			{InfoHash: "cold", AccessCount: 0, DaysSinceAccess: 30},
+			{InfoHash: "shared", AccessCount: 0, DaysSinceAccess: 30},
+		},
+	}
+	store := &fakeStorage{deleted: map[string]bool{}}
+	New(repo, store, DefaultPolicy).RunDaily(context.Background())
+
+	if !store.deletedKeys["blobs/b_orphan"] {
+		t.Error("orphaned blob should be deleted")
+	}
+	if store.deletedKeys["blobs/b_shared"] {
+		t.Error("still-referenced blob must not be deleted")
 	}
 }
 

@@ -3,6 +3,7 @@ package rdapi
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -208,7 +209,14 @@ func (h *Handler) instantAvailability(w http.ResponseWriter, r *http.Request, us
 func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *auth.User) {
 	r.ParseForm()
 	link := r.FormValue("link")
-	key := strings.TrimPrefix(link, "torrin://")
+	raw := strings.TrimPrefix(link, "torrin://")
+	key, suffix := raw, ""
+	if i := strings.IndexByte(raw, '?'); i >= 0 {
+		key = raw[:i]
+		if q, err := url.ParseQuery(raw[i+1:]); err == nil {
+			suffix = manifest.StreamQuery(q.Get("ih"), "blobs/", q.Get("enc") == "1")
+		}
+	}
 	if link == "" || !isValidKey(key) {
 		writeRDError(w, 400, 1, "invalid link")
 		return
@@ -219,6 +227,7 @@ func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *a
 	if creds, err := h.Users.GetStorageCreds(r.Context(), user.ID); err == nil && creds != nil && creds.Enabled && creds.IsRclone() {
 		download = h.Store.SignURLNodeUser("", key, user.ID, 24*time.Hour) + "&byos=1"
 	}
+	download += suffix
 	writeJSON(w, 200, map[string]any{
 		"id": generateShortID(), "filename": filename, "mimeType": mimeFor(filename),
 		"filesize": 0, "link": link, "host": "torrin.app", "chunks": 16, "crc": 1,

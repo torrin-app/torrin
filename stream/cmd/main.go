@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/service"
@@ -18,7 +19,11 @@ func main() {
 		slog.Info("stream reading through rclone cache", "url", u)
 	}
 
-	srv := server.New(store, env.Get("CORS_ORIGIN", "*"), env.Get("API_URL", ""))
+	cipher, err := crypto.NewStream(env.Get("STORAGE_KEY", ""))
+	if err != nil {
+		slog.Error("storage key", "err", err)
+	}
+	srv := server.New(store, env.Get("CORS_ORIGIN", "*"), env.Get("API_URL", ""), cipher)
 
 	if dsn, rcURL := env.Get("DATABASE_URL", ""), env.Get("RCLONE_RC_URL", ""); dsn != "" && rcURL != "" {
 		if users, err := auth.NewPostgres(context.Background(), dsn); err == nil {

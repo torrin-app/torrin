@@ -95,3 +95,18 @@ CREATE TABLE IF NOT EXISTS release_links (
 );
 ALTER TABLE release_links ADD COLUMN IF NOT EXISTS size BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE release_links ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'hdencode';
+
+CREATE TABLE IF NOT EXISTS blobs (
+    content_key TEXT PRIMARY KEY,
+    size        BIGINT NOT NULL DEFAULT 0,
+    encrypted   BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS blob_refs (
+    info_hash   TEXT NOT NULL,
+    file_index  INT NOT NULL,
+    content_key TEXT NOT NULL,
+    PRIMARY KEY (info_hash, file_index)
+);
+CREATE INDEX IF NOT EXISTS idx_blob_refs_content_key ON blob_refs(content_key);

@@ -54,21 +54,21 @@ func do(srv *Server, method, target string, header http.Header) *httptest.Respon
 }
 
 func TestMissingSignature(t *testing.T) {
-	srv := New(&fakeStorage{valid: true}, "*", "")
+	srv := New(&fakeStorage{valid: true}, "*", "", nil)
 	if w := do(srv, "GET", "/hash/file_0/movie.mkv", nil); w.Code != 401 {
 		t.Fatalf("got %d, want 401", w.Code)
 	}
 }
 
 func TestBadSignature(t *testing.T) {
-	srv := New(&fakeStorage{valid: false}, "*", "")
+	srv := New(&fakeStorage{valid: false}, "*", "", nil)
 	if w := do(srv, "GET", "/hash/file_0/movie.mkv?expires=9999999999&sig=bad", nil); w.Code != 403 {
 		t.Fatalf("got %d, want 403", w.Code)
 	}
 }
 
 func TestServeFull(t *testing.T) {
-	srv := New(&fakeStorage{data: []byte("hello world"), valid: true}, "*", "")
+	srv := New(&fakeStorage{data: []byte("hello world"), valid: true}, "*", "", nil)
 	w := do(srv, "GET", "/hash/file_0/movie.mkv?expires=9999999999&sig=ok", nil)
 	if w.Code != 200 || w.Body.String() != "hello world" {
 		t.Fatalf("got %d body=%q", w.Code, w.Body.String())
@@ -79,7 +79,7 @@ func TestServeFull(t *testing.T) {
 }
 
 func TestServeRange(t *testing.T) {
-	srv := New(&fakeStorage{data: []byte("hello world"), valid: true}, "*", "")
+	srv := New(&fakeStorage{data: []byte("hello world"), valid: true}, "*", "", nil)
 	w := do(srv, "GET", "/hash/file_0/movie.mkv?expires=9999999999&sig=ok", http.Header{"Range": {"bytes=0-9"}})
 	if w.Code != 206 {
 		t.Fatalf("got %d, want 206", w.Code)
@@ -96,7 +96,7 @@ func TestZipDownload(t *testing.T) {
 		{FileName: "ep2.mkv", FileSize: 5},
 	}}
 	mj, _ := m.Marshal()
-	srv := New(&fakeStorage{data: []byte("hello"), manifestJSON: mj, valid: true}, "*", "")
+	srv := New(&fakeStorage{data: []byte("hello"), manifestJSON: mj, valid: true}, "*", "", nil)
 
 	w := do(srv, "GET", "/"+manifest.ZipKey(hash)+"?expires=9999999999&sig=x", nil)
 	if w.Code != 200 {

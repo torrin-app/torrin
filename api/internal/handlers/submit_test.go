@@ -45,6 +45,7 @@ func (f *fakeStore) SignURLNodeUser(node, path, user string, _ time.Duration) st
 	return "signed://" + node + "/" + path + "?u=" + user
 }
 func (f *fakeStore) DeletePrefix(_ context.Context, _ string) error { return nil }
+func (f *fakeStore) Delete(_ context.Context, _ string) error       { return nil }
 
 type fakePub struct{ published []string }
 

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/blob"
 	"github.com/torrin-app/torrin/shared/jobs"
 )
 
@@ -32,10 +33,13 @@ type Repo interface {
 	GetTotalCachedSize(ctx context.Context) (int64, error)
 	ListByInfoHash(ctx context.Context, infoHash string) ([]*jobs.Job, error)
 	Update(ctx context.Context, j *jobs.Job) error
+	DropBlobRefs(ctx context.Context, infoHash string) ([]string, error)
+	DeleteBlob(ctx context.Context, contentKey string) error
 }
 
 type Storage interface {
 	DeletePrefix(ctx context.Context, prefix string) error
+	Delete(ctx context.Context, key string) error
 }
 
 type Engine struct {
@@ -128,6 +132,7 @@ func (e *Engine) evict(ctx context.Context, infoHash string) error {
 		slog.Warn("eviction: delete failed", "hash", infoHash, "err", err)
 		return err
 	}
+	e.purgeBlobs(ctx, infoHash)
 	siblings, _ := e.repo.ListByInfoHash(ctx, infoHash)
 	for _, sib := range siblings {
 		sib.Status = jobs.StatusEvicted
@@ -135,6 +140,21 @@ func (e *Engine) evict(ctx context.Context, infoHash string) error {
 		e.repo.Update(ctx, sib)
 	}
 	return nil
+}
+
+func (e *Engine) purgeBlobs(ctx context.Context, infoHash string) {
+	orphaned, err := e.repo.DropBlobRefs(ctx, infoHash)
+	if err != nil {
+		slog.Warn("eviction: drop blob refs", "hash", infoHash, "err", err)
+		return
+	}
+	for _, ck := range orphaned {
+		if err := e.store.Delete(ctx, blob.StorageKey(ck)); err != nil {
+			slog.Warn("eviction: delete blob", "key", ck, "err", err)
+			continue
+		}
+		e.repo.DeleteBlob(ctx, ck)
+	}
 }
 
 func (e *Engine) StartSchedule(ctx context.Context, hour int) {

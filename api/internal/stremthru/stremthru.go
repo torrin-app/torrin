@@ -119,7 +119,9 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 		}
 		out := make([]map[string]any, len(files))
 		for i, f := range files {
-			out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURLNode(j.Node, manifest.Key(j.InfoHash, i, f.Name), 24*time.Hour), f.MediaInfo)
+			key := manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name)
+			link := h.Store.SignURLNode(j.Node, key, 24*time.Hour) + manifest.StreamQuery(j.InfoHash, key, f.Enc)
+			out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
 		}
 		m["files"] = out
 	}
@@ -149,7 +151,9 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) ([]map[strin
 	}
 	out := make([]map[string]any, len(fs))
 	for i, f := range fs {
-		out[i] = fileEntry(i, f.Name, f.Size, h.Store.SignURL(manifest.Key(infoHash, i, f.Name), 24*time.Hour), f.MediaInfo)
+		key := manifest.ResolveKey(infoHash, i, f.Key, f.Name)
+		link := h.Store.SignURL(key, 24*time.Hour) + manifest.StreamQuery(infoHash, key, f.Enc)
+		out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
 	}
 	return out, true
 }

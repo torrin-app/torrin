@@ -49,7 +49,12 @@ func buildLinks(j *jobs.Job) []string {
 		return links
 	}
 	for i, f := range j.Files {
-		links = append(links, "torrin://"+manifest.Key(j.InfoHash, i, f.Name))
+		key := manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name)
+		link := "torrin://" + key
+		if q := manifest.StreamQuery(j.InfoHash, key, f.Enc); q != "" {
+			link += "?" + strings.TrimPrefix(q, "&")
+		}
+		links = append(links, link)
 	}
 	return links
 }
@@ -109,6 +114,9 @@ func mimeFor(name string) string {
 func isValidKey(key string) bool {
 	if strings.Contains(key, "..") {
 		return false
+	}
+	if rest, ok := strings.CutPrefix(key, "blobs/"); ok {
+		return rest != "" && !strings.Contains(rest, "/")
 	}
 	parts := strings.SplitN(key, "/", 3)
 	if len(parts) != 3 || !magnet.Valid(parts[0]) || parts[2] == "" {

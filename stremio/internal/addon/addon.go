@@ -107,7 +107,7 @@ func (s *Server) byHash(r *http.Request, infoHash, userID string, byos bool) []m
 	}
 	var out []map[string]any
 	for _, f := range man.Files {
-		out = append(out, entry(f.FileName, s.streamURL(r, f.DirectURL, userID, byos)))
+		out = append(out, entry(f.FileName, s.streamURL(r, infoHash, f.DirectURL, userID, byos, f.Enc)))
 	}
 	return out
 }
@@ -117,11 +117,12 @@ func (s *Server) userHasBYOS(ctx context.Context, userID string) bool {
 	return err == nil && creds != nil && creds.Enabled && creds.IsRclone()
 }
 
-func (s *Server) streamURL(r *http.Request, key, userID string, byos bool) string {
+func (s *Server) streamURL(r *http.Request, infoHash, key, userID string, byos, enc bool) string {
 	u := s.store.SignURL(key, 24*time.Hour)
 	if byos {
 		u = s.store.SignURLNodeUser("", key, userID, 24*time.Hour) + "&byos=1"
 	}
+	u += manifest.StreamQuery(infoHash, key, enc)
 	return georoute.URL(r, u)
 }
 
@@ -136,8 +137,8 @@ func (s *Server) byLibrary(r *http.Request, contentType, imdbID, userID string, 
 			}
 			seen[j.InfoHash] = true
 			for i, f := range j.Files {
-				key := manifest.Key(j.InfoHash, i, f.Name)
-				out = append(out, entry(f.Name, s.streamURL(r, key, userID, byos)))
+				key := manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name)
+				out = append(out, entry(f.Name, s.streamURL(r, j.InfoHash, key, userID, byos, f.Enc)))
 			}
 		}
 	}

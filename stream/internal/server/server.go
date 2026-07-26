@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/storage"
 )
@@ -36,10 +37,11 @@ type Server struct {
 	view   *http.Client
 	zips   *zipGuard
 	byos   *byosBackend
+	cipher *crypto.Stream
 }
 
-func New(store Storage, corsOrigin, apiURL string) *Server {
-	return &Server{store: store, cors: corsOrigin, apiURL: apiURL, view: &http.Client{Timeout: 5 * time.Second}, zips: newZipGuard(maxZipsPerUser)}
+func New(store Storage, corsOrigin, apiURL string, cipher *crypto.Stream) *Server {
+	return &Server{store: store, cors: corsOrigin, apiURL: apiURL, view: &http.Client{Timeout: 5 * time.Second}, zips: newZipGuard(maxZipsPerUser), cipher: cipher}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -89,26 +91,37 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	if q.Get("byos") == "1" && s.serveBYOS(w, r, key, user) {
 		return
 	}
+	enc := s.cipher != nil && r.URL.Query().Get("enc") == "1"
 	if r.Method == http.MethodHead {
-		s.serveHead(w, r, key)
+		s.serveHead(w, r, key, enc)
+		return
+	}
+	if enc {
+		s.serveFileEnc(w, r, key)
 		return
 	}
 	s.serveFile(w, r, key)
 }
 
-func (s *Server) serveHead(w http.ResponseWriter, r *http.Request, key string) {
+func (s *Server) serveHead(w http.ResponseWriter, r *http.Request, key string, enc bool) {
 	obj, err := s.store.Head(r.Context(), key)
 	if err != nil {
 		httpError(w, 404, "not found")
 		return
+	}
+	size := obj.Size
+	if enc {
+		if p, err := s.cipher.PlainSize(size); err == nil {
+			size = p
+		}
 	}
 	h := w.Header()
 	if obj.ContentType != "" {
 		h.Set("Content-Type", obj.ContentType)
 	}
 	h.Set("Accept-Ranges", "bytes")
-	h.Set("Content-Length", strconv.FormatInt(obj.Size, 10))
-	h.Set("X-File-Size", strconv.FormatInt(obj.Size, 10))
+	h.Set("Content-Length", strconv.FormatInt(size, 10))
+	h.Set("X-File-Size", strconv.FormatInt(size, 10))
 	h.Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 }
@@ -152,9 +165,11 @@ func (s *Server) recordView(r *http.Request, key string) {
 	if rng := r.Header.Get("Range"); rng != "" && !strings.HasPrefix(rng, "bytes=0-") {
 		return
 	}
-	id := key
-	if i := strings.Index(key, "/"); i > 0 {
-		id = key[:i]
+	id := r.URL.Query().Get("ih")
+	if id == "" {
+		if i := strings.Index(key, "/"); i > 0 {
+			id = key[:i]
+		}
 	}
 	if len(id) != 40 {
 		return

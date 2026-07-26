@@ -34,6 +34,7 @@ type File struct {
 	DirectURL string          `json:"direct_url"`
 	FileSize  int64           `json:"file_size"`
 	Crc32     uint32          `json:"crc32,omitempty"`
+	Enc       bool            `json:"enc,omitempty"`
 	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
 }
 
@@ -64,8 +65,26 @@ func Meta(data []byte) (name string, size int64, files []jobs.File) {
 	}
 	files = make([]jobs.File, len(m.Files))
 	for i, f := range m.Files {
-		files[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize}
+		files[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc}
 		size += f.FileSize
 	}
 	return m.Name, size, files
+}
+
+func ResolveKey(infoHash string, index int, storedKey, name string) string {
+	if storedKey != "" {
+		return storedKey
+	}
+	return Key(infoHash, index, name)
+}
+
+func StreamQuery(infoHash, key string, enc bool) string {
+	var s string
+	if strings.HasPrefix(key, "blobs/") && len(infoHash) == 40 {
+		s += "&ih=" + infoHash
+	}
+	if enc {
+		s += "&enc=1"
+	}
+	return s
 }

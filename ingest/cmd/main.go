@@ -19,6 +19,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/ytdlp"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
 	hdclient "github.com/torrin-app/torrin/shared/hdencode"
@@ -61,6 +62,9 @@ func main() {
 		mustEnv("S3_ACCESS_KEY"), mustEnv("S3_SECRET_KEY"),
 		mustEnv("S3_BUCKET"), env.Get("PUBLIC_URL", ""), mustEnv("SIGNING_KEY"),
 	)
+	if err := store.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
+		fatal("storage key", err)
+	}
 
 	b, err := bus.Connect(mustEnv("NATS_URL"))
 	if err != nil {
@@ -68,7 +72,11 @@ func main() {
 	}
 	defer b.Close()
 
-	pub := publish.New(repo, store, env.Get("NODE_ID", ""))
+	cipher, err := crypto.NewStream(env.Get("STORAGE_KEY", ""))
+	if err != nil {
+		fatal("storage key", err)
+	}
+	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher)
 	sysRD, sysAD := os.Getenv("RD_API_KEY"), os.Getenv("AD_API_KEY")
 	providersFor := func(ctx context.Context, job *jobs.Job) []providers.Provider {
 		var list []providers.Provider

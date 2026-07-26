@@ -17,6 +17,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/lindell/go-burner-email-providers v1.0.119
 	github.com/madcowfred/yencode v0.0.0-20131230050637-de9ab62fc100
+	github.com/minio/sio v0.5.1
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/moistari/rls v0.6.0
 	github.com/nats-io/nats.go v1.52.0

@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/blob"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/mediainfo"
@@ -33,14 +35,21 @@ type Store interface {
 	Head(ctx context.Context, key string) (*storage.Object, error)
 }
 
-type Publisher struct {
-	repo  jobs.Repository
-	store Store
-	node  string
+type BlobIndex interface {
+	LookupBlob(ctx context.Context, contentKey string) (*jobs.Blob, error)
+	AddBlobRef(ctx context.Context, infoHash string, idx int, contentKey string, size int64, encrypted bool) error
 }
 
-func New(repo jobs.Repository, store Store, node string) *Publisher {
-	return &Publisher{repo: repo, store: store, node: node}
+type Publisher struct {
+	repo   jobs.Repository
+	store  Store
+	node   string
+	blobs  BlobIndex
+	cipher *crypto.Stream
+}
+
+func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher *crypto.Stream) *Publisher {
+	return &Publisher{repo: repo, store: store, node: node, blobs: blobs, cipher: cipher}
 }
 
 func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) error {
@@ -57,16 +66,14 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 	var mfFiles []manifest.File
 	var total int64
 	for i, f := range files {
-		key := manifest.Key(job.InfoHash, i, f.Name)
-		var crc uint32
-		if obj, err := p.store.Head(ctx, key); err != nil || obj.Size != f.Size {
-			c, err := p.upload(ctx, key, f.Path)
-			if err != nil {
-				return err
-			}
-			crc = c
-		} else if c, err := crcFile(f.Path); err == nil {
-			crc = c
+		ck, err := blob.ContentKey(f.Path, f.Size)
+		if err != nil {
+			return err
+		}
+		key := blob.StorageKey(ck)
+		crc, enc, err := p.store2blob(ctx, job.InfoHash, i, key, ck, f)
+		if err != nil {
+			return err
 		}
 		var mi *mediainfo.Info
 		if video.IsVideo(f.Name) {
@@ -81,7 +88,7 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 		}
 		os.Remove(f.Path)
 		total += f.Size
-		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, Crc32: crc, MediaInfo: mi})
+		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, Crc32: crc, Enc: enc, MediaInfo: mi})
 	}
 
 	name := job.Name
@@ -105,7 +112,36 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 	return p.complete(ctx, job.InfoHash, name, mfFiles, total)
 }
 
-func (p *Publisher) upload(ctx context.Context, key, path string) (uint32, error) {
+func (p *Publisher) store2blob(ctx context.Context, infoHash string, idx int, key, ck string, f File) (uint32, bool, error) {
+	var crc uint32
+	enc := false
+	reuse := false
+	if existing, err := p.blobs.LookupBlob(ctx, ck); err == nil && existing != nil {
+		if _, herr := p.store.Head(ctx, key); herr == nil {
+			reuse, enc = true, existing.Encrypted
+		}
+	}
+	if reuse {
+		c, err := crcFile(f.Path)
+		if err != nil {
+			return 0, false, err
+		}
+		crc = c
+	} else {
+		enc = p.cipher != nil
+		c, err := p.uploadBlob(ctx, key, f.Path, enc)
+		if err != nil {
+			return 0, false, err
+		}
+		crc = c
+	}
+	if err := p.blobs.AddBlobRef(ctx, infoHash, idx, ck, f.Size, enc); err != nil {
+		return 0, false, err
+	}
+	return crc, enc, nil
+}
+
+func (p *Publisher) uploadBlob(ctx context.Context, key, path string, enc bool) (uint32, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -117,9 +153,15 @@ func (p *Publisher) upload(ctx context.Context, key, path string) (uint32, error
 	watchdog := time.AfterFunc(uploadStallTimeout, cancel)
 	defer watchdog.Stop()
 	h := crc32.NewIEEE()
-	r := &stallReader{r: io.TeeReader(f, h), timer: watchdog, timeout: uploadStallTimeout}
+	var body io.Reader = &stallReader{r: io.TeeReader(f, h), timer: watchdog, timeout: uploadStallTimeout}
+	if enc {
+		body, err = p.cipher.EncryptReader(body)
+		if err != nil {
+			return 0, err
+		}
+	}
 
-	if err := p.store.StreamUpload(ctx, key, r, video.ContentType(path)); err != nil {
+	if err := p.store.StreamUpload(ctx, key, body, video.ContentType(path)); err != nil {
 		return 0, fmt.Errorf("upload %s: %w", key, err)
 	}
 	return h.Sum32(), nil
@@ -155,7 +197,7 @@ func (s *stallReader) Read(p []byte) (int, error) {
 func (p *Publisher) complete(ctx context.Context, infoHash, name string, files []manifest.File, total int64) error {
 	jobFiles := make([]jobs.File, len(files))
 	for i, f := range files {
-		jobFiles[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, MediaInfo: f.MediaInfo}
+		jobFiles[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc, MediaInfo: f.MediaInfo}
 	}
 	siblings, err := p.repo.ListByInfoHash(ctx, infoHash)
 	if err != nil {

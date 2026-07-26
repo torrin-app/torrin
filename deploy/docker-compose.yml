@@ -11,6 +11,7 @@ x-s3: &s3 # shared object-store + signing config
   S3_BUCKET: "${S3_BUCKET:-torrin}"
   SIGNING_KEY: "${SIGNING_KEY:-dev-signing-key}"
   CREDS_KEY: "${CREDS_KEY:-}"
+  STORAGE_KEY: "${STORAGE_KEY:-}"
 
 x-db: &db "postgres://torrin:torrin@postgres:5432/torrin?sslmode=disable"
 x-nats: &nats "nats://nats:4222"

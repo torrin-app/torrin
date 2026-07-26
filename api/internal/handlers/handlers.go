@@ -26,6 +26,7 @@ type Storage interface {
 	SignURLNode(node, path string, expiry time.Duration) string
 	SignURLNodeUser(node, path, userID string, expiry time.Duration) string
 	DeletePrefix(ctx context.Context, prefix string) error
+	Delete(ctx context.Context, key string) error
 }
 
 type Publisher interface {
