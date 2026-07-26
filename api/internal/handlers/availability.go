@@ -7,6 +7,7 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 )
@@ -74,7 +75,7 @@ func (s *Server) cachedFiles(r *http.Request, infoHash string) ([]map[string]any
 	for i, f := range m.Files {
 		out[i] = map[string]any{
 			"file_name": f.FileName, "size": f.FileSize,
-			"url": georouteURL(r, s.Store.SignURL(manifest.Key(infoHash, i, f.FileName), 24*time.Hour)),
+			"url": georoute.URL(r, s.Store.SignURL(manifest.Key(infoHash, i, f.FileName), 24*time.Hour)),
 		}
 	}
 	return out, true

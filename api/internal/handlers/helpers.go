@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -76,7 +77,7 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 		} else {
 			u = s.Store.SignURLNode(job.Node, key, 24*time.Hour)
 		}
-		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georouteURL(r, u)}
+		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return out
 }

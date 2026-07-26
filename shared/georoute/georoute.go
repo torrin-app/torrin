@@ -1,4 +1,4 @@
-package handlers
+package georoute
 
 import (
 	"math"
@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-const defaultRelays = "beam-eu.torrin.app:50.9:6.9,beam-za.torrin.app:-26.2:28.0,beam-sg.torrin.app:1.35:103.8"
 
 type relay struct {
 	host string
@@ -25,7 +23,7 @@ var (
 func parseRelays() []relay {
 	raw := os.Getenv("TORRIN_STREAM_RELAYS")
 	if raw == "" {
-		raw = defaultRelays
+		return defaultRelays
 	}
 	var out []relay
 	for _, part := range strings.Split(raw, ",") {
@@ -80,7 +78,7 @@ func pickHost(r *http.Request) string {
 	return nearestRelay(lat, lng)
 }
 
-func georouteURL(r *http.Request, raw string) string {
+func URL(r *http.Request, raw string) string {
 	if raw == "" {
 		return raw
 	}

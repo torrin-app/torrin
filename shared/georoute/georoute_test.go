@@ -1,4 +1,4 @@
-package handlers
+package georoute
 
 import (
 	"net/http"
@@ -34,24 +34,24 @@ func TestNearestRelay(t *testing.T) {
 	}
 }
 
-func TestGeorouteURL(t *testing.T) {
+func TestURL(t *testing.T) {
 	in := "https://beam-eu.torrin.app/abc/all.zip?expires=1&sig=xyz"
 
-	got := georouteURL(reqWithGeo("6.45", "3.4"), in)
+	got := URL(reqWithGeo("6.45", "3.4"), in)
 	if got != "https://beam-za.torrin.app/abc/all.zip?expires=1&sig=xyz" {
 		t.Errorf("Lagos should route to beam-za, got %q", got)
 	}
 
 	ext := "https://real-debrid.com/d/abc"
-	if got := georouteURL(reqWithGeo("6.45", "3.4"), ext); got != ext {
+	if got := URL(reqWithGeo("6.45", "3.4"), ext); got != ext {
 		t.Errorf("non-relay host must be untouched, got %q", got)
 	}
 
-	if got := georouteURL(reqWithGeo("", ""), in); got != in {
+	if got := URL(reqWithGeo("", ""), in); got != in {
 		t.Errorf("no geo headers must be untouched, got %q", got)
 	}
 
-	if got := georouteURL(reqWithGeo("52.5", "13.4"), in); got != in {
+	if got := URL(reqWithGeo("52.5", "13.4"), in); got != in {
 		t.Errorf("already-nearest host must be untouched, got %q", got)
 	}
 }

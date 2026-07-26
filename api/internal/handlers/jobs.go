@@ -10,6 +10,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/events"
+	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/qbit"
@@ -179,7 +180,7 @@ func (s *Server) jobZip(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 409, "job not complete")
 		return
 	}
-	http.Redirect(w, r, georouteURL(r, s.Store.SignURLNodeUser(job.Node, manifest.ZipKey(job.InfoHash), user.ID, 24*time.Hour)), http.StatusTemporaryRedirect)
+	http.Redirect(w, r, georoute.URL(r, s.Store.SignURLNodeUser(job.Node, manifest.ZipKey(job.InfoHash), user.ID, 24*time.Hour)), http.StatusTemporaryRedirect)
 }
 
 func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {

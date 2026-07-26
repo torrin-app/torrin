@@ -94,7 +94,8 @@ func main() {
 		return list
 	}
 	dlConns := atoiOr(os.Getenv("DOWNLOAD_CONNS"), 6)
-	debridRunner := debrid.NewRunner(providersFor, pub, repo, env.Get("SCRATCH_DIR", "/scratch"), ban, dlConns, users.AddDebridUsage)
+	scratch := env.Get("SCRATCH_DIR", "/scratch")
+	debridRunner := debrid.NewRunner(providersFor, pub, repo, scratch, ban, dlConns, users.AddDebridUsage)
 
 	var torrentRunner *torrent.Runner
 	if qbURL := os.Getenv("QBIT_URL"); qbURL != "" {
@@ -107,9 +108,9 @@ func main() {
 
 	hosterRunner := hoster.NewRunner(func(ctx context.Context, j *jobs.Job) string {
 		return sysAD
-	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns)
+	}, repo, pub, b, ban, scratch, dlConns)
 
-	usenetRunner := usenet.NewRunner(repo, store, users, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), download.Credentials{
+	usenetRunner := usenet.NewRunner(repo, store, users, pub, b, ban, scratch, download.Credentials{
 		Host:     os.Getenv("USENET_HOST"),
 		Port:     atoiOr(os.Getenv("USENET_PORT"), 563),
 		Username: os.Getenv("USENET_USER"),
@@ -125,9 +126,9 @@ func main() {
 	}, map[jobs.Source]release.Resolver{
 		jobs.SourceHDEncode: hdclient.NewClient(os.Getenv("HDENCODE_SOLVER_URL")),
 		jobs.SourceScenerls: scenerls.NewClient(),
-	}, repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), dlConns, usenetFallback.Try)
+	}, repo, pub, b, ban, scratch, dlConns, usenetFallback.Try)
 
-	ytdlpRunner := ytdlp.NewRunner(repo, pub, b, ban, env.Get("SCRATCH_DIR", "/scratch"), os.Getenv("YTDLP_BIN"), os.Getenv("YTDLP_PROXY"), os.Getenv("YTDLP_FORMAT"))
+	ytdlpRunner := ytdlp.NewRunner(repo, pub, b, ban, scratch, os.Getenv("YTDLP_BIN"), os.Getenv("YTDLP_PROXY"), os.Getenv("YTDLP_FORMAT"))
 	go func() {
 		data, err := ytdlpRunner.Extractors(ctx)
 		if err != nil {
@@ -168,7 +169,7 @@ func main() {
 		}
 	}()
 
-	go sweepScratch(ctx, repo, env.Get("SCRATCH_DIR", "/scratch"))
+	go sweepScratch(ctx, repo, scratch)
 
 	slog.Info("ingest worker started")
 	service.RunHealth("ingest", "8083")

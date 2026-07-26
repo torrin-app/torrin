@@ -9,6 +9,7 @@ import (
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/cinemeta"
+	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/storage"
@@ -68,10 +69,10 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	imdbID, infoHash := parseID(contentID)
 	var streams []map[string]any
 	if infoHash != "" {
-		streams = append(streams, s.byHash(r.Context(), infoHash, user.ID, byos)...)
+		streams = append(streams, s.byHash(r, infoHash, user.ID, byos)...)
 	}
 	if imdbID != "" {
-		streams = append(streams, s.byLibrary(r.Context(), r.PathValue("type"), imdbID, user.ID, byos)...)
+		streams = append(streams, s.byLibrary(r, r.PathValue("type"), imdbID, user.ID, byos)...)
 	}
 
 	if len(streams) > 0 && infoHash != "" {
@@ -95,8 +96,8 @@ func parseID(contentID string) (imdbID, infoHash string) {
 	return "", ""
 }
 
-func (s *Server) byHash(ctx context.Context, infoHash, userID string, byos bool) []map[string]any {
-	data, err := s.store.GetBytes(ctx, manifest.Path(infoHash))
+func (s *Server) byHash(r *http.Request, infoHash, userID string, byos bool) []map[string]any {
+	data, err := s.store.GetBytes(r.Context(), manifest.Path(infoHash))
 	if err != nil {
 		return nil
 	}
@@ -106,7 +107,7 @@ func (s *Server) byHash(ctx context.Context, infoHash, userID string, byos bool)
 	}
 	var out []map[string]any
 	for _, f := range man.Files {
-		out = append(out, entry(f.FileName, s.streamURL(f.DirectURL, userID, byos)))
+		out = append(out, entry(f.FileName, s.streamURL(r, f.DirectURL, userID, byos)))
 	}
 	return out
 }
@@ -116,14 +117,16 @@ func (s *Server) userHasBYOS(ctx context.Context, userID string) bool {
 	return err == nil && creds != nil && creds.Enabled && creds.IsRclone()
 }
 
-func (s *Server) streamURL(key, userID string, byos bool) string {
+func (s *Server) streamURL(r *http.Request, key, userID string, byos bool) string {
+	u := s.store.SignURL(key, 24*time.Hour)
 	if byos {
-		return s.store.SignURLNodeUser("", key, userID, 24*time.Hour) + "&byos=1"
+		u = s.store.SignURLNodeUser("", key, userID, 24*time.Hour) + "&byos=1"
 	}
-	return s.store.SignURL(key, 24*time.Hour)
+	return georoute.URL(r, u)
 }
 
-func (s *Server) byLibrary(ctx context.Context, contentType, imdbID, userID string, byos bool) []map[string]any {
+func (s *Server) byLibrary(r *http.Request, contentType, imdbID, userID string, byos bool) []map[string]any {
+	ctx := r.Context()
 	seen := map[string]bool{}
 	var out []map[string]any
 	add := func(list []*jobs.Job) {
@@ -134,7 +137,7 @@ func (s *Server) byLibrary(ctx context.Context, contentType, imdbID, userID stri
 			seen[j.InfoHash] = true
 			for i, f := range j.Files {
 				key := manifest.Key(j.InfoHash, i, f.Name)
-				out = append(out, entry(f.Name, s.streamURL(key, userID, byos)))
+				out = append(out, entry(f.Name, s.streamURL(r, key, userID, byos)))
 			}
 		}
 	}
