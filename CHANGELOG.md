@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.0](https://github.com/torrin-app/torrin/compare/v1.18.0...v1.19.0) (2026-07-26)
+
+
+### Features
+
+* content-addressed encrypted blob store + cross-content dedup ([#82](https://github.com/torrin-app/torrin/issues/82)) ([7bc6d40](https://github.com/torrin-app/torrin/commit/7bc6d402f1378ef0ec52912e2abb52fc11fadf1a))
+
 ## [1.18.0](https://github.com/torrin-app/torrin/compare/v1.17.1...v1.18.0) (2026-07-26)
 
 
