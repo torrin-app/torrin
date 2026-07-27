@@ -46,7 +46,7 @@ func main() {
 	d := &deps{
 		repo:  repo,
 		users: users,
-		src:   storage.NewClient(endpoint, region, access, secret, bucket, "", ""),
+		src:   storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
 		srcFs: sourceRemote + ":" + bucket,
 	}
 	d.rc = connectRclone(ctx, endpoint, region, access, secret)

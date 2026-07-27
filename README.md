@@ -18,12 +18,12 @@ Torrin downloads torrents, Usenet, and file-host links on remote servers (behind
 1. A user submits a magnet / NZB / link, or searches for a title.
 2. `api` checks the cache and content providers — if available, returns signed stream URLs instantly.
 3. If not, a job is queued and `ingest` downloads it (behind a VPN).
-4. On completion, the files are published to S3 (Garage).
+4. On completion, the files are published to the shared object store.
 5. The user streams via a signed HTTPS URL from `stream`, or mounts the library via `webdav`.
 
 ## Architecture
 
-Torrin is a Go monorepo of small services communicating over [NATS](https://nats.io), backed by PostgreSQL (metadata) and [Garage](https://garagehq.deuxfleurs.fr) (S3-compatible object storage).
+Torrin is a Go monorepo of small services communicating over [NATS](https://nats.io), backed by PostgreSQL (metadata) and a filesystem-backed object store (served over S3 via [rclone](https://rclone.org) for the remote cache tier).
 
 | Service | Role |
 |---|---|
@@ -37,13 +37,13 @@ Torrin is a Go monorepo of small services communicating over [NATS](https://nats
 | `byos` | Bring Your Own Storage (rclone) |
 | `telegram` | Telegram bot |
 | `shared/` | Shared core — auth, jobs, eviction, providers, qbit, rss, safety, storage, usenet, … |
-| `deploy/` | Docker Compose stack + Caddy / Garage config |
+| `deploy/` | Docker Compose stack + Caddy config |
 
 The Stremio addon (`comet`) lives in a separate repository.
 
 ## Self-hosting
 
-Requirements: Docker + Docker Compose, a domain, and a VPN provider for the download egress. The stack bundles Garage (S3), PostgreSQL, NATS, qBittorrent, and gluetun (VPN).
+Requirements: Docker + Docker Compose, a domain, and a VPN provider for the download egress. The stack bundles the object store, PostgreSQL, NATS, qBittorrent, and gluetun (VPN).
 
 ```bash
 git clone https://github.com/torrin-app/torrin

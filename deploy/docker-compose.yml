@@ -62,14 +62,24 @@ services:
     ports: ["127.0.0.1:8088:8080"]
     restart: *restart
 
+  # rclone serve s3 over the filesystem store (name kept for DNS compat).
+  # --etag-hash none: else it re-hashes whole files per request and stalls.
   garage:
-    image: dxflrs/garage:v1.0.1
-    environment:
-      GARAGE_RPC_SECRET: "${GARAGE_RPC_SECRET:-deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef}"
+    image: rclone/rclone
+    user: "0:0"
+    command:
+      - serve
+      - s3
+      - /data
+      - --addr
+      - :3900
+      - --auth-key
+      - "${S3_ACCESS_KEY},${S3_SECRET_KEY}"
+      - --no-modtime
+      - --etag-hash
+      - none
     volumes:
-      - ./garage.toml:/etc/garage.toml:ro
-      - garage_meta:/var/lib/garage/meta
-      - /mnt/cache/garage:/var/lib/garage/data
+      - /mnt/cache/store:/data/torrin:ro
     ports: ["127.0.0.1:3900:3900"]
     restart: *restart
 
@@ -259,6 +269,5 @@ services:
 
 volumes:
   pgdata:
-  garage_meta:
   qbit_config:
   rclone_config:

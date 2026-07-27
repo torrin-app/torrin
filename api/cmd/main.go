@@ -47,11 +47,10 @@ func main() {
 		fatal("creds key", err)
 	}
 
-	store := storage.NewClient(
-		mustEnv("S3_ENDPOINT"), env.Get("S3_REGION", ""),
-		mustEnv("S3_ACCESS_KEY"), mustEnv("S3_SECRET_KEY"),
-		mustEnv("S3_BUCKET"), env.Get("PUBLIC_URL", ""), mustEnv("SIGNING_KEY"),
-	)
+	store := storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), env.Get("PUBLIC_URL", ""), mustEnv("SIGNING_KEY"))
+	if err := store.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
+		fatal("storage key", err)
+	}
 
 	store.SetNodeBases(parseNodeBases(env.Get("NODE_STREAM_BASES", "")))
 
