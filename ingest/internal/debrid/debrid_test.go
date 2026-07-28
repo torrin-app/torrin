@@ -143,3 +143,42 @@ func TestRunOverPlanLimit(t *testing.T) {
 		t.Fatalf("want handled with error, got (%v,%v)", handled, err)
 	}
 }
+
+func TestRunFailsOverToNextProvider(t *testing.T) {
+	content := make([]byte, 2_000_000)
+	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write(content)
+	}))
+	defer good.Close()
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer bad.Close()
+
+	provA := &fakeProv{res: &providers.Result{Name: "Movie", Handle: "hA",
+		Files: []providers.Link{{Name: "movie.mkv", Size: int64(len(content)), URL: bad.URL}}}}
+	provB := &fakeProv{res: &providers.Result{Name: "Movie", Handle: "hB",
+		Files: []providers.Link{{Name: "movie.mkv", Size: int64(len(content)), URL: good.URL}}}}
+	pub := &capturePub{}
+	provsFor := func(context.Context, *jobs.Job) []providers.Provider {
+		return []providers.Provider{provA, provB}
+	}
+	r := NewRunner(provsFor, pub, &fakeProgress{}, t.TempDir(), nil, 1, nil)
+
+	handled, err := r.Run(context.Background(), &jobs.Job{ID: "j1", InfoHash: "h"})
+	if err != nil {
+		t.Fatalf("failover should succeed, got %v", err)
+	}
+	if !handled {
+		t.Fatal("should be handled")
+	}
+	if len(pub.files) != 1 || pub.files[0].Name != "movie.mkv" {
+		t.Fatalf("published files = %+v", pub.files)
+	}
+	if !provA.released {
+		t.Error("provider A not released after failover")
+	}
+	if !provB.released {
+		t.Error("provider B not released")
+	}
+}

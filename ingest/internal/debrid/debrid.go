@@ -56,13 +56,44 @@ func NewRunner(providersFor ProvidersFor, pub Publisher, repo jobStore, scratch 
 }
 
 func (r *Runner) Run(ctx context.Context, job *jobs.Job) (bool, error) {
-	res, prov, err := providers.FirstAvailable(ctx, r.providersFor(ctx, job), job.Magnet, job.InfoHash)
-	if err != nil {
-		return false, err
+	dir := filepath.Join(r.scratch, job.InfoHash)
+	defer os.RemoveAll(dir)
+
+	var cached bool
+	var lastErr error
+	for _, prov := range r.providersFor(ctx, job) {
+		res, err := prov.Fetch(ctx, job.Magnet, job.InfoHash)
+		if err != nil {
+			slog.Info("debrid miss", "provider", prov.Name(), "reason", err)
+			if lastErr == nil {
+				lastErr = err
+			}
+			continue
+		}
+		if res == nil {
+			slog.Info("debrid miss", "provider", prov.Name(), "reason", "not cached")
+			continue
+		}
+		cached = true
+		files, err := r.attempt(ctx, job, dir, prov, res)
+		if err != nil {
+			if IsTerminal(err) {
+				return true, err
+			}
+			os.RemoveAll(dir)
+			slog.Warn("debrid provider failed, trying next", "job", job.ID, "provider", prov.Name(), "err", err)
+			lastErr = err
+			continue
+		}
+		r.recordUsage(ctx, job, prov.Name(), files)
+		slog.Info("debrid download complete, publishing", "job", job.ID, "files", len(files))
+		return true, r.pub.Publish(ctx, job, files)
 	}
-	if res == nil {
-		return false, nil
-	}
+	return cached, lastErr
+}
+
+func (r *Runner) attempt(ctx context.Context, job *jobs.Job, dir string, prov providers.Provider, res *providers.Result) ([]publish.File, error) {
+	defer prov.Release(context.WithoutCancel(ctx), res.Handle)
 	slog.Info("debrid cache hit", "job", job.ID, "provider", prov.Name(), "name", res.Name, "files", len(res.Files))
 	if job.Name == "" && res.Name != "" {
 		job.Name = res.Name
@@ -73,43 +104,34 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job) (bool, error) {
 	}
 	job.FileSize = total
 	r.repo.Update(ctx, job)
-	defer prov.Release(context.WithoutCancel(ctx), res.Handle)
 
 	names := make([]string, len(res.Files))
 	for i, f := range res.Files {
 		names[i] = f.Name
 	}
 	if screen.Blocked(ctx, r.ban, job, names...) {
-		return true, terminal("content blocked by safety policy")
+		return nil, terminal("content blocked by safety policy")
 	}
-
 	if over := overPlanLimit(res, job.MaxBytes); over > 0 {
-		return true, terminal("size %d exceeds plan limit %d", over, job.MaxBytes)
+		return nil, terminal("size %d exceeds plan limit %d", over, job.MaxBytes)
 	}
-
-	dir := filepath.Join(r.scratch, job.InfoHash)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return true, err
+		return nil, err
 	}
-	defer os.RemoveAll(dir)
+	return r.download(ctx, dir, job.ID, res.Files)
+}
 
-	files, err := r.download(ctx, dir, job.ID, res.Files)
-	if err != nil {
-		return true, err
+func (r *Runner) recordUsage(ctx context.Context, job *jobs.Job, provName string, files []publish.File) {
+	if r.usage == nil {
+		return
 	}
-
-	if r.usage != nil {
-		var got int64
-		for _, f := range files {
-			got += f.Size
-		}
-		if err := r.usage(context.WithoutCancel(ctx), job.UserID, prov.Name(), got); err != nil {
-			slog.Warn("debrid usage record failed", "job", job.ID, "err", err)
-		}
+	var got int64
+	for _, f := range files {
+		got += f.Size
 	}
-
-	slog.Info("debrid download complete, publishing", "job", job.ID, "files", len(files))
-	return true, r.pub.Publish(ctx, job, files)
+	if err := r.usage(context.WithoutCancel(ctx), job.UserID, provName, got); err != nil {
+		slog.Warn("debrid usage record failed", "job", job.ID, "err", err)
+	}
 }
 
 const renewAttempts = 3
