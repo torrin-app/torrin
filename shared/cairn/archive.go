@@ -68,7 +68,7 @@ func (a *Archiver) Archive(ctx context.Context, hash string) {
 	var files []post.FileInput
 	var total int64
 	for i, f := range man.Files {
-		key := manifest.Key(hash, i, f.FileName)
+		key := manifest.ResolveKey(hash, i, f.DirectURL, f.FileName)
 		files = append(files, post.FileInput{
 			Name: f.FileName, Size: f.FileSize,
 			Open: func() (io.ReadCloser, error) { return a.store.GetReader(ctx, key) },
