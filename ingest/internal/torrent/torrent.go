@@ -10,6 +10,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/qbit"
 	"github.com/torrin-app/torrin/shared/video"
@@ -87,7 +88,11 @@ func (r *Runner) drive(ctx context.Context, job *jobs.Job) {
 	}
 	if err != nil {
 		if time.Since(job.UpdatedAt) > 30*time.Second {
-			r.fail(ctx, job, "torrent removed from download engine")
+			slog.Info("torrent missing from engine, re-assigning to recover", "job", job.ID, "hash", hash)
+			r.bus.Publish(events.JobAssigned, events.Assigned{
+				JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
+				Source: string(job.Source), MaxBytes: job.MaxBytes,
+			})
 		}
 		return
 	}

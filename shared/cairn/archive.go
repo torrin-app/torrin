@@ -85,7 +85,7 @@ func (a *Archiver) Archive(ctx context.Context, hash string) {
 		slog.Warn("cairn: store nzb", "hash", hash, "err", err)
 		return
 	}
-	if err := a.users.SetCairnArchive(ctx, hash, nzb.StorageKey(hash), man.Name, total); err != nil {
+	if err := a.users.SetCairnArchive(ctx, hash, nzb.StorageKey(hash), man.Name, total, nzbBytes); err != nil {
 		slog.Warn("cairn: record", "hash", hash, "err", err)
 		return
 	}

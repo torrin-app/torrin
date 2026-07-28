@@ -146,7 +146,18 @@ func (r *Runner) download(ctx context.Context, dir, jobID string, links []provid
 		path := filepath.Join(dir, filepath.Base(link.Name))
 		if !providers.OnDisk(path, link.Size) {
 			dl := func(url string) error {
-				return providers.FetchFile(ctx, r.http, url, path, report, r.conns)
+				if err := providers.FetchFile(ctx, r.http, url, path, report, r.conns); err != nil {
+					return err
+				}
+				info, statErr := os.Stat(path)
+				if link.Size > 0 && (statErr != nil || info.Size() != link.Size) {
+					got := int64(0)
+					if statErr == nil {
+						got = info.Size()
+					}
+					return fmt.Errorf("incomplete: got %d of %d bytes", got, link.Size)
+				}
+				return nil
 			}
 			if err := downloadWithRenew(ctx, link, dl, renewAttempts); err != nil {
 				return nil, fmt.Errorf("download %s: %w", link.Name, err)

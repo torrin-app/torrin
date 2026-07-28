@@ -90,6 +90,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.Handle("GET /api/jobs/{id}/progress", authMW(http.HandlerFunc(s.progressJob)))
 	mux.Handle("GET /api/jobs/{id}/zip", authMW(http.HandlerFunc(s.jobZip)))
 	mux.Handle("POST /api/jobs/{id}/retry", authMW(http.HandlerFunc(s.retryJob)))
+	mux.Handle("POST /api/jobs/{id}/recheck", authMW(http.HandlerFunc(s.recheckJob)))
 	mux.Handle("DELETE /api/jobs/{id}", authMW(http.HandlerFunc(s.deleteJob)))
 	mux.Handle("POST /api/jobs/hoster", authMW(http.HandlerFunc(s.submitHoster)))
 	mux.Handle("GET /api/search", authMW(http.HandlerFunc(s.search)))

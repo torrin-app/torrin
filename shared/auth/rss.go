@@ -66,8 +66,22 @@ func (s *Store) queryFeeds(ctx context.Context, sql string, args ...any) ([]*RSS
 	return feeds, rows.Err()
 }
 
+func (s *Store) GetRSSFeed(ctx context.Context, id, userID string) (*RSSFeed, error) {
+	feeds, err := s.queryFeeds(ctx,
+		`SELECT id, user_id, url, name, filter, criteria, enabled, COALESCE(last_check, to_timestamp(0)), created_at
+		 FROM rss_feeds WHERE id=$1 AND user_id=$2`, id, userID)
+	if err != nil || len(feeds) == 0 {
+		return nil, err
+	}
+	return feeds[0], nil
+}
+
+func (s *Store) ClearRSSSeen(ctx context.Context, feedID string) {
+	s.pool.Exec(ctx, `DELETE FROM rss_seen WHERE feed_id=$1`, feedID)
+}
+
 func (s *Store) DeleteRSSFeed(ctx context.Context, id, userID string) error {
-	s.pool.Exec(ctx, `DELETE FROM rss_seen WHERE feed_id=$1`, id)
+	s.ClearRSSSeen(ctx, id)
 	_, err := s.pool.Exec(ctx, `DELETE FROM rss_feeds WHERE id=$1 AND user_id=$2`, id, userID)
 	return err
 }

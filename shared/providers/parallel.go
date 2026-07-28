@@ -17,19 +17,27 @@ const (
 )
 
 func FetchFile(ctx context.Context, client *http.Client, url, localPath string, onProgress func(written, total int64), conns int) error {
+	part := localPath + ".part"
+	if err := fetchToPart(ctx, client, url, part, onProgress, conns); err != nil {
+		return err
+	}
+	return os.Rename(part, localPath)
+}
+
+func fetchToPart(ctx context.Context, client *http.Client, url, part string, onProgress func(written, total int64), conns int) error {
 	if conns > 1 {
 		if total, ok := probeRange(ctx, client, url); ok && total >= minParallelBytes {
-			if err := downloadParallel(ctx, client, url, localPath, total, conns, onProgress); err != nil {
+			if err := downloadParallel(ctx, client, url, part, total, conns, onProgress); err != nil {
 				if ctx.Err() != nil {
 					return err
 				}
-				os.Remove(localPath)
+				os.Remove(part)
 			} else {
 				return nil
 			}
 		}
 	}
-	return Download(ctx, HTTPRange(ctx, client, url), localPath, onProgress)
+	return Download(ctx, HTTPRange(ctx, client, url), part, onProgress)
 }
 
 func probeRange(ctx context.Context, client *http.Client, url string) (int64, bool) {

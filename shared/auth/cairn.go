@@ -13,17 +13,23 @@ type CairnItem struct {
 	Archived  bool      `json:"archived"`
 }
 
-func (s *Store) SetCairnArchive(ctx context.Context, infoHash, nzbKey, name string, size int64) error {
+func (s *Store) SetCairnArchive(ctx context.Context, infoHash, nzbKey, name string, size int64, nzb []byte) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO cairn_archives (info_hash, nzb_key, name, size) VALUES ($1,$2,$3,$4)
-		 ON CONFLICT (info_hash) DO UPDATE SET nzb_key = $2, name = $3, size = $4`,
-		infoHash, nzbKey, name, size)
+		`INSERT INTO cairn_archives (info_hash, nzb_key, name, size, nzb) VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (info_hash) DO UPDATE SET nzb_key = $2, name = $3, size = $4, nzb = $5`,
+		infoHash, nzbKey, name, size, nzb)
 	return err
 }
 
 func (s *Store) GetCairnArchive(ctx context.Context, infoHash string) (nzbKey, name string, ok bool) {
 	err := s.pool.QueryRow(ctx, `SELECT nzb_key, name FROM cairn_archives WHERE info_hash = $1`, infoHash).Scan(&nzbKey, &name)
 	return nzbKey, name, err == nil && nzbKey != ""
+}
+
+func (s *Store) GetCairnNZB(ctx context.Context, infoHash string) ([]byte, bool) {
+	var nzb []byte
+	err := s.pool.QueryRow(ctx, `SELECT nzb FROM cairn_archives WHERE info_hash = $1`, infoHash).Scan(&nzb)
+	return nzb, err == nil && len(nzb) > 0
 }
 
 func (s *Store) PendingCairns(ctx context.Context) ([]string, error) {

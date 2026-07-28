@@ -100,9 +100,17 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		req.Name = req.URL
 	}
 	crit, _ := json.Marshal(rss.ParseFilter(req.Criteria))
-	if err := s.Users.UpdateRSSFeed(r.Context(), r.PathValue("id"), middleware.GetUser(r).ID, req.URL, req.Name, req.Filter, crit); err != nil {
+	id, userID := r.PathValue("id"), middleware.GetUser(r).ID
+	old, _ := s.Users.GetRSSFeed(r.Context(), id, userID)
+	if err := s.Users.UpdateRSSFeed(r.Context(), id, userID, req.URL, req.Name, req.Filter, crit); err != nil {
 		web.WriteError(w, 500, "failed to save")
 		return
+	}
+	if old != nil {
+		oldCrit, _ := json.Marshal(rss.ParseFilter(old.Criteria))
+		if old.Filter != req.Filter || string(oldCrit) != string(crit) {
+			s.Users.ClearRSSSeen(r.Context(), id)
+		}
 	}
 	web.WriteJSON(w, 200, map[string]string{"status": "ok"})
 }

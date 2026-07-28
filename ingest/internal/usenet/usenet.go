@@ -1,6 +1,7 @@
 package usenet
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -51,9 +52,23 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	slog.Info("usenet job started", "job", job.ID)
 	data, err := r.store.GetBytes(ctx, nzb.StorageKey(job.InfoHash))
 	if err != nil {
-		return fmt.Errorf("fetch nzb: %w", err)
+		data, err = r.recoverNZB(ctx, job)
+		if err != nil {
+			return fmt.Errorf("fetch nzb: %w", err)
+		}
 	}
 	return r.RunNZB(ctx, job, data)
+}
+
+func (r *Runner) recoverNZB(ctx context.Context, job *jobs.Job) ([]byte, error) {
+	data, ok := r.users.GetCairnNZB(ctx, job.InfoHash)
+	if !ok {
+		return nil, fmt.Errorf("nzb missing")
+	}
+	if err := r.store.Put(ctx, nzb.StorageKey(job.InfoHash), bytes.NewReader(data), "application/x-nzb"); err != nil {
+		slog.Warn("cairn: repopulate nzb cache", "hash", job.InfoHash, "err", err)
+	}
+	return data, nil
 }
 
 func (r *Runner) RunNZB(ctx context.Context, job *jobs.Job, data []byte) error {

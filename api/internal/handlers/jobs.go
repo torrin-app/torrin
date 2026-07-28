@@ -13,7 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
-	"github.com/torrin-app/torrin/shared/qbit"
+	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/safety"
 )
 
@@ -71,7 +71,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 	}
 
 	// 2. Dedup against an existing job for this hash.
-	if existing, err := s.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
+	if existing, err := s.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
 		if existing.UserID == user.ID {
 			if !existing.Status.Active() {
 				existing.StreamURLs = s.signStreams(existing, r)
@@ -224,16 +224,39 @@ func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "only failed or evicted jobs can be retried")
 		return
 	}
-	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
-		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
+	s.requeue(w, r, job, user.ID, plan)
+}
+
+func (s *Server) recheckJob(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r)
+	plan := middleware.GetPlan(r)
+	job, err := s.Jobs.Get(r.Context(), r.PathValue("id"))
+	if err != nil || job == nil || job.UserID != user.ID {
+		web.WriteError(w, 404, "job not found")
+		return
+	}
+	if job.Status != jobs.StatusComplete {
+		web.WriteError(w, 400, "only completed downloads can be rechecked")
+		return
+	}
+	if job.Source != jobs.SourceTorrent && job.Source != jobs.SourceUsenet {
+		web.WriteError(w, 400, "recheck is only available for torrent and usenet downloads")
+		return
+	}
+	s.requeue(w, r, job, user.ID, plan)
+}
+
+func (s *Server) requeue(w http.ResponseWriter, r *http.Request, job *jobs.Job, userID string, plan plans.Plan) {
+	if !s.Slots.Acquire(r.Context(), userID, plan) {
+		web.WriteError(w, 429, slotMsg(s, r, userID, plan.MaxConcurrent))
 		return
 	}
 	job.Status = jobs.StatusPending
 	job.Error = ""
-	err = s.Jobs.Update(r.Context(), job)
-	s.Slots.Release(user.ID)
+	err := s.Jobs.Update(r.Context(), job)
+	s.Slots.Release(userID)
 	if err != nil {
-		web.WriteError(w, 500, "failed to retry")
+		web.WriteError(w, 500, "failed to requeue job")
 		return
 	}
 	s.assign(job)
@@ -272,49 +295,6 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	web.WriteJSON(w, 200, map[string]string{"status": "deleted"})
-}
-
-func (s *Server) progressJob(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUser(r)
-	job, err := s.Jobs.Get(r.Context(), r.PathValue("id"))
-	if err != nil || job == nil || job.UserID != user.ID {
-		web.WriteError(w, 404, "job not found")
-		return
-	}
-	resp := map[string]any{"status": job.Status, "name": job.Name}
-	switch {
-	case job.Status == jobs.StatusDownloading && job.Source == jobs.SourceTorrent:
-		fromQbit := false
-		if s.Qbit != nil && s.Qbit.Login() == nil {
-			if t, err := s.Qbit.GetTorrent(job.InfoHash); err == nil {
-				resp["progress"] = t.Progress * 100
-				resp["speed"] = t.DlSpeed
-				resp["state"] = torrentState(t)
-				fromQbit = true
-			}
-		}
-		if !fromQbit {
-			resp["progress"] = job.Progress
-			resp["speed"] = job.Speed
-		}
-	case job.Status == jobs.StatusDownloading && (job.Source == jobs.SourceUsenet || job.Source == jobs.SourceHDEncode || job.Source == jobs.SourceScenerls || job.Source == jobs.SourceHoster || job.Source == jobs.SourceYtdlp):
-		resp["progress"] = job.Progress
-		resp["speed"] = job.Speed
-	case job.Status == jobs.StatusProcessing || job.Status == jobs.StatusPublishing:
-		resp["progress"] = job.Progress
-	}
-	web.WriteJSON(w, 200, resp)
-}
-
-func torrentState(t *qbit.Torrent) string {
-	switch {
-	case qbit.IsFetchingMetadata(t):
-		return "fetching metadata"
-	case qbit.IsStalled(t):
-		return "stalled"
-	default:
-		return "downloading"
-	}
 }
 
 func (s *Server) assign(job *jobs.Job) {

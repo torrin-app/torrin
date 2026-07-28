@@ -219,3 +219,5 @@ CREATE TABLE IF NOT EXISTS debrid_usage (
     bytes    BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, provider, month)
 );
+
+ALTER TABLE cairn_archives ADD COLUMN IF NOT EXISTS nzb BYTEA;

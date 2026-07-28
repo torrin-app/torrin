@@ -95,7 +95,7 @@ func (s *Server) buildCachedJob(ctx context.Context, infoHash, magnet, userID st
 	files := make([]jobs.File, len(man.Files))
 	var total int64
 	for i, mf := range man.Files {
-		files[i] = jobs.File{Index: i, Name: mf.FileName, Size: mf.FileSize, MediaInfo: mf.MediaInfo}
+		files[i] = jobs.File{Index: i, Name: mf.FileName, Size: mf.FileSize, Key: mf.DirectURL, Enc: mf.Enc, MediaInfo: mf.MediaInfo}
 		total += mf.FileSize
 	}
 	job := &jobs.Job{

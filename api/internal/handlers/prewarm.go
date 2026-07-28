@@ -82,11 +82,13 @@ func (s *Server) prewarm(w http.ResponseWriter, r *http.Request) {
 		}
 		existing, _ := s.Jobs.GetByInfoHash(ctx, c.infoHash)
 		if existing != nil {
-			if existing.Status != jobs.StatusFailed {
+			if existing.Status == jobs.StatusFailed {
+				continue
+			}
+			if existing.Status != jobs.StatusEvicted {
 				web.WriteJSON(w, 200, map[string]string{"status": "exists"})
 				return
 			}
-			continue
 		}
 		job := &jobs.Job{
 			UserID:   prewarmUser,

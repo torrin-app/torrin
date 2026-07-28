@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const tbBase = "https://api.torbox.app/v1/api"
+var tbBase = "https://api.torbox.app/v1/api"
 
 type torbox struct {
 	key      string
@@ -58,6 +58,10 @@ func (t *torbox) Fetch(ctx context.Context, magnet, infoHash string) (*Result, e
 		t.Release(context.Background(), strconv.Itoa(id))
 		return nil, err
 	}
+	if !tor.DownloadFinished || !tor.DownloadPresent {
+		t.Release(context.Background(), strconv.Itoa(id))
+		return nil, nil
+	}
 
 	var files []Link
 	for _, f := range tor.Files {
@@ -92,10 +96,13 @@ type tbFile struct {
 }
 
 type tbTorrent struct {
-	Hash  string   `json:"hash"`
-	Name  string   `json:"name"`
-	Size  int64    `json:"size"`
-	Files []tbFile `json:"files"`
+	Hash             string   `json:"hash"`
+	Name             string   `json:"name"`
+	Size             int64    `json:"size"`
+	Progress         float64  `json:"progress"`
+	DownloadFinished bool     `json:"download_finished"`
+	DownloadPresent  bool     `json:"download_present"`
+	Files            []tbFile `json:"files"`
 }
 
 func (t *torbox) listTorrent(ctx context.Context, id int) (*tbTorrent, error) {
