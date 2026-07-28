@@ -29,6 +29,9 @@ func main() {
 		fatal("creds key", err)
 	}
 	store := storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), env.Get("PUBLIC_URL", ""), mustEnv("SIGNING_KEY"))
+	if err := store.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
+		fatal("storage key", err)
+	}
 	b, err := bus.Connect(mustEnv("NATS_URL"))
 	if err != nil {
 		fatal("nats", err)
