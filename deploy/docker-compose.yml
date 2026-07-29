@@ -75,7 +75,6 @@ services:
       - :3900
       - --auth-key
       - "${S3_ACCESS_KEY},${S3_SECRET_KEY}"
-      - --no-modtime
       - --etag-hash
       - none
     volumes:
