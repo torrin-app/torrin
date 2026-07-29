@@ -1,0 +1,22 @@
+services:
+  api:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store
+  ingest:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store
+  stream:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store:ro
+  stremio:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store:ro
+  webdav:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store:ro
+  cairn:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store
+  byos:
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store

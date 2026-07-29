@@ -84,6 +84,7 @@ services:
 
   api:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/api:${TORRIN_TAG:-latest}"
+    user: "0:0"
     environment:
       <<: *s3
       PORT: "8080"
@@ -184,6 +185,7 @@ services:
 
   cairn: # posts cached files to usenet (Cairn archive); isolated so api/ingest deploys don't interrupt uploads
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/cairn:${TORRIN_TAG:-latest}"
+    user: "0:0"
     dns_opt: ["single-request-reopen"] # split A/AAAA source ports so usenet DNS lookups survive load
     environment:
       <<: *s3
@@ -234,6 +236,7 @@ services:
 
   byos:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/byos:${TORRIN_TAG:-latest}"
+    user: "0:0"
     environment:
       <<: *s3
       PORT: "8085"
