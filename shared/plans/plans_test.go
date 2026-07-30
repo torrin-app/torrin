@@ -12,6 +12,17 @@ func TestGet(t *testing.T) {
 	}
 }
 
+func TestCanBYOK(t *testing.T) {
+	if CanBYOK("free") || CanBYOK("") {
+		t.Error("free/empty must not allow BYOK")
+	}
+	for _, id := range []string{"starter", "standard", "pro"} {
+		if !CanBYOK(id) {
+			t.Errorf("%s should allow BYOK", id)
+		}
+	}
+}
+
 func TestValidatePrice(t *testing.T) {
 	if !ValidatePrice("standard", "monthly", 599) {
 		t.Error("exact monthly price should pass")

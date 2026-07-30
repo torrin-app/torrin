@@ -7,6 +7,7 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/plans"
 )
 
 type credOps struct {
@@ -18,6 +19,10 @@ type credOps struct {
 
 func (s *Server) registerCredRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler, prefix string, ops credOps) {
 	mux.Handle("POST "+prefix, authMW(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !plans.CanBYOK(middleware.GetPlan(r).ID) {
+			web.WriteError(w, 403, "bring-your-own debrid keys require a paid plan")
+			return
+		}
 		var req struct {
 			APIKey string `json:"api_key"`
 		}

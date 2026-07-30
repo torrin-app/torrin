@@ -186,6 +186,10 @@ func Get(id string) (Plan, bool) {
 	return p, ok
 }
 
+func CanBYOK(planID string) bool {
+	return planID != "" && planID != "free"
+}
+
 func PriceCents(planID, billingPeriod string, days int) (int, bool) {
 	plan, ok := All[planID]
 	if !ok {

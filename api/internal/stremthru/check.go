@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 )
 
@@ -40,6 +41,8 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "files": []any{}})
 		valid = append(valid, entry{hash, m})
 	}
+
+	byok := plans.CanBYOK(user.PlanID)
 
 	uncached := func() []string {
 		var hs []string
@@ -99,17 +102,19 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 			if h.SysRDKey != "" {
 				checks = append(checks, pk{"real-debrid", h.SysRDKey})
 			}
-			if k, _ := h.Users.GetRDKey(r.Context(), user.ID); k != "" {
-				checks = append(checks, pk{"real-debrid", k})
-			}
-			if k, _ := h.Users.GetADKey(r.Context(), user.ID); k != "" {
-				checks = append(checks, pk{"alldebrid", k})
-			}
-			if k, _ := h.Users.GetTBKey(r.Context(), user.ID); k != "" {
-				checks = append(checks, pk{"torbox", k})
-			}
-			if k, _ := h.Users.GetPMKey(r.Context(), user.ID); k != "" {
-				checks = append(checks, pk{"premiumize", k})
+			if byok {
+				if k, _ := h.Users.GetRDKey(r.Context(), user.ID); k != "" {
+					checks = append(checks, pk{"real-debrid", k})
+				}
+				if k, _ := h.Users.GetADKey(r.Context(), user.ID); k != "" {
+					checks = append(checks, pk{"alldebrid", k})
+				}
+				if k, _ := h.Users.GetTBKey(r.Context(), user.ID); k != "" {
+					checks = append(checks, pk{"torbox", k})
+				}
+				if k, _ := h.Users.GetPMKey(r.Context(), user.ID); k != "" {
+					checks = append(checks, pk{"premiumize", k})
+				}
 			}
 			var cmu sync.Mutex
 			var cwg sync.WaitGroup
@@ -134,7 +139,7 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	}
 
 	// Tier 4: the user's Premiumize cache, checked directly.
-	if pm := uncached(); len(pm) > 0 {
+	if pm := uncached(); len(pm) > 0 && byok {
 		if k, _ := h.Users.GetPMKey(r.Context(), user.ID); k != "" {
 			for hash, ok := range providers.PremiumizeCached(r.Context(), k, pm) {
 				if ok {
@@ -147,7 +152,7 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	}
 
 	// Tier 5: the user's TorBox cache, checked directly.
-	if tb := uncached(); len(tb) > 0 {
+	if tb := uncached(); len(tb) > 0 && byok {
 		if k, _ := h.Users.GetTBKey(r.Context(), user.ID); k != "" {
 			for hash := range providers.TorBoxCached(r.Context(), k, tb) {
 				if idx, found := idxOf[hash]; found {

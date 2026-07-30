@@ -24,6 +24,7 @@ import (
 	"github.com/torrin-app/torrin/shared/events"
 	hdclient "github.com/torrin-app/torrin/shared/hdencode"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/qbit"
 	"github.com/torrin-app/torrin/shared/safety"
@@ -76,17 +77,19 @@ func main() {
 	sysRD, sysAD := os.Getenv("RD_API_KEY"), os.Getenv("AD_API_KEY")
 	providersFor := func(ctx context.Context, job *jobs.Job) []providers.Provider {
 		var list []providers.Provider
+		u, _ := users.GetByID(ctx, job.UserID)
+		byok := u != nil && plans.CanBYOK(u.PlanID)
 		userRD, _ := users.GetRDKey(ctx, job.UserID)
-		if userRD != "" {
+		if byok && userRD != "" {
 			list = append(list, providers.NewRealDebrid(userRD))
 		}
-		if k, _ := users.GetADKey(ctx, job.UserID); k != "" {
+		if k, _ := users.GetADKey(ctx, job.UserID); byok && k != "" {
 			list = append(list, providers.NewAllDebrid(k))
 		}
-		if k, _ := users.GetTBKey(ctx, job.UserID); k != "" {
+		if k, _ := users.GetTBKey(ctx, job.UserID); byok && k != "" {
 			list = append(list, providers.NewTorBox(k))
 		}
-		if k, _ := users.GetPMKey(ctx, job.UserID); k != "" {
+		if k, _ := users.GetPMKey(ctx, job.UserID); byok && k != "" {
 			list = append(list, providers.NewPremiumize(k))
 		}
 		if sysRD != "" && sysRD != userRD {
