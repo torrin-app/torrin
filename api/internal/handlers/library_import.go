@@ -12,6 +12,7 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 )
 
@@ -50,6 +51,10 @@ func (s *Server) tbLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) library(w http.ResponseWriter, r *http.Request, key string, list func(context.Context, string) ([]providers.LibraryItem, error)) {
+	if !plans.CanBYOK(middleware.GetPlan(r).ID) {
+		web.WriteError(w, 403, "debrid library access requires a paid plan")
+		return
+	}
 	if key == "" {
 		web.WriteError(w, 400, "no provider key configured")
 		return
@@ -77,6 +82,10 @@ func (s *Server) library(w http.ResponseWriter, r *http.Request, key string, lis
 func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	plan := middleware.GetPlan(r)
+	if !plans.CanBYOK(plan.ID) {
+		web.WriteError(w, 403, "library import requires a paid plan")
+		return
+	}
 	var req struct {
 		Hashes []string `json:"hashes"`
 	}

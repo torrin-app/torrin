@@ -41,7 +41,7 @@ func (s *Server) submitNZB(w http.ResponseWriter, r *http.Request) {
 }
 
 func usenetEntitled(hasOwnCreds bool, plan plans.Plan) bool {
-	return hasOwnCreds || plan.SystemUsenet
+	return (hasOwnCreds && plans.CanBYOK(plan.ID)) || plan.SystemUsenet
 }
 
 func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint string) {
@@ -158,6 +158,10 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 
 func (s *Server) setUsenetCreds(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
+	if !plans.CanBYOK(middleware.GetPlan(r).ID) {
+		web.WriteError(w, 403, "bring-your-own usenet requires a paid plan")
+		return
+	}
 	var c auth.UsenetCreds
 	if err := json.NewDecoder(r.Body).Decode(&c); err != nil || c.Host == "" {
 		web.WriteError(w, 400, "host required")

@@ -7,18 +7,17 @@ import (
 )
 
 func TestUsenetEntitled(t *testing.T) {
-	sys := plans.Plan{SystemUsenet: true}
-	noSys := plans.Plan{SystemUsenet: false}
 	cases := []struct {
 		name     string
 		ownCreds bool
 		plan     plans.Plan
 		want     bool
 	}{
-		{"own creds, no system plan", true, noSys, true},
-		{"own creds, system plan", true, sys, true},
-		{"no creds, system plan", false, sys, true},
-		{"no creds, no system plan", false, noSys, false}, // the newly-blocked case
+		{"paid byok plan, own creds", true, plans.Starter, true},
+		{"paid byok plan, no creds", false, plans.Starter, false},
+		{"system usenet plan, no creds", false, plans.Standard, true},
+		{"free with own creds", true, plans.Free, false},
+		{"free no creds", false, plans.Free, false},
 	}
 	for _, c := range cases {
 		if got := usenetEntitled(c.ownCreds, c.plan); got != c.want {
