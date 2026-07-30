@@ -33,6 +33,7 @@ type Store interface {
 	StreamUpload(ctx context.Context, key string, body io.Reader, contentType string) error
 	Put(ctx context.Context, key string, body io.Reader, contentType string) error
 	Head(ctx context.Context, key string) (*storage.Object, error)
+	GetBytes(ctx context.Context, key string) ([]byte, error)
 }
 
 type BlobIndex interface {
@@ -192,6 +193,22 @@ func (s *stallReader) Read(p []byte) (int, error) {
 		s.timer.Reset(s.timeout)
 	}
 	return n, err
+}
+
+func (p *Publisher) CompleteFromCache(ctx context.Context, infoHash string) (bool, error) {
+	data, err := p.store.GetBytes(ctx, manifest.Path(infoHash))
+	if err != nil {
+		return false, nil
+	}
+	man, err := manifest.Parse(data)
+	if err != nil {
+		return false, err
+	}
+	var total int64
+	for _, f := range man.Files {
+		total += f.FileSize
+	}
+	return true, p.complete(ctx, infoHash, man.Name, man.Files, total)
 }
 
 func (p *Publisher) complete(ctx context.Context, infoHash, name string, files []manifest.File, total int64) error {

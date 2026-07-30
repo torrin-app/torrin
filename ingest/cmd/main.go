@@ -167,7 +167,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				reconcile(ctx, repo, b, cancels)
+				reconcile(ctx, repo, pub, b, cancels)
 				if torrentRunner != nil {
 					torrentRunner.ReapOrphans(ctx)
 				}

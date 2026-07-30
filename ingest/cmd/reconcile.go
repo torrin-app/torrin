@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
@@ -48,7 +49,7 @@ func sweepScratch(ctx context.Context, repo jobs.Repository, scratch string) {
 	}
 }
 
-func reconcile(ctx context.Context, repo jobs.Repository, b *bus.Bus, cancels *cancelRegistry) {
+func reconcile(ctx context.Context, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, cancels *cancelRegistry) {
 	for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusDownloading, jobs.StatusPublishing} {
 		list, err := repo.ListByStatus(ctx, st)
 		if err != nil {
@@ -56,6 +57,9 @@ func reconcile(ctx context.Context, repo jobs.Repository, b *bus.Bus, cancels *c
 		}
 		for _, job := range list {
 			if cancels.has(job.ID) {
+				continue
+			}
+			if ok, _ := pub.CompleteFromCache(ctx, job.InfoHash); ok {
 				continue
 			}
 			if st == jobs.StatusDownloading && job.Source == jobs.SourceTorrent {

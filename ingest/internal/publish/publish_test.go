@@ -13,7 +13,10 @@ import (
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
-type fakeStore struct{ puts map[string]bool }
+type fakeStore struct {
+	puts map[string]bool
+	data map[string][]byte
+}
 
 func (f *fakeStore) StreamUpload(_ context.Context, key string, body io.Reader, _ string) error {
 	io.Copy(io.Discard, body)
@@ -21,13 +24,23 @@ func (f *fakeStore) StreamUpload(_ context.Context, key string, body io.Reader, 
 	return nil
 }
 func (f *fakeStore) Put(_ context.Context, key string, body io.Reader, _ string) error {
-	io.Copy(io.Discard, body)
+	b, _ := io.ReadAll(body)
 	f.puts[key] = true
+	if f.data == nil {
+		f.data = map[string][]byte{}
+	}
+	f.data[key] = b
 	return nil
 }
 func (f *fakeStore) Head(_ context.Context, key string) (*storage.Object, error) {
 	if f.puts[key] {
 		return &storage.Object{}, nil
+	}
+	return nil, fmt.Errorf("not found")
+}
+func (f *fakeStore) GetBytes(_ context.Context, key string) ([]byte, error) {
+	if b, ok := f.data[key]; ok {
+		return b, nil
 	}
 	return nil, fmt.Errorf("not found")
 }
@@ -178,6 +191,9 @@ func (stallStore) Put(context.Context, string, io.Reader, string) error { return
 func (stallStore) Head(context.Context, string) (*storage.Object, error) {
 	return nil, fmt.Errorf("not found")
 }
+func (stallStore) GetBytes(context.Context, string) ([]byte, error) {
+	return nil, fmt.Errorf("not found")
+}
 
 func TestUploadAbortsOnStall(t *testing.T) {
 	old := uploadStallTimeout
@@ -193,6 +209,37 @@ func TestUploadAbortsOnStall(t *testing.T) {
 		[]File{{Name: "movie.mkv", Path: path, Size: 2_000_000}})
 	if err == nil {
 		t.Fatal("expected upload to abort on stall")
+	}
+}
+
+func TestCompleteFromCache(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "movie.mkv", 2_000_000)
+
+	main := &jobs.Job{ID: "j1", InfoHash: "hashX", Name: "Movie"}
+	repo := &memRepo{jobs: map[string]*jobs.Job{"j1": main}}
+	store := &fakeStore{puts: map[string]bool{}}
+	pub := newPub(repo, store)
+	if err := pub.Publish(context.Background(), main, []File{{Name: "movie.mkv", Path: path, Size: 2_000_000}}); err != nil {
+		t.Fatal(err)
+	}
+
+	follower := &jobs.Job{ID: "j2", InfoHash: "hashX", Status: jobs.StatusDownloading}
+	repo.jobs["j2"] = follower
+
+	ok, err := pub.CompleteFromCache(context.Background(), "hashX")
+	if err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if repo.jobs["j2"].Status != jobs.StatusComplete {
+		t.Errorf("follower status = %s, want complete", repo.jobs["j2"].Status)
+	}
+	if len(repo.jobs["j2"].Files) != 1 {
+		t.Errorf("follower files = %d, want 1", len(repo.jobs["j2"].Files))
+	}
+
+	if ok, _ := pub.CompleteFromCache(context.Background(), "nope"); ok {
+		t.Error("unknown hash should report not cached")
 	}
 }
 
