@@ -132,3 +132,33 @@ func TestDisplayName(t *testing.T) {
 		t.Errorf("no dn should be empty, got %q", got)
 	}
 }
+
+func TestMagnetDataIncludesMagnet(t *testing.T) {
+	h := &Handler{Deps: Deps{Store: fakeStore{err: context.DeadlineExceeded}}}
+	j := packJob()
+	j.Magnet = "magnet:?xt=urn:btih:abc&dn=Reborn.Rookie.S01.1080p"
+	d := h.magnetData(context.Background(), j)
+	if d["magnet"] != j.Magnet {
+		t.Errorf("magnet = %v, want %q", d["magnet"], j.Magnet)
+	}
+	if _, ok := d["name"]; !ok {
+		t.Error("name key missing")
+	}
+}
+
+func TestCachedFilesReturnsManifestName(t *testing.T) {
+	m := manifest.Manifest{
+		InfoHash: "abc", Name: "Some.Movie.2020.1080p",
+		Files: []manifest.File{{FileName: "movie.mkv", FileSize: 100}},
+	}
+	data, _ := m.Marshal()
+	h := &Handler{Deps: Deps{Store: fakeStore{manifest: data}}}
+
+	name, files, ok := h.cachedFiles(context.Background(), "abc")
+	if !ok || len(files) != 1 {
+		t.Fatalf("ok=%v files=%d", ok, len(files))
+	}
+	if name != "Some.Movie.2020.1080p" {
+		t.Errorf("name = %q, want manifest name", name)
+	}
+}

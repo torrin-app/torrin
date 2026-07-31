@@ -108,7 +108,7 @@ func (h *Handler) assign(job *jobs.Job) {
 
 func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 	m := map[string]any{
-		"id": j.ID, "hash": j.InfoHash, "name": j.Name, "status": stStatus(j.Status),
+		"id": j.ID, "hash": j.InfoHash, "magnet": j.Magnet, "name": j.Name, "status": stStatus(j.Status),
 		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339),
 		"files": []map[string]any{},
 	}
@@ -144,10 +144,10 @@ func (h *Handler) manifestMeta(ctx context.Context, infoHash string) (name strin
 	return manifest.Meta(data)
 }
 
-func (h *Handler) cachedFiles(ctx context.Context, infoHash string) ([]map[string]any, bool) {
-	_, _, fs := h.manifestMeta(ctx, infoHash)
+func (h *Handler) cachedFiles(ctx context.Context, infoHash string) (string, []map[string]any, bool) {
+	name, _, fs := h.manifestMeta(ctx, infoHash)
 	if fs == nil {
-		return nil, false
+		return "", nil, false
 	}
 	out := make([]map[string]any, len(fs))
 	for i, f := range fs {
@@ -155,7 +155,7 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) ([]map[strin
 		link := h.Store.SignURL(key, 24*time.Hour) + manifest.StreamQuery(infoHash, key, f.Enc)
 		out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
 	}
-	return out, true
+	return name, out, true
 }
 
 func stStatus(s jobs.Status) string {

@@ -34,11 +34,11 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 			hash = extractHash(hash)
 		}
 		if len(hash) != 40 {
-			items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "files": []any{}})
+			items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "name": displayName(m), "files": []any{}})
 			continue
 		}
 		idxOf[hash] = len(items)
-		items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "files": []any{}})
+		items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "name": displayName(m), "files": []any{}})
 		valid = append(valid, entry{hash, m})
 	}
 
@@ -65,12 +65,15 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		go func(e entry) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			files, ok := h.cachedFiles(r.Context(), e.hash)
+			name, files, ok := h.cachedFiles(r.Context(), e.hash)
 			if !ok {
 				return
 			}
+			if name == "" {
+				name = displayName(e.magnet)
+			}
 			mu.Lock()
-			items[idxOf[e.hash]] = map[string]any{"hash": e.hash, "magnet": e.magnet, "status": "cached", "files": files}
+			items[idxOf[e.hash]] = map[string]any{"hash": e.hash, "magnet": e.magnet, "status": "cached", "name": name, "files": files}
 			mu.Unlock()
 		}(e)
 	}
