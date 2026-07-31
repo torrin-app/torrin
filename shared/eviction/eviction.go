@@ -28,6 +28,8 @@ var DefaultPolicy = Policy{
 	BudgetGraceDays:  3,
 }
 
+const largeFileBytes int64 = 50_000_000_000
+
 type Repo interface {
 	GetEvictionCandidates(ctx context.Context) ([]jobs.EvictionCandidate, error)
 	GetTotalCachedSize(ctx context.Context) (int64, error)
@@ -76,7 +78,7 @@ func (e *Engine) RunDaily(ctx context.Context) {
 
 func (e *Engine) ttlVerdict(c jobs.EvictionCandidate) string {
 	switch {
-	case c.FileSize > 50_000_000_000:
+	case c.FileSize > largeFileBytes:
 		if c.DaysSinceAccess >= e.policy.PopularTTL {
 			return fmt.Sprintf("large file (%dGB), %d days inactive", c.FileSize/1e9, c.DaysSinceAccess)
 		}
@@ -102,15 +104,22 @@ func (e *Engine) budgetPass(ctx context.Context, evicted, freed *int64) {
 	slog.Warn("eviction: over storage cap", "total_gb", total/1e9, "cap_gb", e.policy.StorageCapBytes/1e9)
 
 	candidates, _ := e.repo.GetEvictionCandidates(ctx)
-	var coldPrewarm, rest []jobs.EvictionCandidate
+	var coldPrewarm, small, large []jobs.EvictionCandidate
 	for _, c := range candidates {
-		if c.IsPrewarm && c.AccessCount == 0 {
+		switch {
+		case c.IsPrewarm && c.AccessCount == 0:
 			coldPrewarm = append(coldPrewarm, c)
-		} else {
-			rest = append(rest, c)
+		case c.FileSize > largeFileBytes:
+			large = append(large, c)
+		default:
+			small = append(small, c)
 		}
 	}
-	for _, c := range append(coldPrewarm, rest...) {
+	ordered := make([]jobs.EvictionCandidate, 0, len(coldPrewarm)+len(small)+len(large))
+	ordered = append(ordered, coldPrewarm...)
+	ordered = append(ordered, small...)
+	ordered = append(ordered, large...)
+	for _, c := range ordered {
 		if total <= e.policy.StorageCapBytes {
 			return
 		}

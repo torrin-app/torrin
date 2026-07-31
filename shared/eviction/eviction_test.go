@@ -98,6 +98,27 @@ func TestEvictPurgesOnlyOrphanBlobs(t *testing.T) {
 	}
 }
 
+func TestBudgetEvictsSmallBeforeLarge(t *testing.T) {
+	repo := &fakeRepo{
+		evicted: map[string]bool{},
+		total:   340_000_000_000, // 40GB over the 300GB cap
+		candidates: []jobs.EvictionCandidate{
+			{InfoHash: "big", FileSize: 200_000_000_000, AccessCount: 5, DaysSinceAccess: 5}, // large, listed first
+			{InfoHash: "small_a", FileSize: 30_000_000_000, AccessCount: 5, DaysSinceAccess: 5},
+			{InfoHash: "small_b", FileSize: 30_000_000_000, AccessCount: 5, DaysSinceAccess: 5},
+		},
+	}
+	store := &fakeStorage{deleted: map[string]bool{}}
+	New(repo, store, DefaultPolicy).RunDaily(context.Background())
+
+	if store.deleted["big/"] {
+		t.Error("large file must be spared when evicting small files frees enough")
+	}
+	if !store.deleted["small_a/"] || !store.deleted["small_b/"] {
+		t.Error("small cold files should be budget-evicted first")
+	}
+}
+
 func TestBudgetPassRespectsGrace(t *testing.T) {
 	repo := &fakeRepo{
 		evicted: map[string]bool{},
