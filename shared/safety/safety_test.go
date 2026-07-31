@@ -1,6 +1,9 @@
 package safety
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestScreen(t *testing.T) {
 	SetTerms([]string{"badterm"}, []string{"flagme"})
@@ -14,8 +17,11 @@ func TestScreen(t *testing.T) {
 	if v := Screen("clean movie 1080p"); v.Blocked {
 		t.Error("clean text should pass")
 	}
-	if v := Screen("http://foo.onion/x"); !v.Blocked || !v.Ban {
-		t.Error(".onion should block + ban")
+	if v := Screen("http://" + strings.Repeat("a", 56) + ".onion/x"); !v.Blocked || !v.Ban {
+		t.Error("real .onion address should block + ban")
+	}
+	if v := Screen("Glass.Onion.A.Knives.Out.Mystery.2022.1080p.NF.WEB-DL"); v.Blocked {
+		t.Error("dotted title containing 'onion' must not match")
 	}
 }
 

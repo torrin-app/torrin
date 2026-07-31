@@ -53,11 +53,33 @@ func hit(ac *ahocorasick.AhoCorasick, text string) bool {
 	return ac != nil && len(ac.FindAll(text)) > 0
 }
 
+func hasOnionAddress(text string) bool {
+	t := strings.ToLower(text)
+	for {
+		i := strings.Index(t, ".onion")
+		if i < 0 {
+			return false
+		}
+		n := 0
+		for j := i - 1; j >= 0; j-- {
+			if c := t[j]; (c >= 'a' && c <= 'z') || (c >= '2' && c <= '7') {
+				n++
+				continue
+			}
+			break
+		}
+		if n == 16 || n == 56 {
+			return true
+		}
+		t = t[i+6:]
+	}
+}
+
 func Screen(texts ...string) Verdict {
 	ts := terms.Load()
 	var soft Verdict
 	for _, t := range texts {
-		if strings.Contains(strings.ToLower(t), ".onion") {
+		if hasOnionAddress(t) {
 			return Verdict{Blocked: true, Ban: true, Reason: "blocked:onion"}
 		}
 		if ts == nil {
