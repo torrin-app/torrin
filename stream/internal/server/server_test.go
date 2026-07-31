@@ -89,6 +89,37 @@ func TestServeRange(t *testing.T) {
 	}
 }
 
+func TestDownloadFilenameFromManifest(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	m := manifest.Manifest{InfoHash: hash, Name: "Movie", Files: []manifest.File{
+		{FileName: "Colony.2026.1080p.WEB-DL.mkv", DirectURL: "blobs/b_abc", FileSize: 11},
+	}}
+	mj, _ := m.Marshal()
+	srv := New(&fakeStorage{data: []byte("hello world"), manifestJSON: mj, valid: true}, "*", "", nil)
+
+	w := do(srv, "GET", "/blobs/b_abc?dl=1&ih="+hash+"&expires=9999999999&sig=ok", nil)
+	if w.Code != 200 {
+		t.Fatalf("code %d", w.Code)
+	}
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, `"Colony.2026.1080p.WEB-DL.mkv"`) {
+		t.Errorf("disposition = %q, want the real filename", cd)
+	}
+}
+
+func TestDownloadFilenameFallback(t *testing.T) {
+	srv := New(&fakeStorage{data: []byte("hello world"), valid: true}, "*", "", nil)
+	w := do(srv, "GET", "/blobs/b_abc?dl=1&expires=9999999999&sig=ok", nil)
+	if cd := w.Header().Get("Content-Disposition"); !strings.Contains(cd, `"b_abc"`) {
+		t.Errorf("disposition = %q, want fallback basename", cd)
+	}
+}
+
+func TestSanitizeFilename(t *testing.T) {
+	if got := sanitizeFilename("a\"b\r\nc"); got != "abc" {
+		t.Errorf("sanitizeFilename = %q, want abc", got)
+	}
+}
+
 func TestZipDownload(t *testing.T) {
 	hash := strings.Repeat("a", 40)
 	m := manifest.Manifest{InfoHash: hash, Name: "Show.S01", Files: []manifest.File{

@@ -24,10 +24,7 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 		h.Set("Content-Type", head.ContentType)
 	}
 	h.Set("Accept-Ranges", "bytes")
-	if r.URL.Query().Get("dl") == "1" {
-		name := key[strings.LastIndex(key, "/")+1:]
-		h.Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	}
+	s.setDownloadDisposition(w, r, key)
 	s.recordView(r, key)
 
 	start, end, isRange := parseRange(r.Header.Get("Range"), plainTotal)

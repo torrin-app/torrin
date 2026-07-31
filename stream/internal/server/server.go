@@ -126,6 +126,36 @@ func (s *Server) serveHead(w http.ResponseWriter, r *http.Request, key string, e
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) setDownloadDisposition(w http.ResponseWriter, r *http.Request, key string) {
+	if r.URL.Query().Get("dl") != "1" {
+		return
+	}
+	name := s.downloadName(r.Context(), r.URL.Query().Get("ih"), key)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+}
+
+func (s *Server) downloadName(ctx context.Context, ih, key string) string {
+	fallback := sanitizeFilename(key[strings.LastIndex(key, "/")+1:])
+	if len(ih) != 40 {
+		return fallback
+	}
+	data, err := s.store.GetBytes(ctx, manifest.Path(ih))
+	if err != nil {
+		return fallback
+	}
+	_, _, files := manifest.Meta(data)
+	for i, f := range files {
+		if manifest.ResolveKey(ih, i, f.Key, f.Name) == key {
+			return sanitizeFilename(f.Name[strings.LastIndex(f.Name, "/")+1:])
+		}
+	}
+	return fallback
+}
+
+func sanitizeFilename(name string) string {
+	return strings.NewReplacer(`"`, "", "\r", "", "\n", "").Replace(name)
+}
+
 func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, key string) {
 	rng := r.Header.Get("Range")
 	obj, err := s.store.Get(r.Context(), key, rng)
@@ -141,10 +171,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, key string) {
 		h.Set("Content-Type", obj.ContentType)
 	}
 	h.Set("Accept-Ranges", "bytes")
-	if r.URL.Query().Get("dl") == "1" {
-		name := key[strings.LastIndex(key, "/")+1:]
-		h.Set("Content-Disposition", `attachment; filename="`+name+`"`)
-	}
+	s.setDownloadDisposition(w, r, key)
 
 	status := http.StatusOK
 	if rng != "" && obj.ContentRange != "" {
