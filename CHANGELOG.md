@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.20.0](https://github.com/torrin-app/torrin/compare/v1.19.0...v1.20.0) (2026-08-01)
+
+
+### Features
+
+* **debrid:** fail over to the next provider on download failure ([#90](https://github.com/torrin-app/torrin/issues/90)) ([9e1d483](https://github.com/torrin-app/torrin/commit/9e1d4831598eddda002069dc1d2b12bb1188436a))
+* **eviction:** evict small cold files before large ones when over cap ([#97](https://github.com/torrin-app/torrin/issues/97)) ([773fc7b](https://github.com/torrin-app/torrin/commit/773fc7bc2431823fcf427087715f448031104f2a))
+* filesystem storage backend (replace Garage S3 for the cache) ([#84](https://github.com/torrin-app/torrin/issues/84)) ([de284c5](https://github.com/torrin-app/torrin/commit/de284c51abd92dd03ade3b923f7303d05d776d0b))
+* reseller settlement, stremthru magnet URIs, ytdlp progress ([#100](https://github.com/torrin-app/torrin/issues/100)) ([bc05de3](https://github.com/torrin-app/torrin/commit/bc05de3ce892050e5d4a7a0c0caa452c173f4eee))
+
+
+### Bug Fixes
+
+* **byok:** gate bring-your-own usenet and library behind a paid plan ([#94](https://github.com/torrin-app/torrin/issues/94)) ([7d636d1](https://github.com/torrin-app/torrin/commit/7d636d1ed3703ed9d125626a8cb8f008c457839b))
+* **byok:** require a paid plan for bring-your-own debrid keys ([#93](https://github.com/torrin-app/torrin/issues/93)) ([e0a6bdd](https://github.com/torrin-app/torrin/commit/e0a6bdd54327a7e35baff34d09f8834d199eb44c))
+* **cairn:** apply STORAGE_KEY so encrypted manifests decrypt ([#88](https://github.com/torrin-app/torrin/issues/88)) ([a3a6bf9](https://github.com/torrin-app/torrin/commit/a3a6bf9717ac991fb70a7def4fc4ca27f1c72b6c))
+* **cairn:** read file content by blob key, not legacy path ([#89](https://github.com/torrin-app/torrin/issues/89)) ([3630696](https://github.com/torrin-app/torrin/commit/363069662911e84fb35f9ebde0e9d1c20b5406c9))
+* **deploy:** add store overlay; writers root, readers ro ([#92](https://github.com/torrin-app/torrin/issues/92)) ([d00916d](https://github.com/torrin-app/torrin/commit/d00916dbb44d4ec3d6fdee31a1a15c5bd23830b2))
+* download, cache, and rss reliability improvements ([#86](https://github.com/torrin-app/torrin/issues/86)) ([0b2513b](https://github.com/torrin-app/torrin/commit/0b2513b33890dc169d644cc62c7bd414cc7bdf08))
+* **ingest:** finalize stranded dedup followers from cache in reconcile ([#95](https://github.com/torrin-app/torrin/issues/95)) ([7d207e7](https://github.com/torrin-app/torrin/commit/7d207e7018c93d7f443ec877978cf3aac006fcc3))
+* **safety:** only block real .onion addresses, not dotted titles ([#98](https://github.com/torrin-app/torrin/issues/98)) ([78cc680](https://github.com/torrin-app/torrin/commit/78cc680814435b8e4584f96c3e8ead8262b1e068))
+* **store:** report real modtime from the S3 store so the cache tier stays valid ([#91](https://github.com/torrin-app/torrin/issues/91)) ([ece67fd](https://github.com/torrin-app/torrin/commit/ece67fd922fc872f08ec639921165bce143625d9))
+* **stream:** use the real media filename for downloads ([#99](https://github.com/torrin-app/torrin/issues/99)) ([fee5a49](https://github.com/torrin-app/torrin/commit/fee5a49906da80178d7fd04174d0d9d449d29e4c))
+* **stremthru:** include name on check items and magnet on add responses ([#96](https://github.com/torrin-app/torrin/issues/96)) ([096020e](https://github.com/torrin-app/torrin/commit/096020e02cc7e26654b1b4a971c656c10561d23d))
+
 ## [1.19.0](https://github.com/torrin-app/torrin/compare/v1.18.0...v1.19.0) (2026-07-26)
 
 
