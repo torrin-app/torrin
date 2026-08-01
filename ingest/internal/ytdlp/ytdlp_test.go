@@ -47,6 +47,22 @@ func TestProgressAccumulator(t *testing.T) {
 	}
 }
 
+func TestProgressReport(t *testing.T) {
+	if c, d, ok := progressReport(50, 100, 5, 100); !ok || c != 50 || d != 100 {
+		t.Errorf("plausible estimate: got %d/%d ok=%v", c, d, ok)
+	}
+	c, d, ok := progressReport(772, 7, 5, 100)
+	if !ok || c > d {
+		t.Errorf("blown+frag: %d/%d ok=%v — current must not exceed denom", c, d, ok)
+	}
+	if d != 772*100/5 {
+		t.Errorf("blown+frag denom = %d, want fragment-extrapolated", d)
+	}
+	if _, _, ok := progressReport(0, 0, 0, 0); ok {
+		t.Error("no usable signal should report ok=false")
+	}
+}
+
 func TestArgsProxy(t *testing.T) {
 	noProxy := &Runner{}
 	if got := noProxy.args("-J", "url"); len(got) != 2 || got[0] != "-J" {

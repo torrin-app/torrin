@@ -16,6 +16,10 @@ type ResellerCode struct {
 	RedeemedBy string     `json:"redeemed_by,omitempty"`
 	RedeemedAt *time.Time `json:"redeemed_at,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
+
+	Settled       bool       `json:"settled"`
+	SettledAt     *time.Time `json:"settled_at,omitempty"`
+	SettlementRef string     `json:"settlement_ref,omitempty"`
 }
 
 func (s *Store) CreateResellerCode(ctx context.Context, c *ResellerCode) error {
@@ -55,7 +59,7 @@ func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since 
 	if redeemedOnly {
 		dateCol = "redeemed_at"
 	}
-	q := `SELECT code, plan_id, period, days, reseller, redeemed_by, redeemed_at, created_at FROM reseller_codes WHERE TRUE`
+	q := `SELECT code, plan_id, period, days, reseller, redeemed_by, redeemed_at, created_at, settled_at, settlement_ref FROM reseller_codes WHERE TRUE`
 	var args []any
 	if redeemedOnly {
 		q += ` AND redeemed_by != ''`
@@ -75,13 +79,35 @@ func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since 
 	var out []*ResellerCode
 	for rows.Next() {
 		c := &ResellerCode{}
-		var redeemedAt *time.Time
-		if rows.Scan(&c.Code, &c.PlanID, &c.Period, &c.Days, &c.Reseller, &c.RedeemedBy, &redeemedAt, &c.CreatedAt) != nil {
+		var redeemedAt, settledAt *time.Time
+		if rows.Scan(&c.Code, &c.PlanID, &c.Period, &c.Days, &c.Reseller, &c.RedeemedBy, &redeemedAt, &c.CreatedAt, &settledAt, &c.SettlementRef) != nil {
 			continue
 		}
 		c.RedeemedAt = redeemedAt
 		c.Redeemed = c.RedeemedBy != ""
+		c.SettledAt = settledAt
+		c.Settled = settledAt != nil
 		out = append(out, c)
 	}
 	return out, nil
+}
+
+func (s *Store) MarkResellerCodesSettled(ctx context.Context, reseller, ref string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE reseller_codes SET settled_at=now(), settlement_ref=$2 WHERE reseller=$1 AND settled_at IS NULL`,
+		reseller, ref)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (s *Store) UnsettleResellerCodes(ctx context.Context, reseller string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE reseller_codes SET settled_at=NULL, settlement_ref='' WHERE reseller=$1`,
+		reseller)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
 }

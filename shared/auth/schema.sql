@@ -158,6 +158,8 @@ CREATE TABLE IF NOT EXISTS reseller_codes (
     redeemed_at TIMESTAMPTZ,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS settled_at     TIMESTAMPTZ;
+ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS settlement_ref TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS ad_library (
     info_hash TEXT PRIMARY KEY,

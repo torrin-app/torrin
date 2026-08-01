@@ -136,10 +136,11 @@ func TestDisplayName(t *testing.T) {
 func TestMagnetDataIncludesMagnet(t *testing.T) {
 	h := &Handler{Deps: Deps{Store: fakeStore{err: context.DeadlineExceeded}}}
 	j := packJob()
-	j.Magnet = "magnet:?xt=urn:btih:abc&dn=Reborn.Rookie.S01.1080p"
+	j.Magnet = "https://scene-rls.net/some-release/"
 	d := h.magnetData(context.Background(), j)
-	if d["magnet"] != j.Magnet {
-		t.Errorf("magnet = %v, want %q", d["magnet"], j.Magnet)
+	m, _ := d["magnet"].(string)
+	if !strings.HasPrefix(m, "magnet:?xt=urn:btih:abc") {
+		t.Errorf("magnet = %q, want a proper magnet URI (not the stored source)", m)
 	}
 	if _, ok := d["name"]; !ok {
 		t.Error("name key missing")

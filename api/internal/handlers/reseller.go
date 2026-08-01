@@ -59,6 +59,40 @@ func (s *Server) registerResellerRoutes(mux *http.ServeMux, authMW func(http.Han
 	mux.Handle("POST /api/redeem", authMW(http.HandlerFunc(s.redeemCode)))
 	mux.HandleFunc("POST /api/reseller/codes", s.mintCodes) // partner-keyed
 	mux.HandleFunc("GET /api/reseller/codes", s.listCodes)
+	mux.HandleFunc("POST /api/reseller/settle", s.settleCodes)
+}
+
+func (s *Server) settleCodes(w http.ResponseWriter, r *http.Request) {
+	if s.ResellerKey == "" || !secretEqual(r.Header.Get("X-Reseller-Key"), s.ResellerKey) {
+		web.WriteError(w, 401, "invalid reseller key")
+		return
+	}
+	var req struct {
+		Reseller string `json:"reseller"`
+		Ref      string `json:"ref"`
+		Undo     bool   `json:"undo"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		web.WriteError(w, 400, "invalid json")
+		return
+	}
+	reseller := strings.TrimSpace(req.Reseller)
+	if reseller == "" {
+		web.WriteError(w, 400, "reseller required")
+		return
+	}
+	var n int64
+	var err error
+	if req.Undo {
+		n, err = s.Users.UnsettleResellerCodes(r.Context(), reseller)
+	} else {
+		n, err = s.Users.MarkResellerCodesSettled(r.Context(), reseller, strings.TrimSpace(req.Ref))
+	}
+	if err != nil {
+		web.WriteError(w, 500, "could not update settlement")
+		return
+	}
+	web.WriteJSON(w, 200, map[string]any{"updated": n})
 }
 
 func redeemExpiry(period string, days int, user *auth.User) time.Time {

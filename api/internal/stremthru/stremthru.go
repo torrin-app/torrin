@@ -108,7 +108,7 @@ func (h *Handler) assign(job *jobs.Job) {
 
 func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 	m := map[string]any{
-		"id": j.ID, "hash": j.InfoHash, "magnet": j.Magnet, "name": j.Name, "status": stStatus(j.Status),
+		"id": j.ID, "hash": j.InfoHash, "magnet": magnet.Build(j.InfoHash, j.Name), "name": j.Name, "status": stStatus(j.Status),
 		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339),
 		"files": []map[string]any{},
 	}

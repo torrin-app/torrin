@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 )
@@ -38,7 +39,7 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 			continue
 		}
 		idxOf[hash] = len(items)
-		items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "name": displayName(m), "files": []any{}})
+		items = append(items, map[string]any{"hash": hash, "magnet": magnet.Build(hash, displayName(m)), "status": "unknown", "name": displayName(m), "files": []any{}})
 		valid = append(valid, entry{hash, m})
 	}
 
@@ -73,7 +74,7 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 				name = displayName(e.magnet)
 			}
 			mu.Lock()
-			items[idxOf[e.hash]] = map[string]any{"hash": e.hash, "magnet": e.magnet, "status": "cached", "name": name, "files": files}
+			items[idxOf[e.hash]] = map[string]any{"hash": e.hash, "magnet": magnet.Build(e.hash, name), "status": "cached", "name": name, "files": files}
 			mu.Unlock()
 		}(e)
 	}

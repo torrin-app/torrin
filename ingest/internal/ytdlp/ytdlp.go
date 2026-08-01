@@ -201,13 +201,8 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 			return fmt.Errorf("download exceeds your plan limit of %dGB", job.MaxBytes/1e9)
 		}
 
-		switch {
-		case total > 0:
-			rep(cur, total)
-		case fragCount > 0 && fragIdx > 0 && cur > 0:
-			rep(cur, cur*fragCount/fragIdx)
-		case fragCount > 0:
-			rep(fragIdx, fragCount)
+		if c, d, ok := progressReport(cur, total, fragIdx, fragCount); ok {
+			rep(c, d)
 		}
 	}
 
@@ -283,6 +278,20 @@ func (p *progress) add(n int64) int64 {
 	}
 	p.cur = n
 	return p.prior + n
+}
+
+func progressReport(cur, total, fragIdx, fragCount int64) (current, denom int64, ok bool) {
+	switch {
+	case total > 0 && cur <= total:
+		return cur, total, true
+	case fragCount > 0 && fragIdx > 0 && cur > 0:
+		return cur, cur * fragCount / fragIdx, true
+	case total > 0:
+		return cur, total, true
+	case fragCount > 0:
+		return fragIdx, fragCount, true
+	}
+	return 0, 0, false
 }
 
 func collectVideos(dir string) []publish.File {

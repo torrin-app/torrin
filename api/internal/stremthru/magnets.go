@@ -68,7 +68,8 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 				}
 			}
 			stJSON(w, 200, map[string]any{"data": map[string]any{
-				"id": "dedup", "hash": infoHash, "status": "queued", "files": []any{},
+				"id": "dedup", "hash": infoHash, "magnet": magnet.Build(infoHash, displayName(req.Magnet)),
+				"status": "queued", "files": []any{},
 				"size": 0, "name": displayName(req.Magnet), "added_at": time.Now().Format(time.RFC3339)}})
 			return
 		}
