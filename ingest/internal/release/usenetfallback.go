@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/moistari/rls"
 	tnp "github.com/torrin-app/torrent-name-parser"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/cinemeta"
@@ -62,15 +61,17 @@ func (f *UsenetFallback) Try(ctx context.Context, job *jobs.Job) error {
 }
 
 func (f *UsenetFallback) indexerFor(ctx context.Context, userID string) (*indexer.Client, bool) {
-	if idx, err := f.users.GetUsenetIndexer(ctx, userID); err == nil && idx.URL != "" {
-		return indexer.NewClient(idx.URL, idx.APIKey), true
+	u, err := f.users.GetByID(ctx, userID)
+	if err != nil || u == nil {
+		return nil, false
 	}
-	if f.sysURL != "" {
-		if u, err := f.users.GetByID(ctx, userID); err == nil && u != nil {
-			if p, ok := plans.Get(u.PlanID); ok && p.SystemUsenet {
-				return indexer.NewClient(f.sysURL, f.sysKey), true
-			}
-		}
+	plan, _ := plans.Get(u.PlanID)
+	idx, ierr := f.users.GetUsenetIndexer(ctx, userID)
+	switch plans.IndexerAccess(plan, ierr == nil && idx != nil && idx.URL != "", f.sysURL != "") {
+	case "own":
+		return indexer.NewClient(idx.URL, idx.APIKey), true
+	case "system":
+		return indexer.NewClient(f.sysURL, f.sysKey), true
 	}
 	return nil, false
 }
@@ -109,7 +110,7 @@ func (f *UsenetFallback) tryPack(ctx context.Context, job *jobs.Job, client *ind
 
 	byEp := map[int]*indexer.Result{}
 	for i := range results {
-		if !imdbOK(results[i].IMDBID, job.IMDBID) || !titleMatches(results[i].Title, job.Name) {
+		if !indexer.IMDBEqual(results[i].IMDBID, job.IMDBID) || !indexer.TitleMatch(results[i].Title, job.Name) {
 			continue
 		}
 		ei := parseRel(results[i].Title)
@@ -218,19 +219,6 @@ func overlap(a, b map[string]struct{}) int {
 	return n
 }
 
-func imdbOK(resultIMDB, jobIMDB string) bool {
-	if resultIMDB == "" || jobIMDB == "" {
-		return true
-	}
-	return strings.TrimPrefix(resultIMDB, "tt") == strings.TrimPrefix(jobIMDB, "tt")
-}
-
-func titleMatches(resultName, jobName string) bool {
-	rt := rls.MustNormalize(rls.ParseString(resultName).Title)
-	jt := rls.MustNormalize(rls.ParseString(jobName).Title)
-	return jt == "" || rt == jt
-}
-
 func bestMatch(results []indexer.Result, title string, size int64, jobIMDB string) *indexer.Result {
 	want := tokenize(title)
 	if len(want) == 0 {
@@ -239,7 +227,7 @@ func bestMatch(results []indexer.Result, title string, size int64, jobIMDB strin
 	var best *indexer.Result
 	bestScore := -1.0
 	for i := range results {
-		if !imdbOK(results[i].IMDBID, jobIMDB) || !titleMatches(results[i].Title, title) {
+		if !indexer.IMDBEqual(results[i].IMDBID, jobIMDB) || !indexer.TitleMatch(results[i].Title, title) {
 			continue
 		}
 		frac := float64(overlap(tokenize(results[i].Title), want)) / float64(len(want))

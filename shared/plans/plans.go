@@ -190,6 +190,16 @@ func CanBYOK(planID string) bool {
 	return planID != "" && planID != "free"
 }
 
+func IndexerAccess(plan Plan, hasOwn, hasSystem bool) string {
+	if hasOwn && CanBYOK(plan.ID) {
+		return "own"
+	}
+	if hasSystem && plan.SystemUsenet {
+		return "system"
+	}
+	return ""
+}
+
 func PriceCents(planID, billingPeriod string, days int) (int, bool) {
 	plan, ok := All[planID]
 	if !ok {

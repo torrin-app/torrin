@@ -47,19 +47,3 @@ func TestBestMatch(t *testing.T) {
 		t.Fatalf("imdb mismatch should be rejected: %+v", got)
 	}
 }
-
-func TestTitleMatchesRealShows(t *testing.T) {
-	job := "Ozark S01E08 1080p WEB H264-CAKES"
-	cases := map[string]bool{
-		"Ozark.S01E08.Kaleidoscope.1080p.WEBRip.DD5.1.H265-d3g":       true, // real Ozark, diff group/quality
-		"Ozark.S01E08.Kaleidoscope.1080p.NF.WEB-DL.DDP5.1.H.264-Kit":  true,
-		"Ozark.Law.S01E08.1080p.WEB.h264-EDITH":                       false, // different show
-		"This.is.America.Charlie.Brown.S01E08.1080p.WEB.h264-DOLORES": false, // the wrong grab
-		"Succession.S01E08.Prague.2160p.AMZN.WEB-DL.H.265":            false,
-	}
-	for result, want := range cases {
-		if got := titleMatches(result, job); got != want {
-			t.Errorf("titleMatches(%q, Ozark)=%v want %v", result, got, want)
-		}
-	}
-}

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +15,13 @@ import (
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
 
+func fallbackQuery(title string, season, episode int) string {
+	if season > 0 && episode > 0 {
+		return fmt.Sprintf("%s S%02dE%02d", title, season, episode)
+	}
+	return title
+}
+
 func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.Handle("POST /api/usenet/indexer", authMW(http.HandlerFunc(s.setIndexer)))
 	mux.Handle("GET /api/usenet/indexer", authMW(http.HandlerFunc(s.getIndexer)))
@@ -24,10 +32,11 @@ func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http
 }
 
 func (s *Server) resolveIndexer(ctx context.Context, userID string, plan plans.Plan) (*indexer.Client, bool) {
-	if idx, err := s.Users.GetUsenetIndexer(ctx, userID); err == nil {
-		return indexer.NewClient(idx.URL, idx.APIKey), true
-	}
-	if s.IndexerURL != "" && plan.SystemUsenet {
+	own, err := s.Users.GetUsenetIndexer(ctx, userID)
+	switch plans.IndexerAccess(plan, err == nil, s.IndexerURL != "") {
+	case "own":
+		return indexer.NewClient(own.URL, own.APIKey), true
+	case "system":
 		return indexer.NewClient(s.IndexerURL, s.IndexerKey), true
 	}
 	return nil, false
@@ -35,6 +44,10 @@ func (s *Server) resolveIndexer(ctx context.Context, userID string, plan plans.P
 
 func (s *Server) setIndexer(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
+	if !plans.CanBYOK(middleware.GetPlan(r).ID) {
+		web.WriteError(w, 403, "bring-your-own usenet requires a paid plan")
+		return
+	}
 	var req struct {
 		URL    string `json:"url"`
 		APIKey string `json:"api_key"`
@@ -98,27 +111,38 @@ func (s *Server) usenetSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	imdb, query := q.Get("imdb"), q.Get("q")
+	imdb, query, title := q.Get("imdb"), q.Get("q"), q.Get("title")
 	season, _ := strconv.Atoi(q.Get("season"))
 	episode, _ := strconv.Atoi(q.Get("ep"))
-
-	var results []indexer.Result
-	var err error
-	switch {
-	case imdb != "" && season > 0 && episode > 0:
-		results, err = client.SearchTV(imdb, season, episode)
-	case imdb != "":
-		results, err = client.SearchMovie(imdb)
-	case query != "":
-		results, err = client.SearchQuery(query, q.Get("cat"))
-	default:
+	if imdb == "" && query == "" {
 		web.WriteError(w, 400, "provide imdb, q, or imdb+season+ep")
 		return
 	}
-	if err != nil {
-		web.WriteError(w, 502, "indexer search failed")
-		return
+
+	key := strings.Join([]string{client.BaseURL(), imdb, query, title, q.Get("cat"), q.Get("season"), q.Get("ep")}, "|")
+	results, hit := usenetCacheGet(key)
+	if !hit {
+		var err error
+		switch {
+		case imdb != "" && season > 0 && episode > 0:
+			results, err = client.SearchTV(imdb, season, episode)
+		case imdb != "":
+			results, err = client.SearchMovie(imdb)
+		default:
+			results, err = client.SearchQuery(query, q.Get("cat"))
+		}
+		if err != nil {
+			web.WriteError(w, 502, "indexer search failed")
+			return
+		}
+		if imdb != "" && title != "" && len(indexer.Verify(results, imdb, title, season, episode)) == 0 {
+			if fb, e := client.SearchQuery(fallbackQuery(title, season, episode), ""); e == nil {
+				results = append(results, fb...)
+			}
+		}
+		usenetCacheSet(key, results)
 	}
+	results = indexer.Verify(results, imdb, title, season, episode)
 	if results == nil {
 		results = []indexer.Result{}
 	}

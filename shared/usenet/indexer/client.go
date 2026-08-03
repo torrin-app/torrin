@@ -52,6 +52,10 @@ func newClient(baseURL, apiKey string, allowLocal bool) *Client {
 	}
 }
 
+func (c *Client) BaseURL() string {
+	return c.baseURL
+}
+
 func ValidateURL(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
