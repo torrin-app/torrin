@@ -8,7 +8,19 @@ import (
 
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/plans"
 )
+
+func TestReleaseLinkPaidGate(t *testing.T) {
+	if plans.CanBYOK("free") {
+		t.Error("free must not cache hoster/hdencode release-link content")
+	}
+	for _, p := range []string{"starter", "standard", "pro"} {
+		if !plans.CanBYOK(p) {
+			t.Errorf("%s should be allowed to cache release-link content", p)
+		}
+	}
+}
 
 type fakeStore struct {
 	manifest []byte

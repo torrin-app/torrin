@@ -54,6 +54,10 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	hdTitle := ""
 	var hdSize int64
 	if pURL, t, src, sz := h.Jobs.ReleaseLink(r.Context(), infoHash); pURL != "" {
+		if !plans.CanBYOK(user.PlanID) {
+			stError(w, 403, "this release requires a paid plan")
+			return
+		}
 		source, mag, hdTitle, hdSize = jobs.Source(src), pURL, t, sz
 	}
 
