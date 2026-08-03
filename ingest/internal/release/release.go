@@ -16,6 +16,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/events"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/usenet/postproc"
@@ -71,7 +72,7 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 		}
 		if err != nil {
 			slog.Warn("release failed", "job", job.ID, "err", err)
-			jobrun.Fail(ctx, r.repo, r.bus, job, err.Error())
+			jobrun.Fail(ctx, r.repo, r.bus, job, err)
 		}
 	}()
 }
@@ -90,7 +91,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("resolve: %w", err)
 	}
 	if len(parts) == 0 {
-		return fmt.Errorf("no usable links found: %w", ErrSourceUnavailable)
+		return failure.Wrap(failure.NoSources, "no usable links found")
 	}
 
 	dir := filepath.Join(r.scratch, job.InfoHash)
@@ -121,7 +122,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("postproc: %w", err)
 	}
 	if len(files) == 0 {
-		return fmt.Errorf("no video files after extraction")
+		return failure.NoVideo
 	}
 	if screen.Blocked(ctx, r.ban, job, files[0].Name) {
 		return fmt.Errorf("content blocked by safety policy")

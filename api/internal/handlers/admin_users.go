@@ -17,7 +17,7 @@ func (s *Server) adminUsers(w http.ResponseWriter, r *http.Request) {
 
 	users, err := s.Users.AdminListUsers(r.Context(), q, plan, limit, offset)
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "user operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"users": users})
@@ -53,7 +53,7 @@ func (s *Server) adminSetPlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.Users.UpdatePlan(r.Context(), userID, body.PlanID, "", "", "", expiresAt); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "user operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]string{"status": "ok"})
@@ -65,7 +65,7 @@ func (s *Server) adminBanUser(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewDecoder(http.MaxBytesReader(w, r.Body, 2048)).Decode(&body)
 	if err := s.Users.BanUser(r.Context(), r.PathValue("id"), body.Reason); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "user operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]string{"status": "banned"})
@@ -73,7 +73,7 @@ func (s *Server) adminBanUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminUnbanUser(w http.ResponseWriter, r *http.Request) {
 	if err := s.Users.UnbanUser(r.Context(), r.PathValue("id")); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "user operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]string{"status": "unbanned"})
@@ -82,7 +82,7 @@ func (s *Server) adminUnbanUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminAudit(w http.ResponseWriter, r *http.Request) {
 	logs, err := s.Users.GetAuditLog(r.Context(), r.PathValue("id"), 100)
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "user operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, logs)

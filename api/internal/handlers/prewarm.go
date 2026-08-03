@@ -102,7 +102,7 @@ func (s *Server) prewarm(w http.ResponseWriter, r *http.Request) {
 			MaxBytes: s.PrewarmMaxBytes,
 		}
 		if err := s.Jobs.Create(ctx, job); err != nil {
-			web.WriteError(w, 500, "internal error")
+			web.WriteError(w, 500, "prewarm failed")
 			return
 		}
 		var remaining []string

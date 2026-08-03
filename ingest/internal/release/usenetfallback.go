@@ -9,6 +9,7 @@ import (
 	tnp "github.com/torrin-app/torrent-name-parser"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/cinemeta"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
@@ -47,11 +48,11 @@ func parseRel(name string) relInfo {
 
 func (f *UsenetFallback) Try(ctx context.Context, job *jobs.Job) error {
 	if !f.un.HasProvider(ctx, job.UserID) {
-		return fmt.Errorf("no usenet provider for user")
+		return failure.Wrap(failure.UsenetNotSetup, "no usenet provider for user")
 	}
 	client, ok := f.indexerFor(ctx, job.UserID)
 	if !ok {
-		return fmt.Errorf("no usenet indexer for user")
+		return failure.Wrap(failure.UsenetNotSetup, "no usenet indexer for user")
 	}
 	ri := parseRel(job.Name)
 	if ri.season > 0 && ri.episode == 0 {
@@ -91,7 +92,7 @@ func (f *UsenetFallback) trySingle(ctx context.Context, job *jobs.Job, client *i
 		best = bestMatch(q, job.Name, job.FileSize, job.IMDBID)
 	}
 	if best == nil {
-		return fmt.Errorf("no matching nzb on indexer")
+		return failure.Wrap(failure.NotOnUsenet, "no matching nzb on indexer")
 	}
 	data, err := client.DownloadNZB(best)
 	if err != nil {
@@ -125,7 +126,7 @@ func (f *UsenetFallback) tryPack(ctx context.Context, job *jobs.Job, client *ind
 		}
 	}
 	if len(byEp) == 0 {
-		return fmt.Errorf("no matching episodes on indexer")
+		return failure.Wrap(failure.NotOnUsenet, "no matching episodes on indexer")
 	}
 
 	want, err := f.seasonLength(ctx, job.IMDBID, ri.season, byEp)
@@ -149,7 +150,7 @@ func (f *UsenetFallback) seasonLength(ctx context.Context, imdbID string, season
 		if n, err := f.meta.SeasonEpisodes(ctx, imdbID, season); err == nil && n > 0 {
 			for e := 1; e <= n; e++ {
 				if byEp[e] == nil {
-					return 0, fmt.Errorf("season incomplete: episode %d/%d missing on indexer", e, n)
+					return 0, failure.Wrap(failure.SeasonPartial, "season incomplete: episode %d/%d missing", e, n)
 				}
 			}
 			return n, nil
@@ -162,7 +163,7 @@ func (f *UsenetFallback) seasonLength(ctx context.Context, imdbID string, season
 		}
 	}
 	if max == 0 || byEp[1] == nil || len(byEp) != max {
-		return 0, fmt.Errorf("season has gaps on indexer (found %d episodes, up to %d)", len(byEp), max)
+		return 0, failure.Wrap(failure.SeasonPartial, "season gaps: found %d up to %d", len(byEp), max)
 	}
 	slog.Warn("usenet fallback: cinemeta unavailable, using gapless heuristic", "season_len", max)
 	return max, nil

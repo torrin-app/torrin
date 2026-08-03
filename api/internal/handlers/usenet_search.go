@@ -84,7 +84,7 @@ func (s *Server) testIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := indexer.NewClient(url, req.APIKey).SearchQuery("test", "2000"); err != nil {
-		web.WriteError(w, 400, "indexer connection failed")
+		web.WriteError(w, 502, "indexer connection failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"ok": true})

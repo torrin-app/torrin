@@ -19,7 +19,7 @@ func (s *Server) registerStatsRoutes(mux *http.ServeMux, authMW func(http.Handle
 func (s *Server) statsPublic(w http.ResponseWriter, r *http.Request) {
 	history, err := s.JobsPG.GetMetricsHistory(r.Context(), 90)
 	if err != nil {
-		web.WriteError(w, 500, "failed to load stats")
+		web.WriteError(w, 500, "could not load stats")
 		return
 	}
 	current := s.JobsPG.CurrentMetrics(r.Context(), s.Users.CountUsers(r.Context()))

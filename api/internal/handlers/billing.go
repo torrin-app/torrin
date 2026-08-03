@@ -36,7 +36,7 @@ func (s *Server) cryptoCheckout(w http.ResponseWriter, r *http.Request) {
 
 	id, err := s.Bitcart.CreateInvoice(r.Context(), user.Email, req.Plan, req.Period, req.Days)
 	if err != nil {
-		web.WriteError(w, 400, "could not create invoice")
+		web.WriteError(w, 502, "could not create invoice, please retry")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"invoice_id": id})
@@ -69,7 +69,7 @@ func (s *Server) bachsCheckout(w http.ResponseWriter, r *http.Request) {
 
 	url, err := s.Bachs.CreateCheckout(r.Context(), user.Email, req.Plan, req.Period, req.Days)
 	if err != nil {
-		web.WriteError(w, 400, "could not create checkout")
+		web.WriteError(w, 502, "could not create checkout, please retry")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"checkout_url": url})

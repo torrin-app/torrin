@@ -35,7 +35,7 @@ func (s *Server) cairnCreate(w http.ResponseWriter, r *http.Request) {
 		InfoHash string `json:"info_hash"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		web.WriteError(w, 400, "invalid request")
+		web.WriteError(w, 400, "invalid request body")
 		return
 	}
 	hash := strings.ToLower(strings.TrimSpace(req.InfoHash))
@@ -47,7 +47,7 @@ func (s *Server) cairnCreate(w http.ResponseWriter, r *http.Request) {
 	_, _, archived := s.Users.GetCairnArchive(r.Context(), hash)
 	if !archived {
 		if cached, _ := s.Store.Has(r.Context(), manifest.Path(hash)); !cached {
-			web.WriteError(w, 400, "file must finish downloading before it can be cairned")
+			web.WriteError(w, 409, "file must finish downloading before it can be cairned")
 			return
 		}
 	}
@@ -87,7 +87,7 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 	if cached, _ := s.Store.Has(r.Context(), manifest.Path(hash)); cached {
 		job, err := s.buildCachedJob(r.Context(), hash, "", user.ID, jobs.SourceUsenet)
 		if err != nil {
-			web.WriteError(w, 500, "cache read failed")
+			web.WriteError(w, 500, "could not read from cache")
 			return
 		}
 		job.StreamURLs = s.signStreams(job, r)
@@ -110,7 +110,7 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 	err := s.Jobs.Create(r.Context(), job)
 	s.Slots.Release(user.ID)
 	if err != nil {
-		web.WriteError(w, 500, "failed to create job")
+		web.WriteError(w, 500, "could not start this download")
 		return
 	}
 	s.assign(job)

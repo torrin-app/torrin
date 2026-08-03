@@ -18,6 +18,23 @@ type usenetCacheEntry struct {
 }
 
 var (
+	grabLockMu sync.Mutex
+	grabLocks  = map[string]*sync.Mutex{}
+)
+
+func lockGrab(hash string) func() {
+	grabLockMu.Lock()
+	m := grabLocks[hash]
+	if m == nil {
+		m = &sync.Mutex{}
+		grabLocks[hash] = m
+	}
+	grabLockMu.Unlock()
+	m.Lock()
+	return m.Unlock
+}
+
+var (
 	usenetCacheMu sync.Mutex
 	usenetCache   = map[string]usenetCacheEntry{}
 )

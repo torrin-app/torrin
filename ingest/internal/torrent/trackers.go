@@ -14,7 +14,7 @@ import (
 const trackersURL = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
 
 // StartTrackerRefresh keeps qBittorrent's auto-add-trackers list in sync with the
-// ngosang "best" list (curated, updated daily upstream) — qBit appends these to
+// ngosang "best" list (curated, updated daily upstream), qBit appends these to
 // every new torrent, improving peer discovery for less popular content. Refreshes
 // on startup, then daily.
 func StartTrackerRefresh(ctx context.Context, qb *qbit.Client) {

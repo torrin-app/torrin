@@ -21,7 +21,7 @@ func validateProvider(ctx context.Context, url, key string, client *http.Client,
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("could not reach the provider — try again")
+		return fmt.Errorf("could not reach the provider, try again")
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)

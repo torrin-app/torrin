@@ -65,7 +65,7 @@ func (g *GumroadHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 			slog.Info("subscription downgraded", "event", event, "subscription_id", sub)
 		}
 	case "cancellation":
-		slog.Info("subscription cancelled — ends at period end", "subscription_id", v.Get("subscription_id"))
+		slog.Info("subscription cancelled, ends at period end", "subscription_id", v.Get("subscription_id"))
 	default:
 		slog.Info("unhandled gumroad event", "event", event)
 	}

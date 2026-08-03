@@ -9,7 +9,7 @@ import (
 func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.Users.AdminStats(r.Context())
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "could not load stats")
 		return
 	}
 	jobCounts, _ := s.JobsPG.JobStatusCounts(r.Context())

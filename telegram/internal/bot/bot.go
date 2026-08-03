@@ -81,7 +81,7 @@ func (b *Bot) onStart(ctx *ext.Context, u *ext.Update) error {
 				_, err := ctx.Reply(u, ext.ReplyTextString("✅ Linked. Forward me a video to cache it."), nil)
 				return err
 			}
-			_, err := ctx.Reply(u, ext.ReplyTextString("That link code was invalid or expired — grab a fresh one in Torrin settings."), nil)
+			_, err := ctx.Reply(u, ext.ReplyTextString("That link code was invalid or expired, grab a fresh one in Torrin settings."), nil)
 			return err
 		}
 	}
@@ -98,7 +98,7 @@ func (b *Bot) onLink(ctx *ext.Context, u *ext.Update) error {
 	}
 	fields := strings.Fields(u.EffectiveMessage.Text)
 	if len(fields) < 2 {
-		_, _ = ctx.Reply(u, ext.ReplyTextString("Usage: /link <code> — get one in Torrin settings"), nil)
+		_, _ = ctx.Reply(u, ext.ReplyTextString("Usage: /link <code>, get one in Torrin settings"), nil)
 		return nil
 	}
 	if _, ok := b.Link(fields[1], tgUser.ID); ok {
@@ -138,7 +138,7 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		return nil
 	}
 	if !b.lim.tryAcquire(userID, maxConc) {
-		_, _ = ctx.Reply(u, ext.ReplyTextString(fmt.Sprintf("⏳ You've got %d download(s) running already — wait, then resend.", maxConc)), nil)
+		_, _ = ctx.Reply(u, ext.ReplyTextString(fmt.Sprintf("⏳ You've got %d download(s) running already, wait, then resend.", maxConc)), nil)
 		return nil
 	}
 
@@ -184,7 +184,7 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		if b.Bus != nil {
 			b.Bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
 		}
-		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Done — "+name+" is in your Torrin library. Play it in Stremio."), nil)
+		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Done, "+name+" is in your Torrin library. Play it in Stremio."), nil)
 	}()
 	return nil
 }

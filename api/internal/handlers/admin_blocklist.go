@@ -21,7 +21,7 @@ func (s *Server) reloadBlocklist(ctx context.Context) {
 func (s *Server) adminGetBlocklist(w http.ResponseWriter, r *http.Request) {
 	hard, soft, err := s.Users.GetBlocklist(r.Context())
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "blocklist operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"hard": hard, "soft": soft})
@@ -37,7 +37,7 @@ func (s *Server) adminAddBlocklist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Users.AddBlocklistTerm(r.Context(), body.Term, body.Tier); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "blocklist operation failed")
 		return
 	}
 	s.reloadBlocklist(r.Context())
@@ -46,7 +46,7 @@ func (s *Server) adminAddBlocklist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) adminDelBlocklist(w http.ResponseWriter, r *http.Request) {
 	if err := s.Users.RemoveBlocklistTerm(r.Context(), r.PathValue("term")); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "blocklist operation failed")
 		return
 	}
 	s.reloadBlocklist(r.Context())
@@ -56,7 +56,7 @@ func (s *Server) adminDelBlocklist(w http.ResponseWriter, r *http.Request) {
 func (s *Server) adminReferrals(w http.ResponseWriter, r *http.Request) {
 	refs, err := s.Users.AdminReferrers(r.Context(), 50)
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "blocklist operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"referrers": refs})
@@ -74,7 +74,7 @@ func (s *Server) adminPartnerReport(w http.ResponseWriter, r *http.Request) {
 	}
 	rep, err := s.Users.PartnerReport(r.Context(), code, pct)
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "blocklist operation failed")
 		return
 	}
 	web.WriteJSON(w, 200, rep)
@@ -87,7 +87,7 @@ func (s *Server) adminSendKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	recipients, err := s.Users.PaidUserKeys(r.Context())
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "blocklist operation failed")
 		return
 	}
 

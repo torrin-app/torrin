@@ -79,7 +79,7 @@ func Decode(data []byte) (*YencResult, error) {
 //
 // pcrc32 always covers the part in hand, so it is checked whenever present. A
 // bare crc32 covers the whole file, so it only applies here when the post is
-// single-part — checking it against one part of a multipart post would reject
+// single-part, checking it against one part of a multipart post would reject
 // every segment.
 //
 // Posters vary in what they emit. An absent or unparseable checksum is not an

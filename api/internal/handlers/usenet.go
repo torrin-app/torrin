@@ -44,9 +44,18 @@ func usenetEntitled(hasOwnCreds bool, plan plans.Plan) bool {
 	return (hasOwnCreds && plans.CanBYOK(plan.ID)) || plan.SystemUsenet
 }
 
+func userJobForHash(sibs []*jobs.Job, userID string) *jobs.Job {
+	for _, j := range sibs {
+		if j.UserID == userID && j.Status != jobs.StatusFailed {
+			return j
+		}
+	}
+	return nil
+}
+
 func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint string) {
 	if _, err := s.Users.GetUsenetCreds(r.Context(), user.ID); !usenetEntitled(err == nil, plan) {
-		web.WriteError(w, 403, "usenet needs your own provider — add NNTP credentials in settings, or upgrade to a plan that includes usenet")
+		web.WriteError(w, 403, "usenet needs your own provider, add NNTP credentials in settings, or upgrade to a plan that includes usenet")
 		return
 	}
 
@@ -65,6 +74,17 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 	}
 
 	hash := nzb.Hash(parsed)
+	defer lockGrab(hash)()
+
+	sibs, _ := s.Jobs.ListByInfoHash(r.Context(), hash)
+	if j := userJobForHash(sibs, user.ID); j != nil {
+		if !j.Status.Active() {
+			j.StreamURLs = s.signStreams(j, r)
+		}
+		web.WriteJSON(w, 200, j)
+		return
+	}
+
 	name := nameHint
 	if name == "" {
 		name = parsed.Name()
@@ -82,7 +102,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 	if cached, _ := s.Store.Has(r.Context(), manifest.Path(hash)); cached {
 		job, err := s.buildCachedJob(r.Context(), hash, "", user.ID, jobs.SourceUsenet)
 		if err != nil {
-			web.WriteError(w, 500, "cache read failed")
+			web.WriteError(w, 500, "could not read from cache")
 			return
 		}
 		job.Name = name
@@ -112,7 +132,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			if activeLink {
 				s.Slots.Release(user.ID)
 			}
-			web.WriteError(w, 500, "failed to create job")
+			web.WriteError(w, 500, "could not start this download")
 			return
 		}
 		if activeLink {
@@ -147,7 +167,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 	err = s.Jobs.Create(r.Context(), job)
 	s.Slots.Release(user.ID)
 	if err != nil {
-		web.WriteError(w, 500, "failed to create job")
+		web.WriteError(w, 500, "could not start this download")
 		return
 	}
 	if status == jobs.StatusPending {
@@ -168,7 +188,7 @@ func (s *Server) setUsenetCreds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := normalizeAndTest(r.Context(), &c); err != nil {
-		web.WriteError(w, 400, "could not connect to usenet provider — check host/port/login")
+		web.WriteError(w, 400, "could not connect to usenet provider, check host/port/login")
 		return
 	}
 	if err := s.Users.SaveUsenetCreds(r.Context(), user.ID, &c); err != nil {
@@ -187,7 +207,7 @@ func (s *Server) testUsenetCreds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := normalizeAndTest(r.Context(), c); err != nil {
-		web.WriteError(w, 400, "could not connect to usenet provider — check host/port/login")
+		web.WriteError(w, 400, "could not connect to usenet provider, check host/port/login")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"ok": true})

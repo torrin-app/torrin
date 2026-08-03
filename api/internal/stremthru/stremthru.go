@@ -72,11 +72,11 @@ func (h *Handler) withAuth(next func(http.ResponseWriter, *http.Request, *auth.U
 			return
 		}
 		if user.IsPaused() {
-			stError(w, 403, "subscription paused — resume at https://torrin.app")
+			stError(w, 403, "subscription paused, resume at https://torrin.app")
 			return
 		}
 		if time.Now().After(user.ExpiresAt) {
-			stError(w, 403, "subscription expired — renew at https://torrin.app")
+			stError(w, 403, "subscription expired, renew at https://torrin.app")
 			return
 		}
 		next(w, r, user)

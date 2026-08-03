@@ -118,7 +118,7 @@ func redeemExpiry(period string, days int, user *auth.User) time.Time {
 func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	if !redeemLimiter.allow(clientIP(r)) {
-		web.WriteError(w, 429, "too many attempts — slow down and try again")
+		web.WriteError(w, 429, "too many attempts, slow down and try again")
 		return
 	}
 	var req struct {
@@ -139,7 +139,7 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if rc.Redeemed {
-		web.WriteError(w, 400, "this code has already been used")
+		web.WriteError(w, 409, "this code has already been used")
 		return
 	}
 	if _, ok := plans.Get(rc.PlanID); !ok {
@@ -152,7 +152,7 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !claimed {
-		web.WriteError(w, 400, "this code has already been used")
+		web.WriteError(w, 409, "this code has already been used")
 		return
 	}
 	expiresAt := redeemExpiry(rc.Period, rc.Days, user)

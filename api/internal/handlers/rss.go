@@ -75,7 +75,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	crit, _ := json.Marshal(rss.ParseFilter(req.Criteria))
 	feed := &auth.RSSFeed{ID: uuid.NewString(), UserID: user.ID, URL: req.URL, Name: req.Name, Filter: req.Filter, Criteria: crit}
 	if err := s.Users.AddRSSFeed(r.Context(), feed); err != nil {
-		web.WriteError(w, 500, "failed to save")
+		web.WriteError(w, 500, "could not save your changes")
 		return
 	}
 	web.WriteJSON(w, 201, feed)
@@ -103,7 +103,7 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 	id, userID := r.PathValue("id"), middleware.GetUser(r).ID
 	old, _ := s.Users.GetRSSFeed(r.Context(), id, userID)
 	if err := s.Users.UpdateRSSFeed(r.Context(), id, userID, req.URL, req.Name, req.Filter, crit); err != nil {
-		web.WriteError(w, 500, "failed to save")
+		web.WriteError(w, 500, "could not save your changes")
 		return
 	}
 	if old != nil {

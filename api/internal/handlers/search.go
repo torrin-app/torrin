@@ -67,7 +67,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	if imdb != "" {
 		cached, err := s.JobsPG.ListByIMDB(r.Context(), imdb)
 		if err != nil {
-			web.WriteError(w, 500, "search failed")
+			web.WriteError(w, 500, "search failed, please retry")
 			return
 		}
 		for _, j := range cached {
@@ -84,7 +84,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 		triedNorm[norm] = true
 		matches, err := s.JobsPG.ListByTitleNorm(r.Context(), norm)
 		if err != nil {
-			web.WriteError(w, 500, "search failed")
+			web.WriteError(w, 500, "search failed, please retry")
 			return
 		}
 		for _, j := range matches {

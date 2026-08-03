@@ -77,7 +77,7 @@ func connectRclone(ctx context.Context, endpoint, region, access, secret string)
 	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := rc.WaitReady(wctx); err != nil {
-		slog.Warn("byos: rclone rcd not reachable — rclone targets skipped", "err", err)
+		slog.Warn("byos: rclone rcd not reachable, rclone targets skipped", "err", err)
 		return nil
 	}
 	if err := rc.CreateRemote(ctx, sourceRemote, "s3", map[string]string{

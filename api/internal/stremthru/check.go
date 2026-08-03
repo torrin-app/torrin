@@ -87,7 +87,7 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		}
 	}
 
-	// Tier 2: system AD library (torrin's own shared pool) — fast DB lookup.
+	// Tier 2: system AD library (torrin's own shared pool), fast DB lookup.
 	for _, hash := range uncached() {
 		if h.Users.IsInADLibrary(r.Context(), hash) {
 			items[idxOf[hash]]["status"] = "acceleratable"

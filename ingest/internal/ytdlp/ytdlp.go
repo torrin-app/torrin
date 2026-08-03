@@ -48,7 +48,7 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 	go func() {
 		defer done()
 		if err := r.process(ctx, job); err != nil {
-			jobrun.Fail(ctx, r.repo, r.bus, job, err.Error())
+			jobrun.Fail(ctx, r.repo, r.bus, job, err)
 		}
 	}()
 }
@@ -211,7 +211,7 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 			return ctx.Err()
 		}
 		if dlCtx.Err() != nil {
-			return fmt.Errorf("download stalled — no progress for %s", stallTimeout)
+			return fmt.Errorf("download stalled, no progress for %s", stallTimeout)
 		}
 		return fmt.Errorf("yt-dlp: %w", err)
 	}

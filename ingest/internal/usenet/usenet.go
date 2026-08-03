@@ -43,7 +43,7 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 	go func() {
 		defer done()
 		if err := r.process(ctx, job); err != nil {
-			jobrun.Fail(ctx, r.repo, r.bus, job, err.Error())
+			jobrun.Fail(ctx, r.repo, r.bus, job, err)
 		}
 	}()
 }
@@ -180,7 +180,7 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	slog.Info("usenet downloading", "job", job.ID, "name", parsed.Name())
 	if _, err := download.Download(dlCtx, pool, parsed, dir, creds.MaxConns, prog); err != nil {
 		if dlCtx.Err() != nil && ctx.Err() == nil {
-			return nil, fmt.Errorf("download stalled — no progress for 30 minutes")
+			return nil, fmt.Errorf("download stalled, no progress for 30 minutes")
 		}
 		return nil, fmt.Errorf("download: %w", err)
 	}

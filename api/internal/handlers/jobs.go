@@ -62,7 +62,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 	if cached, _ := s.Store.Has(r.Context(), manifest.Path(infoHash)); cached {
 		job, err := s.buildCachedJob(r.Context(), infoHash, magnet, user.ID, source)
 		if err != nil {
-			web.WriteError(w, 500, "cache read failed")
+			web.WriteError(w, 500, "could not read from cache")
 			return
 		}
 		job.StreamURLs = s.signStreams(job, r)
@@ -92,7 +92,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			if activeLink {
 				s.Slots.Release(user.ID)
 			}
-			web.WriteError(w, 500, "failed to create job")
+			web.WriteError(w, 500, "could not start this download")
 			return
 		}
 		if activeLink {
@@ -120,7 +120,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			err := s.Jobs.Create(r.Context(), job)
 			s.Slots.Release(user.ID)
 			if err != nil {
-				web.WriteError(w, 500, "failed to create job")
+				web.WriteError(w, 500, "could not start this download")
 				return
 			}
 			s.assign(job)
@@ -129,7 +129,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		}
 	}
 
-	// 3. New download — slot limit.
+	// 3. New download, slot limit.
 	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
 		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
 		return
@@ -147,7 +147,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 	err := s.Jobs.Create(r.Context(), job)
 	s.Slots.Release(user.ID)
 	if err != nil {
-		web.WriteError(w, 500, "failed to create job")
+		web.WriteError(w, 500, "could not start this download")
 		return
 	}
 	if status == jobs.StatusPending {
@@ -221,7 +221,7 @@ func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if job.Status != jobs.StatusFailed && job.Status != jobs.StatusEvicted {
-		web.WriteError(w, 400, "only failed or evicted jobs can be retried")
+		web.WriteError(w, 409, "only failed or evicted jobs can be retried")
 		return
 	}
 	s.requeue(w, r, job, user.ID, plan)
@@ -236,7 +236,7 @@ func (s *Server) recheckJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if job.Status != jobs.StatusComplete {
-		web.WriteError(w, 400, "only completed downloads can be rechecked")
+		web.WriteError(w, 409, "only completed downloads can be rechecked")
 		return
 	}
 	if job.Source != jobs.SourceTorrent && job.Source != jobs.SourceUsenet {
@@ -275,7 +275,7 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) <= 1 {
 			job.UserID = "system"
 			if err := s.Jobs.Update(r.Context(), job); err != nil {
-				web.WriteError(w, 500, "internal error")
+				web.WriteError(w, 500, "could not delete this download")
 				return
 			}
 			web.WriteJSON(w, 200, map[string]string{"status": "deleted"})

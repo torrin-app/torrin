@@ -63,7 +63,7 @@ func (s *Server) getStorage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) delStorage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	if err := s.Users.DeleteStorageCreds(r.Context(), user.ID); err != nil {
-		web.WriteError(w, 500, "failed to remove")
+		web.WriteError(w, 500, "could not remove that")
 		return
 	}
 	s.Users.AuditLog(r.Context(), user.ID, "storage_creds_removed", "", clientIP(r))

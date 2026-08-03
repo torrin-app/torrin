@@ -16,7 +16,7 @@ import (
 	"github.com/torrin-app/torrin/shared/video"
 )
 
-const stalledMsg = "stalled — waiting for peers"
+const stalledMsg = "stalled, waiting for peers"
 
 type Runner struct {
 	qb       *qbit.Client
@@ -161,7 +161,7 @@ func (r *Runner) recoverStall(ctx context.Context, job *jobs.Job, hash string, t
 	if stuck {
 		switch {
 		case stalledFor > 4*time.Hour:
-			r.failDelete(ctx, job, hash, t, "torrent stalled — no peers available")
+			r.failDelete(ctx, job, hash, t, "torrent stalled, no peers available")
 			return true
 		case stalledFor > 2*time.Hour && job.Error != "restarting stalled torrent":
 			r.qb.Pause(hash)
@@ -182,7 +182,7 @@ func (r *Runner) recoverStall(ctx context.Context, job *jobs.Job, hash string, t
 
 	if qbit.IsFetchingMetadata(t) {
 		if stalledFor > 15*time.Minute {
-			r.failDelete(ctx, job, hash, t, "could not find torrent metadata — invalid or dead magnet")
+			r.failDelete(ctx, job, hash, t, "could not find torrent metadata, invalid or dead magnet")
 			return true
 		} else if stalledFor > 5*time.Minute {
 			r.qb.Reannounce(hash)

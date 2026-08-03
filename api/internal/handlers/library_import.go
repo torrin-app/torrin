@@ -65,7 +65,7 @@ func (s *Server) library(w http.ResponseWriter, r *http.Request, key string, lis
 	}
 	all, err := list(r.Context(), key)
 	if err != nil {
-		web.WriteError(w, 502, "failed to fetch library")
+		web.WriteError(w, 502, "could not load your library")
 		return
 	}
 	start := min((page-1)*libraryPageSize, len(all))

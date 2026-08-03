@@ -26,7 +26,7 @@ func (s *Server) signJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if job.Status != jobs.StatusComplete {
-		web.WriteError(w, 400, "job not complete")
+		web.WriteError(w, 409, "job not complete")
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"job_id": job.ID, "streams": s.signStreams(job, r)})

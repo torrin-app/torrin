@@ -84,7 +84,7 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		CryptPass string `json:"crypt_password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		web.WriteError(w, 400, "invalid request")
+		web.WriteError(w, 400, "invalid request body")
 		return
 	}
 	req.Provider = strings.TrimSpace(req.Provider)
@@ -112,11 +112,11 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, backend, params, false, cryptPass, "")
 		if rerr != nil {
-			web.WriteError(w, 400, "could not set up that connection: "+rerr.Error())
+			web.WriteError(w, 400, "could not set up that connection, please retry")
 			return
 		}
 		if err := s.RClone.CheckAccess(ctx, remote+":"); err != nil {
-			web.WriteError(w, 400, "couldn't access that storage — check the config you pasted: "+err.Error())
+			web.WriteError(w, 400, "couldn't access that storage, check the config you pasted")
 			return
 		}
 		cfg, _ := json.Marshal(params)
@@ -143,11 +143,11 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, req.Provider, params, true, cryptPass, "")
 		if rerr != nil {
-			web.WriteError(w, 400, "could not set up that connection: "+rerr.Error())
+			web.WriteError(w, 400, "could not set up that connection, please retry")
 			return
 		}
 		if err := s.RClone.CheckAccess(ctx, remote+":"); err != nil {
-			web.WriteError(w, 400, "couldn't access your account — double-check your credentials: "+err.Error())
+			web.WriteError(w, 400, "couldn't access your account, double-check your credentials")
 			return
 		}
 		cfg, _ := json.Marshal(params)
@@ -192,11 +192,11 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, "s3", params, false, cryptPass, req.Bucket)
 	if rerr != nil {
-		web.WriteError(w, 400, "could not set up that bucket: "+rerr.Error())
+		web.WriteError(w, 400, "could not set up that bucket, please retry")
 		return
 	}
 	if err := s.RClone.CheckAccess(ctx, remote+checkFs); err != nil {
-		web.WriteError(w, 400, "couldn't access that bucket — check the endpoint, bucket name and keys: "+err.Error())
+		web.WriteError(w, 400, "couldn't access that bucket, check the endpoint, bucket name and keys")
 		return
 	}
 	cfg, _ := json.Marshal(params)
@@ -210,7 +210,7 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) saveStorage(w http.ResponseWriter, r *http.Request, userID string, creds *auth.StorageCreds, detail string) {
 	if err := s.Users.SaveStorageCreds(r.Context(), userID, creds); err != nil {
-		web.WriteError(w, 500, "failed to save")
+		web.WriteError(w, 500, "could not save your changes")
 		return
 	}
 	s.Users.AuditLog(r.Context(), userID, "storage_creds_added", detail, clientIP(r))

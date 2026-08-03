@@ -27,7 +27,7 @@ func (s *Server) adminEvictCache(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Store.DeletePrefix(r.Context(), hash+"/"); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "cache operation failed")
 		return
 	}
 	if orphaned, err := s.JobsPG.DropBlobRefs(r.Context(), hash); err == nil {

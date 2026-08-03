@@ -22,6 +22,7 @@ import (
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
+	"github.com/torrin-app/torrin/shared/failure"
 	hdclient "github.com/torrin-app/torrin/shared/hdencode"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -246,7 +247,7 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 	if job.Source == jobs.SourceYtdlp {
 		if yr == nil {
 			done()
-			fail(ctx, repo, b, job, "web download engine unavailable")
+			fail(ctx, repo, b, job, failure.EngineDown)
 			return
 		}
 		job.Status = jobs.StatusDownloading
@@ -278,7 +279,7 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 		if tr != nil {
 			tr.Release(job.InfoHash)
 		}
-		fail(ctx, repo, b, job, "content blocked by safety policy")
+		fail(ctx, repo, b, job, failure.Blocked)
 		return
 	}
 
@@ -300,7 +301,7 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 
 	switch {
 	case err != nil && debrid.IsTerminal(err):
-		fail(ctx, repo, b, job, err.Error())
+		fail(ctx, repo, b, job, err)
 	case err == nil && handled:
 		b.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
 	case canQbit:
@@ -308,23 +309,24 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *t
 			slog.Info("debrid unavailable, falling through to qbit", "job", job.ID, "err", err)
 		}
 		if e := tr.Start(job); e != nil {
-			fail(ctx, repo, b, job, "failed to add torrent: "+e.Error())
+			fail(ctx, repo, b, job, failure.Wrap(failure.AddFailed, "add torrent: %v", e))
 		}
 	default:
-		msg := "not cached on any debrid provider"
+		f := error(failure.NoSources)
 		if err != nil {
-			msg = err.Error()
+			f = failure.Wrap(failure.NoSources, "no provider: %v", err)
 		}
-		fail(ctx, repo, b, job, msg)
+		fail(ctx, repo, b, job, f)
 	}
 }
 
-func fail(ctx context.Context, repo jobs.Repository, b *bus.Bus, job *jobs.Job, reason string) {
-	clean := jobs.UserError(reason)
+func fail(ctx context.Context, repo jobs.Repository, b *bus.Bus, job *jobs.Job, err error) {
+	msg := failure.Message(err)
+	slog.Warn("job failed", "job", job.ID, "source", job.Source, "err", err)
 	job.Status = jobs.StatusFailed
-	job.Error = clean
+	job.Error = msg
 	repo.Update(ctx, job)
-	b.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: clean})
+	b.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: msg})
 }
 
 func mustEnv(k string) string {

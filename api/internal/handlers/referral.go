@@ -69,12 +69,12 @@ func (s *Server) adminMintPartnerToken(w http.ResponseWriter, r *http.Request) {
 	}
 	buf := make([]byte, 24)
 	if _, err := rand.Read(buf); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "could not load referral info")
 		return
 	}
 	token := hex.EncodeToString(buf)
 	if err := s.Users.MintPartnerToken(r.Context(), code, token); err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "could not load referral info")
 		return
 	}
 	shareURL := strings.TrimRight(s.WebBase, "/") + "/partner?token=" + token
@@ -89,7 +89,7 @@ func (s *Server) partnerReport(w http.ResponseWriter, r *http.Request) {
 	}
 	rep, err := s.Users.PartnerReport(r.Context(), code, partnerCommissionPct)
 	if err != nil {
-		web.WriteError(w, 500, "internal error")
+		web.WriteError(w, 500, "could not load referral info")
 		return
 	}
 	web.WriteJSON(w, 200, rep)

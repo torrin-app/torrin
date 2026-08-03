@@ -21,7 +21,7 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 			r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
 			apiKey := extractAPIKey(r)
 			if apiKey == "" {
-				web.WriteError(w, 401, "missing api key — use Authorization: Bearer tr_...")
+				web.WriteError(w, 401, "missing api key, use Authorization: Bearer tr_...")
 				return
 			}
 
@@ -42,7 +42,7 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 					path == "/api/plans" || path == "/api/stats" || path == "/api/history" ||
 					(method == "GET" && (path == "/api/jobs" || strings.HasPrefix(path, "/api/jobs/")))
 				if !allowed {
-					web.WriteError(w, 403, "subscription paused — resume to add new downloads")
+					web.WriteError(w, 403, "subscription paused, resume to add new downloads")
 					return
 				}
 			}
@@ -51,7 +51,7 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 				if user.PlanID == "free" {
 					path := r.URL.Path
 					if !(path == "/api/me" || path == "/api/plans" || path == "/api/stats" || path == "/api/redeem") {
-						web.WriteError(w, 403, "free trial expired — upgrade at https://torrin.app")
+						web.WriteError(w, 403, "free trial expired, upgrade at https://torrin.app")
 						return
 					}
 				} else {

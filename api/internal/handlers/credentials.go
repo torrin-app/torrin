@@ -32,7 +32,7 @@ func (s *Server) registerCredRoutes(mux *http.ServeMux, authMW func(http.Handler
 		}
 		if ops.validate != nil {
 			if err := ops.validate(r.Context(), req.APIKey); err != nil {
-				web.WriteError(w, 400, err.Error())
+				web.WriteError(w, 400, "that key didn't validate, check it and try again")
 				return
 			}
 		}

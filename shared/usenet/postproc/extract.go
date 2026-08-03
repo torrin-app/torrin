@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/nwaples/rardecode/v2"
+	"github.com/torrin-app/torrin/shared/failure"
 )
 
 func extract(dir string, passwords []string) error {
@@ -176,7 +177,7 @@ func sevenZipBinary() string {
 func extract7z(first, dir string, passwords []string) error {
 	bin := sevenZipBinary()
 	if bin == "" {
-		return fmt.Errorf("7z binary missing")
+		return failure.Wrap(failure.Unpack, "7z binary missing")
 	}
 	var lastErr error
 	for _, pw := range append([]string{""}, passwords...) {
