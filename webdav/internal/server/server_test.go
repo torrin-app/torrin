@@ -134,6 +134,23 @@ func TestGetFileRedirects(t *testing.T) {
 	}
 }
 
+func TestGetEncryptedBlobRedirect(t *testing.T) {
+	hash := strings.Repeat("a", 40)
+	j := &jobs.Job{Name: "Enc Movie", InfoHash: hash, Status: jobs.StatusComplete, UpdatedAt: time.Unix(1700000000, 0),
+		Files: []jobs.File{{Index: 0, Name: "movie.mkv", Size: 100, Key: "blobs/deadbeef", Enc: true}}}
+	s := &Server{jobs: &fakeRepo{}, store: &fakeSigner{}}
+	r := httptest.NewRequest(http.MethodGet, "/Enc%20Movie/movie.mkv", nil)
+	w := httptest.NewRecorder()
+	s.get(w, r, "u1", buildTree([]*jobs.Job{j}))
+	loc := w.Header().Get("Location")
+	if !strings.Contains(loc, "blobs/deadbeef") {
+		t.Errorf("Location missing blob key: %q", loc)
+	}
+	if !strings.Contains(loc, "ih="+hash) || !strings.Contains(loc, "enc=1") {
+		t.Errorf("Location missing stream query: %q", loc)
+	}
+}
+
 func TestGetDirRendersHTML(t *testing.T) {
 	s := &Server{jobs: &fakeRepo{}, store: &fakeSigner{}}
 	r := httptest.NewRequest(http.MethodGet, "/Beta%20S01", nil)

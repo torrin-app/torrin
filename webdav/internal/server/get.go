@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"time"
+
+	"github.com/torrin-app/torrin/shared/manifest"
 )
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request, userID string, tree *node) {
@@ -20,5 +22,6 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, userID string, tree
 		return
 	}
 	s.jobs.RecordView(r.Context(), n.hash, userID)
-	http.Redirect(w, r, s.store.SignURL(n.key, 4*time.Hour), http.StatusTemporaryRedirect)
+	url := s.store.SignURL(n.key, 4*time.Hour) + manifest.StreamQuery(n.hash, n.key, n.enc)
+	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }

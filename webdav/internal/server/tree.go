@@ -18,6 +18,7 @@ type node struct {
 	etag     string
 	key      string
 	hash     string
+	enc      bool
 	children []*node
 	index    map[string]*node
 }
@@ -63,8 +64,9 @@ func buildTree(list []*jobs.Job) *node {
 				name: unique(names, base(f.Name), strconv.Itoa(i)),
 				size: f.Size,
 				mod:  j.UpdatedAt,
-				key:  manifest.Key(j.InfoHash, i, f.Name),
+				key:  manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name),
 				hash: j.InfoHash,
+				enc:  f.Enc,
 				etag: `"` + j.InfoHash + "-" + strconv.Itoa(i) + "-" + strconv.FormatInt(f.Size, 10) + `"`,
 			})
 		}
