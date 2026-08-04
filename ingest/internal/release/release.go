@@ -108,7 +108,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 		}
 		total += size
 		if job.MaxBytes > 0 && total > job.MaxBytes {
-			return fmt.Errorf("release too large (max %dMB)", job.MaxBytes/1e6)
+			return failure.Newf("too_large", "this release is over your plan limit of %dMB", job.MaxBytes/1e6)
 		}
 		r.repo.SetProgress(ctx, job.ID, float64(i+1)/float64(len(parts))*100, 0)
 	}

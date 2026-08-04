@@ -16,6 +16,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/storage"
@@ -77,7 +78,7 @@ func (r *Runner) RunNZB(ctx context.Context, job *jobs.Job, data []byte) error {
 		return fmt.Errorf("parse nzb: %w", err)
 	}
 	if job.MaxBytes > 0 && parsed.TotalSize() > job.MaxBytes {
-		return fmt.Errorf("size %dGB exceeds your plan limit of %dGB", parsed.TotalSize()/1e9, job.MaxBytes/1e9)
+		return failure.Newf("too_large", "this nzb is %dGB, over your plan limit of %dGB", parsed.TotalSize()/1e9, job.MaxBytes/1e9)
 	}
 	slog.Info("usenet nzb ok", "job", job.ID, "name", parsed.Name(), "files", len(parsed.Files), "size_gb", parsed.TotalSize()/1e9)
 
@@ -109,7 +110,7 @@ func (r *Runner) AssemblePack(ctx context.Context, job *jobs.Job, parts [][]byte
 		total += pn.TotalSize()
 	}
 	if job.MaxBytes > 0 && total > job.MaxBytes {
-		return fmt.Errorf("season pack %dGB exceeds your plan limit of %dGB", total/1e9, job.MaxBytes/1e9)
+		return failure.Newf("too_large", "this season pack is %dGB, over your plan limit of %dGB", total/1e9, job.MaxBytes/1e9)
 	}
 	job.FileSize = total
 	r.repo.Update(ctx, job)

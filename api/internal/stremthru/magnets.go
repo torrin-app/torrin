@@ -83,7 +83,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	plan, _ := plans.Get(user.PlanID)
 
 	existing, err := h.Jobs.GetByInfoHash(r.Context(), infoHash)
-	if err == nil && existing != nil && existing.Status != jobs.StatusFailed {
+	if err == nil && existing != nil && existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
 		if existing.UserID == user.ID {
 			h.dedup.Store(infoHash, existing.ID)
 			stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), existing)})

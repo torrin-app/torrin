@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/torrin-app/torrin/ingest/internal/publish"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/providers"
 )
@@ -180,5 +181,18 @@ func TestRunFailsOverToNextProvider(t *testing.T) {
 	}
 	if !provB.released {
 		t.Error("provider B not released")
+	}
+}
+
+func TestTerminalErrCarriesFailure(t *testing.T) {
+	err := terminalErr{failure.Newf("too_large", "this is %dGB, over your plan limit of %dGB", 76, 50)}
+	if !IsTerminal(err) {
+		t.Error("size-limit failure must stay terminal (no retry)")
+	}
+	if got := failure.Message(err); got != "this is 76GB, over your plan limit of 50GB" {
+		t.Errorf("failure.Message = %q, want the real reason surfaced through terminalErr", got)
+	}
+	if failure.Message(terminal("raw internal %d", 1)) != failure.Generic.Msg {
+		t.Error("a plain terminal error should still collapse to generic")
 	}
 }

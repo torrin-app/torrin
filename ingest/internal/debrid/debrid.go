@@ -11,11 +11,14 @@ import (
 
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/providers"
 )
 
 type terminalErr struct{ error }
+
+func (e terminalErr) Unwrap() error { return e.error }
 
 func terminal(format string, a ...any) error { return terminalErr{fmt.Errorf(format, a...)} }
 
@@ -110,10 +113,10 @@ func (r *Runner) attempt(ctx context.Context, job *jobs.Job, dir string, prov pr
 		names[i] = f.Name
 	}
 	if screen.Blocked(ctx, r.ban, job, names...) {
-		return nil, terminal("content blocked by safety policy")
+		return nil, terminalErr{failure.Blocked}
 	}
 	if over := overPlanLimit(res, job.MaxBytes); over > 0 {
-		return nil, terminal("size %d exceeds plan limit %d", over, job.MaxBytes)
+		return nil, terminalErr{failure.Newf("too_large", "this is %dGB, over your plan limit of %dGB", over/1e9, job.MaxBytes/1e9)}
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
