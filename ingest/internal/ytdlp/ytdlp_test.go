@@ -193,9 +193,10 @@ func TestParseMeta(t *testing.T) {
 
 func TestYtdlpReason(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"WARNING: fallback\nERROR: Unsupported URL: https://x.com/a", "Unsupported URL: https://x.com/a"},
-		{"ERROR: [youtube] abc: Video unavailable", "[youtube] abc: Video unavailable"},
-		{"ERROR: [generic] xyz: nsig failed; Please report this issue on https://github.com/...", "[generic] xyz: nsig failed"},
+		{"WARNING: fallback\nERROR: Unsupported URL: https://frdl.my/a.mkv.html", "Unsupported URL: https://frdl.my/a.mkv.html"},
+		{"ERROR: [youtube] 00000000000: This video is unavailable", "This video is unavailable"},
+		{"ERROR: [vimeo] 000000000: Unable to download webpage: HTTP Error 404: Not Found (caused by <HTTPError 404: Not Found>)", "Unable to download webpage: HTTP Error 404: Not Found"},
+		{"ERROR: [generic] Movie.mkv: Some error; Please report this issue on https://github.com/yt-dlp/yt-dlp/issues", "Some error"},
 		{"no error line here", ""},
 	}
 	for _, c := range cases {

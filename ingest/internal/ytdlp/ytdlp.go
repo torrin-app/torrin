@@ -190,9 +190,22 @@ func ytdlpReason(stderr string) string {
 			reason = strings.TrimSpace(s)
 		}
 	}
-	if i := strings.Index(strings.ToLower(reason), "please report"); i > 0 {
-		reason = strings.TrimRight(strings.TrimSpace(reason[:i]), ".;: ")
+	if strings.HasPrefix(reason, "[") {
+		if b := strings.IndexByte(reason, ']'); b > 0 {
+			rest := strings.TrimSpace(reason[b+1:])
+			if c := strings.Index(rest, ": "); c > 0 {
+				rest = rest[c+2:]
+			}
+			reason = strings.TrimSpace(rest)
+		}
 	}
+	if i := strings.Index(reason, " (caused by "); i > 0 {
+		reason = reason[:i]
+	}
+	if i := strings.Index(strings.ToLower(reason), "please report"); i > 0 {
+		reason = reason[:i]
+	}
+	reason = strings.TrimRight(strings.TrimSpace(reason), ".;: ")
 	if len(reason) > 200 {
 		reason = strings.TrimSpace(reason[:200])
 	}
