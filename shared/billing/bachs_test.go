@@ -27,7 +27,7 @@ func TestBachsCreateCheckout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	b := NewBachsHandler(srv.URL, "sk_sandbox_x", "whsec", "prod_1", "https://api.torrin.app", "https://torrin.app", nil)
+	b := NewBachsHandler(srv.URL, "sk_sandbox_x", "whsec", "prod_1", "https://api.torrin.app", "https://torrin.app", "", nil)
 	url, err := b.CreateCheckout(context.Background(), "a@b.com", "starter", "monthly", 0)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestBachsCreateCheckout(t *testing.T) {
 }
 
 func TestBachsCreateCheckoutUnknownPlan(t *testing.T) {
-	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", nil)
+	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", "", nil)
 	if _, err := b.CreateCheckout(context.Background(), "a@b.com", "nope", "monthly", 0); err == nil {
 		t.Error("expected error for unknown plan")
 	}
@@ -67,7 +67,7 @@ func signBachs(secret string, body string) (string, string) {
 }
 
 func TestBachsWebhookBadSignature(t *testing.T) {
-	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", nil)
+	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", "", nil)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/webhooks/bachs", strings.NewReader(`{"id":"evt_1","type":"collection.succeeded"}`))
 	req.Header.Set("X-Bachs-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
@@ -78,9 +78,23 @@ func TestBachsWebhookBadSignature(t *testing.T) {
 	}
 }
 
+func TestBachsWebhookPaymentLinkDonation(t *testing.T) {
+	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", "", nil)
+	body := `{"id":"evt_pl","type":"collection.succeeded","data":{"amount":"5.00","currency":"USD","customer":{"name":"donor@x.com"},"metadata":{"payment_link_id":"pl_x","from_payment_link":true}}}`
+	ts, sig := signBachs("whsec", body)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/webhooks/bachs", strings.NewReader(body))
+	req.Header.Set("X-Bachs-Timestamp", ts)
+	req.Header.Set("X-Bachs-Signature", sig)
+	b.HandleWebhook(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200 (bool in metadata must not break parsing)", rec.Code)
+	}
+}
+
 func TestBachsWebhookIgnoresNonPaid(t *testing.T) {
 	// users is nil: a non-paid event must return before any store access.
-	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", nil)
+	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", "", nil)
 	body := `{"id":"evt_2","type":"collection.abandoned","data":{}}`
 	ts, sig := signBachs("whsec", body)
 	rec := httptest.NewRecorder()

@@ -30,10 +30,11 @@ type BachsHandler struct {
 	apiBase       string
 	webBase       string
 	users         *auth.Store
+	donations     *Discord
 	http          *http.Client
 }
 
-func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, apiBase, webBase string, users *auth.Store) *BachsHandler {
+func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, apiBase, webBase, donationWebhook string, users *auth.Store) *BachsHandler {
 	if apiURL == "" {
 		apiURL = "https://sandbox-api.bachs.io"
 	}
@@ -45,6 +46,7 @@ func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, apiBase, webBa
 		apiBase:       strings.TrimRight(apiBase, "/"),
 		webBase:       strings.TrimRight(webBase, "/"),
 		users:         users,
+		donations:     NewDiscord(donationWebhook),
 		http:          &http.Client{Timeout: 15 * time.Second},
 	}
 }
@@ -122,7 +124,9 @@ func (b *BachsHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		ID   string `json:"id"`
 		Type string `json:"type"`
 		Data struct {
-			Metadata map[string]string `json:"metadata"`
+			Metadata map[string]any `json:"metadata"`
+			Amount   string         `json:"amount"`
+			Currency string         `json:"currency"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil || evt.ID == "" {
@@ -135,8 +139,52 @@ func (b *BachsHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	b.activate(r.Context(), evt.ID, evt.Data.Metadata)
+	meta := stringMap(evt.Data.Metadata)
+	if meta["plan"] == "" {
+		b.notifyDonation(donationMessage(evt.Data.Amount, evt.Data.Currency))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	b.activate(r.Context(), evt.ID, meta)
 	w.WriteHeader(http.StatusOK)
+}
+
+func stringMap(m map[string]any) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
+}
+
+func (b *BachsHandler) notifyDonation(msg string) {
+	if b.donations == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		b.donations.Post(ctx, msg)
+	}()
+}
+
+func donationMessage(amount, currency string) string {
+	return fmt.Sprintf("\U0001F49C New donation: %s\nThank you for supporting Torrin!", formatMoney(amount, currency))
+}
+
+func formatMoney(amount, currency string) string {
+	switch {
+	case amount == "":
+		return "a contribution"
+	case currency == "USD":
+		return "$" + amount
+	case currency == "":
+		return amount
+	default:
+		return amount + " " + currency
+	}
 }
 
 func (b *BachsHandler) verify(rawBody []byte, timestampHeader, signatureHeader string) bool {

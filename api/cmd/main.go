@@ -88,7 +88,8 @@ func main() {
 	bachs := billing.NewBachsHandler(
 		env.Get("BACHS_API_URL", ""), env.Get("BACHS_SECRET_KEY", ""),
 		env.Get("BACHS_WEBHOOK_SECRET", ""), env.Get("BACHS_PRODUCT_ID", ""),
-		env.Get("API_PUBLIC_URL", ""), env.Get("WEB_URL", ""), users)
+		env.Get("API_PUBLIC_URL", ""), env.Get("WEB_URL", ""),
+		env.Get("DONATION_DISCORD_WEBHOOK", ""), users)
 	srv := handlers.New(handlers.Deps{
 		Jobs: jobsRepo, JobsPG: jobsRepo, Users: users, Store: store, Bus: b,
 		Slots: slots, Qbit: qb, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
