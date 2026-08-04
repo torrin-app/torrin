@@ -10,6 +10,7 @@ import (
 	"github.com/torrin-app/torrin/byos/internal/mirror"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
@@ -18,14 +19,12 @@ import (
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
-const sourceRemote = "garage"
-
 type deps struct {
-	repo  *jobs.Postgres
-	users *auth.Store
-	src   *storage.Client
-	rc    *rclonerc.Client
-	srcFs string
+	repo   *jobs.Postgres
+	users  *auth.Store
+	src    *storage.Client
+	rc     *rclonerc.Client
+	cipher *crypto.Stream
 }
 
 func main() {
@@ -41,15 +40,21 @@ func main() {
 		fatal("auth db", err)
 	}
 
-	endpoint, region := mustEnv("S3_ENDPOINT"), env.Get("S3_REGION", "garage")
-	access, secret, bucket := mustEnv("S3_ACCESS_KEY"), mustEnv("S3_SECRET_KEY"), mustEnv("S3_BUCKET")
-	d := &deps{
-		repo:  repo,
-		users: users,
-		src:   storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
-		srcFs: sourceRemote + ":" + bucket,
+	var cipher *crypto.Stream
+	if k := env.Get("STORAGE_KEY", ""); k != "" {
+		c, err := crypto.NewStream(k)
+		if err != nil {
+			fatal("storage key", err)
+		}
+		cipher = c
 	}
-	d.rc = connectRclone(ctx, endpoint, region, access, secret)
+	d := &deps{
+		repo:   repo,
+		users:  users,
+		src:    storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
+		cipher: cipher,
+	}
+	d.rc = connectRclone(ctx)
 
 	b, err := bus.Connect(mustEnv("NATS_URL"))
 	if err != nil {
@@ -63,12 +68,13 @@ func main() {
 		fatal("subscribe", err)
 	}
 	go d.runQueue(ctx)
+	go d.runStorageEviction(ctx, int(env.Int("BYOS_EVICT_HOUR", 5)))
 
 	slog.Info("byos worker started")
 	service.RunHealth("byos", "8085")
 }
 
-func connectRclone(ctx context.Context, endpoint, region, access, secret string) *rclonerc.Client {
+func connectRclone(ctx context.Context) *rclonerc.Client {
 	u := os.Getenv("RCLONE_RC_URL")
 	if u == "" {
 		return nil
@@ -80,18 +86,7 @@ func connectRclone(ctx context.Context, endpoint, region, access, secret string)
 		slog.Warn("byos: rclone rcd not reachable, rclone targets skipped", "err", err)
 		return nil
 	}
-	if err := rc.CreateRemote(ctx, sourceRemote, "s3", map[string]string{
-		"provider":          "Other",
-		"access_key_id":     access,
-		"secret_access_key": secret,
-		"endpoint":          endpoint,
-		"region":            region,
-		"force_path_style":  "true",
-	}, false); err != nil {
-		slog.Warn("byos: could not register source remote in rcd", "err", err)
-		return nil
-	}
-	slog.Info("byos: rclone rcd ready, source remote registered")
+	slog.Info("byos: rclone rcd ready")
 	return rc
 }
 
@@ -143,9 +138,9 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 		if d.rc == nil {
 			return
 		}
-		mErr = mirror.MirrorRclone(ctx, d.rc, d.srcFs, job, creds)
+		mErr = mirror.MirrorRclone(ctx, d.rc, d.src, d.cipher, job, creds)
 	} else {
-		mErr = mirror.Mirror(ctx, d.src, job, creds)
+		mErr = mirror.Mirror(ctx, d.src, d.cipher, job, creds)
 	}
 	switch {
 	case mErr == nil:

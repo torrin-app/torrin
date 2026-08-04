@@ -100,7 +100,11 @@ func (s *Server) oauthStart(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 503, "this provider isn't available right now")
 		return
 	}
-	state := signOAuthState(s.SignKey, user.ID, key, time.Now().Add(15*time.Minute).Unix())
+	mode := ""
+	if r.URL.Query().Get("pool") == "1" {
+		mode = "pool"
+	}
+	state := signOAuthState(s.SignKey, user.ID, key, mode, time.Now().Add(15*time.Minute).Unix())
 	q := url.Values{
 		"client_id": {p.clientID()}, "response_type": {"code"},
 		"redirect_uri": {s.redirectURI(key)}, "state": {state},
@@ -129,7 +133,7 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	code := r.URL.Query().Get("code")
-	userID, prov, valid := verifyOAuthState(s.SignKey, r.URL.Query().Get("state"))
+	userID, prov, mode, valid := verifyOAuthState(s.SignKey, r.URL.Query().Get("state"))
 	if code == "" || !valid || prov != key {
 		done("error")
 		return
@@ -175,6 +179,11 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 		params["drive_id"], params["drive_type"] = id, dtype
 	}
 
+	if mode == "pool" {
+		s.oauthAddToPool(ctx, w, r, userID, p.backend, params, done)
+		return
+	}
+
 	remote, rerr := s.RClone.EnsureUserRemote(ctx, userID, p.backend, params, false, "", "")
 	if rerr != nil || s.RClone.CheckAccess(ctx, remote+":") != nil {
 		done("error")
@@ -191,35 +200,60 @@ func (s *Server) oauthCallback(w http.ResponseWriter, r *http.Request) {
 	done("connected")
 }
 
-func signOAuthState(key []byte, userID, provider string, exp int64) string {
-	payload := fmt.Sprintf("%s:%s:%d", userID, provider, exp)
+func (s *Server) oauthAddToPool(ctx context.Context, w http.ResponseWriter, r *http.Request, userID, backend string, params map[string]string, done func(string)) {
+	creds, err := s.Users.GetStorageCreds(ctx, userID)
+	if err != nil || creds == nil || !creds.IsRclone() {
+		done("error")
+		return
+	}
+	list := append(creds.ProviderList(), auth.StorageProvider{Backend: backend, Params: params})
+	blob, _ := json.Marshal(list)
+	creds.Providers = string(blob)
+	remote, rerr := auth.EnsureRemote(ctx, s.RClone, userID, creds)
+	if rerr != nil || s.RClone.CheckAccess(ctx, remote+":") != nil {
+		done("error")
+		return
+	}
+	if s.Users.SaveStorageCreds(ctx, userID, creds) != nil {
+		done("error")
+		return
+	}
+	s.Users.AuditLog(ctx, userID, "storage_providers_set", "pool+="+backend, clientIP(r))
+	done("connected")
+}
+
+func signOAuthState(key []byte, userID, provider, mode string, exp int64) string {
+	payload := fmt.Sprintf("%s:%s:%d:%s", userID, provider, exp, mode)
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(payload))
 	return base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
-func verifyOAuthState(key []byte, state string) (userID, provider string, ok bool) {
+func verifyOAuthState(key []byte, state string) (userID, provider, mode string, ok bool) {
 	enc, sig, found := strings.Cut(state, ".")
 	if !found {
-		return "", "", false
+		return "", "", "", false
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(enc)
 	if err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	mac := hmac.New(sha256.New, key)
 	mac.Write(raw)
 	if !hmac.Equal([]byte(sig), []byte(hex.EncodeToString(mac.Sum(nil)))) {
-		return "", "", false
+		return "", "", "", false
 	}
 	parts := strings.Split(string(raw), ":")
-	if len(parts) != 3 {
-		return "", "", false
+	if len(parts) < 3 {
+		return "", "", "", false
 	}
 	if exp, _ := strconv.ParseInt(parts[2], 10, 64); exp < time.Now().Unix() {
-		return "", "", false
+		return "", "", "", false
 	}
-	return parts[0], parts[1], true
+	if len(parts) > 3 {
+		mode = parts[3]
+	}
+	return parts[0], parts[1], mode, true
 }
 
 func exchangeCodeForToken(ctx context.Context, p oauthProvider, code, redirectURI string) (*rcloneToken, error) {

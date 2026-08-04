@@ -111,6 +111,10 @@ CREATE TABLE IF NOT EXISTS storage_credentials (
 );
 ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS encrypted      BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS crypt_password TEXT NOT NULL DEFAULT '';
+ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS providers        TEXT NOT NULL DEFAULT '';
+ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS union_policy     TEXT NOT NULL DEFAULT '';
+ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS evict_after_days INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE storage_credentials ADD COLUMN IF NOT EXISTS evict_max_bytes  BIGINT NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS usenet_credentials (
     user_id    TEXT PRIMARY KEY,

@@ -100,6 +100,11 @@ func (c *Client) CreateRemote(ctx context.Context, name, backend string, params 
 	return err
 }
 
+func (c *Client) Purge(ctx context.Context, fs, remote string) error {
+	_, err := c.call(ctx, "operations/purge", map[string]any{"fs": fs, "remote": remote})
+	return err
+}
+
 func (c *Client) CopyFile(ctx context.Context, srcFs, srcRemote, dstFs, dstRemote string) error {
 	_, err := c.call(ctx, "operations/copyfile", map[string]any{
 		"srcFs":     srcFs,

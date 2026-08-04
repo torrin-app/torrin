@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -33,10 +32,8 @@ func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID s
 	if err != nil || creds == nil || !creds.Enabled || !creds.IsRclone() {
 		return false
 	}
-	var params map[string]string
-	json.Unmarshal([]byte(creds.ConfigJSON), &params)
 	rctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	remote, err := b.rc.EnsureUserRemote(rctx, userID, creds.Backend, params, true, creds.CryptPass, creds.Bucket)
+	remote, err := auth.EnsureRemote(rctx, b.rc, userID, creds)
 	cancel()
 	if err != nil {
 		return false

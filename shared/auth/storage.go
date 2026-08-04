@@ -21,6 +21,11 @@ type StorageCreds struct {
 	ConfigJSON string `json:"-"`
 	Encrypted  bool   `json:"encrypted"`
 	CryptPass  string `json:"-"`
+
+	Providers      string `json:"-"`
+	UnionPolicy    string `json:"union_policy,omitempty"`
+	EvictAfterDays int    `json:"evict_after_days,omitempty"`
+	EvictMaxBytes  int64  `json:"evict_max_bytes,omitempty"`
 }
 
 func (c *StorageCreds) IsRclone() bool { return c.Backend != "" }
@@ -28,9 +33,9 @@ func (c *StorageCreds) IsRclone() bool { return c.Backend != "" }
 func (s *Store) GetStorageCreds(ctx context.Context, userID string) (*StorageCreds, error) {
 	c := &StorageCreds{}
 	err := s.pool.QueryRow(ctx, `
-		SELECT provider, endpoint, region, bucket, access_key, secret_key, prefix, enabled, backend, config_json, encrypted, crypt_password
+		SELECT provider, endpoint, region, bucket, access_key, secret_key, prefix, enabled, backend, config_json, encrypted, crypt_password, providers, union_policy, evict_after_days, evict_max_bytes
 		FROM storage_credentials WHERE user_id=$1`, userID).
-		Scan(&c.Provider, &c.Endpoint, &c.Region, &c.Bucket, &c.AccessKey, &c.SecretKey, &c.Prefix, &c.Enabled, &c.Backend, &c.ConfigJSON, &c.Encrypted, &c.CryptPass)
+		Scan(&c.Provider, &c.Endpoint, &c.Region, &c.Bucket, &c.AccessKey, &c.SecretKey, &c.Prefix, &c.Enabled, &c.Backend, &c.ConfigJSON, &c.Encrypted, &c.CryptPass, &c.Providers, &c.UnionPolicy, &c.EvictAfterDays, &c.EvictMaxBytes)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, errors.New("no storage configured")
 	}
@@ -42,14 +47,15 @@ func (s *Store) GetStorageCreds(ctx context.Context, userID string) (*StorageCre
 
 func (s *Store) SaveStorageCreds(ctx context.Context, userID string, c *StorageCreds) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO storage_credentials (user_id, provider, endpoint, region, bucket, access_key, secret_key, prefix, enabled, backend, config_json, encrypted, crypt_password, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+		INSERT INTO storage_credentials (user_id, provider, endpoint, region, bucket, access_key, secret_key, prefix, enabled, backend, config_json, encrypted, crypt_password, providers, union_policy, evict_after_days, evict_max_bytes, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (user_id) DO UPDATE SET provider=EXCLUDED.provider, endpoint=EXCLUDED.endpoint,
 			region=EXCLUDED.region, bucket=EXCLUDED.bucket, access_key=EXCLUDED.access_key,
 			secret_key=EXCLUDED.secret_key, prefix=EXCLUDED.prefix, enabled=EXCLUDED.enabled,
 			backend=EXCLUDED.backend, config_json=EXCLUDED.config_json, encrypted=EXCLUDED.encrypted,
-			crypt_password=EXCLUDED.crypt_password, updated_at=EXCLUDED.updated_at`,
-		userID, c.Provider, c.Endpoint, c.Region, c.Bucket, c.AccessKey, c.SecretKey, c.Prefix, c.Enabled, c.Backend, c.ConfigJSON, c.Encrypted, c.CryptPass, time.Now())
+			crypt_password=EXCLUDED.crypt_password, providers=EXCLUDED.providers, union_policy=EXCLUDED.union_policy,
+			evict_after_days=EXCLUDED.evict_after_days, evict_max_bytes=EXCLUDED.evict_max_bytes, updated_at=EXCLUDED.updated_at`,
+		userID, c.Provider, c.Endpoint, c.Region, c.Bucket, c.AccessKey, c.SecretKey, c.Prefix, c.Enabled, c.Backend, c.ConfigJSON, c.Encrypted, c.CryptPass, c.Providers, c.UnionPolicy, c.EvictAfterDays, c.EvictMaxBytes, time.Now())
 	return err
 }
 
