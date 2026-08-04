@@ -190,3 +190,32 @@ func TestParseMeta(t *testing.T) {
 		t.Error("expected error on bad json")
 	}
 }
+
+func TestYtdlpReason(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"WARNING: fallback\nERROR: Unsupported URL: https://x.com/a", "Unsupported URL: https://x.com/a"},
+		{"ERROR: [youtube] abc: Video unavailable", "[youtube] abc: Video unavailable"},
+		{"ERROR: [generic] xyz: nsig failed; Please report this issue on https://github.com/...", "[generic] xyz: nsig failed"},
+		{"no error line here", ""},
+	}
+	for _, c := range cases {
+		if got := ytdlpReason(c.in); got != c.want {
+			t.Errorf("ytdlpReason(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestParseMetaHasVideo(t *testing.T) {
+	audio, _ := parseMeta([]byte(`{"title":"song","vcodec":"none","duration":180,"tbr":128}`))
+	if audio.HasVideo {
+		t.Error("audio-only (vcodec none) should be HasVideo=false")
+	}
+	merged, _ := parseMeta([]byte(`{"title":"clip","requested_formats":[{"vcodec":"avc1.42","tbr":1000},{"vcodec":"none","tbr":128}]}`))
+	if !merged.HasVideo {
+		t.Error("video+audio merge should be HasVideo=true")
+	}
+	single, _ := parseMeta([]byte(`{"title":"clip","vcodec":"vp9","duration":60,"tbr":2000}`))
+	if !single.HasVideo {
+		t.Error("top-level video codec should be HasVideo=true")
+	}
+}

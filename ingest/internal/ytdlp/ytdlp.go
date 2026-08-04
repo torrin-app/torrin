@@ -2,9 +2,11 @@ package ytdlp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -17,6 +19,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/video"
 )
@@ -58,19 +61,22 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 
 	m, err := r.probe(ctx, job.Magnet)
 	if err != nil {
-		return fmt.Errorf("probe: %w", err)
+		return err
 	}
 	if m.IsLive {
-		return fmt.Errorf("live streams can't be cached")
+		return failure.Newf("live", "live streams can't be saved")
+	}
+	if !m.HasVideo {
+		return failure.Newf("no_video", "no video in this link, torrin only supports video for now")
 	}
 	if job.Name == "" {
 		job.Name = m.Title
 	}
 	if screen.Blocked(ctx, r.ban, job, m.Title) {
-		return fmt.Errorf("content blocked by safety policy")
+		return failure.Blocked
 	}
 	if job.MaxBytes > 0 && m.Size > job.MaxBytes {
-		return fmt.Errorf("video %dGB exceeds your plan limit of %dGB", m.Size/1e9, job.MaxBytes/1e9)
+		return failure.Newf("too_large", "this video (%dGB) is over your plan limit of %dGB", m.Size/1e9, job.MaxBytes/1e9)
 	}
 	job.FileSize = m.Size
 	job.Status = jobs.StatusDownloading
@@ -87,15 +93,9 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	}
 	files := collectVideos(dir)
 	if len(files) == 0 {
-		return fmt.Errorf("no video file produced")
+		return failure.Newf("no_video", "no video in this link, torrin only supports video for now")
 	}
 	return jobrun.Complete(ctx, r.repo, r.bus, r.pub, job, files)
-}
-
-type meta struct {
-	Title  string
-	Size   int64
-	IsLive bool
 }
 
 func (r *Runner) probe(ctx context.Context, url string) (*meta, error) {
@@ -104,59 +104,6 @@ func (r *Runner) probe(ctx context.Context, url string) (*meta, error) {
 		return nil, err
 	}
 	return parseMeta(out)
-}
-
-func parseMeta(out []byte) (*meta, error) {
-	var j struct {
-		Title            string  `json:"title"`
-		Filesize         int64   `json:"filesize"`
-		FilesizeApprox   int64   `json:"filesize_approx"`
-		Duration         float64 `json:"duration"`
-		Tbr              float64 `json:"tbr"`
-		IsLive           bool    `json:"is_live"`
-		RequestedFormats []struct {
-			Filesize       int64   `json:"filesize"`
-			FilesizeApprox int64   `json:"filesize_approx"`
-			Tbr            float64 `json:"tbr"`
-		} `json:"requested_formats"`
-	}
-	if err := json.Unmarshal(out, &j); err != nil {
-		return nil, fmt.Errorf("parse metadata: %w", err)
-	}
-	size := fileSize(j.Filesize, j.FilesizeApprox)
-	var sum int64
-	for _, f := range j.RequestedFormats {
-		sum += fileSize(f.Filesize, f.FilesizeApprox)
-	}
-	if sum > 0 {
-		size = sum
-	}
-	if size == 0 {
-		tbr := j.Tbr
-		var sumTbr float64
-		for _, f := range j.RequestedFormats {
-			sumTbr += f.Tbr
-		}
-		if sumTbr > 0 {
-			tbr = sumTbr
-		}
-		size = bitrateSize(tbr, j.Duration)
-	}
-	return &meta{Title: j.Title, Size: size, IsLive: j.IsLive}, nil
-}
-
-func fileSize(exact, approx int64) int64 {
-	if exact > 0 {
-		return exact
-	}
-	return approx
-}
-
-func bitrateSize(tbrKbps, durationSec float64) int64 {
-	if tbrKbps <= 0 || durationSec <= 0 {
-		return 0
-	}
-	return int64(tbrKbps * 1000 / 8 * durationSec)
 }
 
 func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total int64) error {
@@ -173,7 +120,8 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 	if err != nil {
 		return err
 	}
-	cmd.Stderr = os.Stderr
+	var errBuf bytes.Buffer
+	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start yt-dlp: %w", err)
 	}
@@ -198,7 +146,7 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 		cur := prog.add(bytes)
 		if job.MaxBytes > 0 && cur > job.MaxBytes {
 			cancel()
-			return fmt.Errorf("download exceeds your plan limit of %dGB", job.MaxBytes/1e9)
+			return failure.Newf("too_large", "this download went over your plan limit of %dGB", job.MaxBytes/1e9)
 		}
 
 		if c, d, ok := progressReport(cur, total, fragIdx, fragCount); ok {
@@ -211,7 +159,10 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 			return ctx.Err()
 		}
 		if dlCtx.Err() != nil {
-			return fmt.Errorf("download stalled, no progress for %s", stallTimeout)
+			return failure.Newf("interrupted", "download stalled, no progress for %s", stallTimeout)
+		}
+		if reason := ytdlpReason(errBuf.String()); reason != "" {
+			return failure.Newf("ytdlp", "%s", reason)
 		}
 		return fmt.Errorf("yt-dlp: %w", err)
 	}
@@ -219,11 +170,33 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 }
 
 func (r *Runner) capture(ctx context.Context, extra ...string) ([]byte, error) {
-	out, err := exec.CommandContext(ctx, r.bin, r.args(extra...)...).Output()
+	cmd := exec.CommandContext(ctx, r.bin, r.args(extra...)...)
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	out, err := cmd.Output()
 	if err != nil {
+		if reason := ytdlpReason(errBuf.String()); reason != "" {
+			return nil, failure.Newf("ytdlp", "%s", reason)
+		}
 		return nil, fmt.Errorf("yt-dlp %s: %w", extra[0], err)
 	}
 	return out, nil
+}
+
+func ytdlpReason(stderr string) string {
+	var reason string
+	for _, ln := range strings.Split(stderr, "\n") {
+		if s, ok := strings.CutPrefix(strings.TrimSpace(ln), "ERROR:"); ok {
+			reason = strings.TrimSpace(s)
+		}
+	}
+	if i := strings.Index(strings.ToLower(reason), "please report"); i > 0 {
+		reason = strings.TrimRight(strings.TrimSpace(reason[:i]), ".;: ")
+	}
+	if len(reason) > 200 {
+		reason = strings.TrimSpace(reason[:200])
+	}
+	return reason
 }
 
 func (r *Runner) args(extra ...string) []string {
