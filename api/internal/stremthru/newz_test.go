@@ -9,7 +9,6 @@ import (
 func TestNewzStatus(t *testing.T) {
 	cases := map[jobs.Status]string{
 		jobs.StatusComplete:    "downloaded",
-		jobs.StatusSeeding:     "downloaded",
 		jobs.StatusDownloading: "downloading",
 		jobs.StatusProcessing:  "downloading",
 		jobs.StatusPublishing:  "downloading",

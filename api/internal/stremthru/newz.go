@@ -20,7 +20,7 @@ func (h *Handler) usenetOK(ctx context.Context, user *auth.User) bool {
 
 func newzStatus(s jobs.Status) string {
 	switch s {
-	case jobs.StatusComplete, jobs.StatusSeeding:
+	case jobs.StatusComplete:
 		return "downloaded"
 	case jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing:
 		return "downloading"
