@@ -110,3 +110,10 @@ CREATE TABLE IF NOT EXISTS blob_refs (
     PRIMARY KEY (info_hash, file_index)
 );
 CREATE INDEX IF NOT EXISTS idx_blob_refs_content_key ON blob_refs(content_key);
+
+CREATE TABLE IF NOT EXISTS nzb_url_hashes (
+    url_hash     TEXT PRIMARY KEY,
+    content_hash TEXT NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_nzb_url_hashes_content ON nzb_url_hashes(content_hash);

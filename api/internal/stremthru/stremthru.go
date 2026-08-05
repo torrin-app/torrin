@@ -3,6 +3,7 @@ package stremthru
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 type store interface {
 	Has(ctx context.Context, key string) (bool, error)
 	GetBytes(ctx context.Context, key string) ([]byte, error)
+	Put(ctx context.Context, key string, body io.Reader, contentType string) error
 	SignURL(path string, expiry time.Duration) string
 	SignURLNode(node, path string, expiry time.Duration) string
 }
@@ -54,6 +56,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v0/store/magnets/{id}", h.withAuth(h.getMagnet))
 	mux.HandleFunc("DELETE /v0/store/magnets/{id}", h.withAuth(h.deleteMagnet))
 	mux.HandleFunc("POST /v0/store/link/generate", h.withAuth(h.generateLink))
+	mux.HandleFunc("GET /v0/store/newz/check", h.withAuth(h.checkNewz))
+	mux.HandleFunc("GET /v0/store/newz", h.withAuth(h.listNewz))
+	mux.HandleFunc("POST /v0/store/newz", h.withAuth(h.addNewz))
+	mux.HandleFunc("GET /v0/store/newz/{id}", h.withAuth(h.getNewz))
+	mux.HandleFunc("DELETE /v0/store/newz/{id}", h.withAuth(h.removeNewz))
+	mux.HandleFunc("POST /v0/store/newz/link/generate", h.withAuth(h.generateNewzLink))
 }
 
 func (h *Handler) withAuth(next func(http.ResponseWriter, *http.Request, *auth.User)) http.HandlerFunc {

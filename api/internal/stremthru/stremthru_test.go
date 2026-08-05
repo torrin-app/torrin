@@ -2,6 +2,7 @@ package stremthru
 
 import (
 	"context"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -31,8 +32,9 @@ func (f fakeStore) Has(context.Context, string) (bool, error) { return true, nil
 func (f fakeStore) GetBytes(context.Context, string) ([]byte, error) {
 	return f.manifest, f.err
 }
-func (f fakeStore) SignURL(path string, _ time.Duration) string        { return "sign://" + path }
-func (f fakeStore) SignURLNode(_, path string, _ time.Duration) string { return "sign://" + path }
+func (f fakeStore) Put(context.Context, string, io.Reader, string) error { return nil }
+func (f fakeStore) SignURL(path string, _ time.Duration) string          { return "sign://" + path }
+func (f fakeStore) SignURLNode(_, path string, _ time.Duration) string   { return "sign://" + path }
 
 func packJob() *jobs.Job {
 	return &jobs.Job{

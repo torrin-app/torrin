@@ -85,6 +85,8 @@ services:
   api:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/api:${TORRIN_TAG:-latest}"
     user: "0:0"
+    volumes:
+      - /mnt/cache/store:/mnt/cache/store
     environment:
       <<: *s3
       PORT: "8080"
