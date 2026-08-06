@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/torrin-app/torrin/ingest/internal/jobrun"
@@ -155,7 +154,7 @@ func (r *Runner) fetchPart(ctx context.Context, adKey string, mirrors []string, 
 			slog.Warn("release mirror failed, trying next", "job", job.ID, "part", i+1, "mirror", mi+1, "of", len(mirrors), "err", err)
 		}
 	}
-	if isDeadLink(lastErr) {
+	if providers.DeadLink(lastErr) {
 		return 0, fmt.Errorf("%w: %w", lastErr, ErrSourceUnavailable)
 	}
 	return 0, lastErr
@@ -170,7 +169,7 @@ func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n in
 		name, dl, size, err := providers.HosterUnlock(ctx, adKey, srcLink)
 		if err != nil {
 			lastErr = err
-			if isDeadLink(err) {
+			if providers.DeadLink(err) {
 				return 0, err
 			}
 			backoff(ctx, attempt)
@@ -215,11 +214,6 @@ func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n in
 		backoff(ctx, attempt)
 	}
 	return 0, lastErr
-}
-
-func isDeadLink(err error) bool {
-	s := err.Error()
-	return strings.Contains(s, "LINK_DOWN") || strings.Contains(s, "HOST_UNAVAILABLE") || strings.Contains(s, "LINK_NOT_SUPPORTED")
 }
 
 func backoff(ctx context.Context, attempt int) {

@@ -2,9 +2,12 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/torrin-app/torrin/shared/failure"
 )
 
 func TestHosterUnlock(t *testing.T) {
@@ -34,7 +37,7 @@ func TestHosterUnlock(t *testing.T) {
 
 func TestHosterUnlockError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"status":"error","error":{"code":"LINK_HOST_NOT_SUPPORTED","message":"nope"}}`))
+		w.Write([]byte(`{"status":"error","error":{"code":"LINK_HOST_NOT_SUPPORTED","message":"This host or link is not supported."}}`))
 	}))
 	defer srv.Close()
 
@@ -42,7 +45,44 @@ func TestHosterUnlockError(t *testing.T) {
 	adBase = srv.URL
 	defer func() { adBase = old }()
 
-	if _, _, _, err := HosterUnlock(context.Background(), "key", "https://host/file"); err == nil {
+	_, _, _, err := HosterUnlock(context.Background(), "key", "https://host/file")
+	if err == nil {
 		t.Fatal("expected error from failed unlock")
+	}
+	if got := failure.Message(err); got != "this host or link is not supported" {
+		t.Errorf("surfaced reason = %q, want the real AllDebrid message", got)
+	}
+	if !DeadLink(err) {
+		t.Error("LINK_HOST_NOT_SUPPORTED should be a dead link")
+	}
+}
+
+func TestDeadLink(t *testing.T) {
+	dead := []string{"LINK_DOWN", "LINK_HOST_NOT_SUPPORTED", "LINK_HOST_UNAVAILABLE", "BAD_LINK"}
+	live := []string{"LINK_TOO_MANY_DOWNLOADS", "LINK_HOST_FULL", "MUST_BE_PREMIUM", "NO_SERVER", "LINK_IS_MISSING"}
+	for _, code := range dead {
+		if !DeadLink(failure.Newf(code, "x")) {
+			t.Errorf("%s should be dead", code)
+		}
+	}
+	for _, code := range live {
+		if DeadLink(failure.Newf(code, "x")) {
+			t.Errorf("%s should not be dead", code)
+		}
+	}
+	if DeadLink(errors.New("some other error")) {
+		t.Error("non-alldebrid error should not be a dead link")
+	}
+}
+
+func TestADReason(t *testing.T) {
+	if got := adReason("Host under maintenance or not available"); got != "host under maintenance or not available" {
+		t.Errorf("got %q", got)
+	}
+	if got := adReason("This host or link is not supported."); got != "this host or link is not supported" {
+		t.Errorf("got %q", got)
+	}
+	if got := adReason(""); got != failure.Generic.Msg {
+		t.Errorf("empty should fall back to generic, got %q", got)
 	}
 }

@@ -232,7 +232,7 @@ const (
 func HosterUnlock(ctx context.Context, adKey, link string) (name, dl string, size int64, err error) {
 	u, err := newAlldebrid(adKey).unlock(ctx, link)
 	if err != nil {
-		return "", "", 0, err
+		return "", "", 0, hosterFailure(err)
 	}
 	return u.Filename, u.Link, u.FileSize, nil
 }
@@ -322,7 +322,7 @@ func (a *alldebrid) do(ctx context.Context, path string, form url.Values) (json.
 	}
 	if r.Status != "success" {
 		if r.Error != nil {
-			return nil, fmt.Errorf("alldebrid %s: %s", r.Error.Code, r.Error.Message)
+			return nil, &adError{code: r.Error.Code, message: r.Error.Message}
 		}
 		return nil, fmt.Errorf("alldebrid: %s", body)
 	}
