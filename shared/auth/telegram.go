@@ -36,3 +36,17 @@ func (s *Store) TelegramUserID(ctx context.Context, tgUserID int64) (string, boo
 	}
 	return userID, true
 }
+
+func (s *Store) TelegramLinked(ctx context.Context, userID string) (int64, bool) {
+	var tgUserID int64
+	err := s.pool.QueryRow(ctx, `SELECT tg_user_id FROM telegram_links WHERE user_id=$1 LIMIT 1`, userID).Scan(&tgUserID)
+	if err != nil {
+		return 0, false
+	}
+	return tgUserID, true
+}
+
+func (s *Store) UnlinkTelegram(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM telegram_links WHERE user_id=$1`, userID)
+	return err
+}

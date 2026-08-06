@@ -78,7 +78,7 @@ services:
       - --etag-hash
       - none
     volumes:
-      - /mnt/cache/store:/data/torrin:ro
+      - /mnt/cache/store:/data/torrin
     ports: ["127.0.0.1:3900:3900"]
     restart: *restart
 

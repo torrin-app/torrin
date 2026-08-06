@@ -53,36 +53,57 @@ func NewPool(c Credentials) (nntpPool.ConnectionPool, error) {
 		max = 10
 	}
 	return nntpPool.New(&nntpPool.Config{
-		Host:          c.Host,
-		Port:          uint32(c.Port),
-		SSL:           c.SSL,
-		User:          c.Username,
-		Pass:          c.Password,
-		MaxConns:      max,
-		HealthCheck:   true,
-		ConnWaitTime:  5 * time.Second,
-		MaxConnErrors: 5,
+		Host:                  c.Host,
+		Port:                  uint32(c.Port),
+		SSL:                   c.SSL,
+		User:                  c.Username,
+		Pass:                  c.Password,
+		MaxConns:              max,
+		HealthCheck:           true,
+		ConnWaitTime:          5 * time.Second,
+		IdleTimeout:           60 * time.Second,
+		MaxConnErrors:         5,
+		MaxTooManyConnsErrors: 3,
 	}, 0)
+}
+
+type sharedEntry struct {
+	pool nntpPool.ConnectionPool
+	refs int
 }
 
 var (
 	sharedMu    sync.Mutex
-	sharedPools = map[string]nntpPool.ConnectionPool{}
+	sharedPools = map[string]*sharedEntry{}
 )
 
-func SharedPool(c Credentials) (nntpPool.ConnectionPool, error) {
+func AcquireShared(c Credentials) (nntpPool.ConnectionPool, func(), error) {
 	key := c.Host + "|" + c.Username
 	sharedMu.Lock()
 	defer sharedMu.Unlock()
-	if p, ok := sharedPools[key]; ok {
-		return p, nil
+	e, ok := sharedPools[key]
+	if !ok {
+		p, err := NewPool(c)
+		if err != nil {
+			return nil, nil, err
+		}
+		e = &sharedEntry{pool: p}
+		sharedPools[key] = e
 	}
-	p, err := NewPool(c)
-	if err != nil {
-		return nil, err
+	e.refs++
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			sharedMu.Lock()
+			defer sharedMu.Unlock()
+			e.refs--
+			if e.refs == 0 {
+				e.pool.Close()
+				delete(sharedPools, key)
+			}
+		})
 	}
-	sharedPools[key] = p
-	return p, nil
+	return e.pool, release, nil
 }
 
 type Result struct {

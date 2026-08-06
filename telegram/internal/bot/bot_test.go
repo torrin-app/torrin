@@ -1,6 +1,34 @@
 package bot
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestDedupe(t *testing.T) {
+	d := newDedupe(time.Minute)
+	if !d.firstSight(1, 100) {
+		t.Fatal("first sight should be true")
+	}
+	if d.firstSight(1, 100) {
+		t.Error("same user+msg should be a duplicate")
+	}
+	if !d.firstSight(1, 101) {
+		t.Error("different msg id should be a first sight")
+	}
+	if !d.firstSight(2, 100) {
+		t.Error("different user should be a first sight")
+	}
+}
+
+func TestDedupeExpiry(t *testing.T) {
+	d := newDedupe(10 * time.Millisecond)
+	d.firstSight(1, 100)
+	time.Sleep(20 * time.Millisecond)
+	if !d.firstSight(1, 100) {
+		t.Error("should be a first sight again after ttl")
+	}
+}
 
 func TestDocCacheKey(t *testing.T) {
 	// Deterministic 40-hex (sha1) per Telegram doc id — the dedup key.

@@ -253,7 +253,8 @@ func (s *Server) requeue(w http.ResponseWriter, r *http.Request, job *jobs.Job, 
 	}
 	job.Status = jobs.StatusPending
 	job.Error = ""
-	err := s.Jobs.Update(r.Context(), job)
+	job.CreatedAt = time.Now().UTC()
+	err := s.JobsPG.Requeue(r.Context(), job.ID)
 	s.Slots.Release(userID)
 	if err != nil {
 		web.WriteError(w, 500, "failed to requeue job")

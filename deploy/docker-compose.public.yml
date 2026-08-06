@@ -6,27 +6,9 @@ services:
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    environment:
-      STREAM_DOMAIN: "${STREAM_DOMAIN:-stream-nl.torrin.app}"
-      ACME_EMAIL: "${ACME_EMAIL:-contact@torrin.app}"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    ports:
-      - "80:80"
-      - "443:443"
-    restart: unless-stopped
-
   web:
     image: caddy:2-alpine
     volumes:
       - ../web/dist:/srv:ro
       - ./web.Caddyfile:/etc/caddy/Caddyfile:ro
     restart: unless-stopped
-
-volumes:
-  caddy_data:
-  caddy_config:

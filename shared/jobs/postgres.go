@@ -93,6 +93,18 @@ const cols = `id, user_id, info_hash, name, magnet, source, status, error,
 	files, selected_idxs, imdb_id, file_size, max_bytes, priority,
 	created_at, updated_at, progress, dl_speed, node`
 
+func (p *Postgres) Requeue(ctx context.Context, id string) error {
+	ct, err := p.pool.Exec(ctx,
+		`UPDATE jobs SET status='pending', error='', created_at=now(), updated_at=now() WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	if ct.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func (p *Postgres) SetProgress(ctx context.Context, id string, pct float64, speed int64) error {
 	_, err := p.pool.Exec(ctx, `UPDATE jobs SET progress=$2, dl_speed=$3 WHERE id=$1`, id, pct, speed)
 	return err

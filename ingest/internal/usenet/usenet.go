@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Tensai75/nntpPool"
 	"github.com/torrin-app/torrin/ingest/internal/jobrun"
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
@@ -152,19 +151,11 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 		return nil, fmt.Errorf("no usenet provider configured")
 	}
 	slog.Info("usenet connecting", "job", job.ID, "host", creds.Host, "conns", creds.MaxConns, "shared", system)
-	var pool nntpPool.ConnectionPool
-	var err error
-	if system {
-		pool, err = download.SharedPool(creds)
-	} else {
-		pool, err = download.NewPool(creds)
-	}
+	pool, release, err := download.AcquireShared(creds)
 	if err != nil {
 		return nil, fmt.Errorf("connect usenet: %w", err)
 	}
-	if !system {
-		defer pool.Close()
-	}
+	defer release()
 
 	dlCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -181,7 +172,7 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	slog.Info("usenet downloading", "job", job.ID, "name", parsed.Name())
 	if _, err := download.Download(dlCtx, pool, parsed, dir, creds.MaxConns, prog); err != nil {
 		if dlCtx.Err() != nil && ctx.Err() == nil {
-			return nil, fmt.Errorf("download stalled, no progress for 30 minutes")
+			return nil, failure.Newf("stalled", "download stalled, no progress for 30 minutes")
 		}
 		return nil, fmt.Errorf("download: %w", err)
 	}
@@ -195,7 +186,7 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 		return nil, fmt.Errorf("postproc: %w", err)
 	}
 	if len(files) == 0 {
-		return nil, fmt.Errorf("no video files found")
+		return nil, failure.NoVideo
 	}
 	pubFiles := make([]publish.File, len(files))
 	for i, f := range files {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/torrin-app/torrin/shared/blob"
 	"github.com/torrin-app/torrin/shared/crypto"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/mediainfo"
@@ -56,7 +57,7 @@ func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher
 func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) error {
 	for _, f := range files {
 		if f.Size < minVideoFileSize {
-			return fmt.Errorf("file %q too small (%d bytes), likely corrupt", f.Name, f.Size)
+			return failure.Newf("incomplete", "file %q too small (%d bytes), likely corrupt", f.Name, f.Size)
 		}
 	}
 
