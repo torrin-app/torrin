@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/torrin-app/torrin/shared/breaker"
 )
 
 const rdBase = "https://api.real-debrid.com/rest/1.0"
@@ -118,30 +119,23 @@ func (c *rdClient) del(ctx context.Context, path string) error {
 		return err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.key)
-	resp, err := c.http.Do(req)
+	status, body, err := breaker.RoundTrip("realdebrid", c.http, req)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("realdebrid HTTP %d: %s", resp.StatusCode, body)
+	if status >= 400 {
+		return fmt.Errorf("realdebrid HTTP %d: %s", status, body)
 	}
 	return nil
 }
 
 func (c *rdClient) doJSON(req *http.Request, out any) error {
-	resp, err := c.http.Do(req)
+	status, body, err := breaker.RoundTrip("realdebrid", c.http, req)
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("realdebrid HTTP %d: %s", resp.StatusCode, body)
+	if status >= 400 {
+		return fmt.Errorf("realdebrid HTTP %d: %s", status, body)
 	}
 	if out != nil && len(body) > 0 {
 		return json.Unmarshal(body, out)

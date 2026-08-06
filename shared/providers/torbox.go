@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/torrin-app/torrin/shared/breaker"
 )
 
 var tbBase = "https://api.torbox.app/v1/api"
@@ -292,17 +293,12 @@ func (t *torbox) requestLink(ctx context.Context, id, fileID int) (string, error
 
 func (t *torbox) do(req *http.Request) ([]byte, error) {
 	waitLimits(req.Context(), t.limiters)
-	resp, err := t.http.Do(req)
+	status, body, err := breaker.RoundTrip("torbox", t.http, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("torbox HTTP %d: %s", resp.StatusCode, body)
+	if status >= 400 {
+		return nil, fmt.Errorf("torbox HTTP %d: %s", status, body)
 	}
 	return body, nil
 }

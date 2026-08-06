@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/torrin-app/torrin/shared/breaker"
 )
 
 var adBase = "https://api.alldebrid.com"
@@ -300,12 +301,7 @@ func (a *alldebrid) do(ctx context.Context, path string, form url.Values) (json.
 	req.URL.RawQuery = form.Encode()
 	req.Header.Set("Authorization", "Bearer "+a.key)
 
-	resp, err := a.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	_, body, err := breaker.RoundTrip("alldebrid", a.http, req)
 	if err != nil {
 		return nil, err
 	}

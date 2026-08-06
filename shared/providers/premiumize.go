@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/torrin-app/torrin/shared/breaker"
 )
 
 const pmBase = "https://www.premiumize.me"
@@ -127,17 +128,12 @@ func (p *premiumize) post(ctx context.Context, path string, form url.Values) ([]
 	req.URL.RawQuery = form.Encode()
 	req.Header.Set("Authorization", "Bearer "+p.key)
 
-	resp, err := p.http.Do(req)
+	status, body, err := breaker.RoundTrip("premiumize", p.http, req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("premiumize HTTP %d: %s", resp.StatusCode, body)
+	if status >= 400 {
+		return nil, fmt.Errorf("premiumize HTTP %d: %s", status, body)
 	}
 	return body, nil
 }

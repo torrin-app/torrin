@@ -24,6 +24,7 @@ require (
 	github.com/nlnwa/whatwg-url v0.6.2
 	github.com/nwaples/rardecode/v2 v2.2.5
 	github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745
+	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/torrin-app/torrent-name-parser v0.5.3
 	golang.org/x/net v0.56.0
 	golang.org/x/sync v0.21.0
