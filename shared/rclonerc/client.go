@@ -31,6 +31,14 @@ func (e *Error) Error() string {
 
 func (e *Error) Permanent() bool { return e.Status >= 400 && e.Status < 500 }
 
+func (e *Error) Auth() bool {
+	if e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden {
+		return true
+	}
+	return strings.Contains(e.Msg, "401") || strings.Contains(e.Msg, "403") ||
+		strings.Contains(e.Msg, "Unauthorized") || strings.Contains(e.Msg, "Forbidden")
+}
+
 func New(base string) *Client {
 	return &Client{base: strings.TrimRight(base, "/"), http: &http.Client{Timeout: 0}}
 }

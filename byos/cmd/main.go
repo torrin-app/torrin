@@ -147,6 +147,10 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 		d.repo.MarkBYOSObject(ctx, job.ID, job.UserID, job.InfoHash, bucketOf(creds), job.Name, job.Files)
 		d.repo.DeleteBYOSQueue(ctx, it.JobID)
 		slog.Info("byos: mirrored", "job", job.ID, "user", job.UserID)
+	case rcAuth(mErr):
+		slog.Warn("byos: storage auth rejected, disabling until reconnect", "job", job.ID, "user", job.UserID, "err", mErr)
+		d.users.DisableStorage(ctx, job.UserID, "your storage rejected the connection (401/403); reconnect it in settings")
+		d.repo.DeleteBYOSQueue(ctx, it.JobID)
 	case rcPermanent(mErr):
 		slog.Warn("byos: permanent mirror failure, dropping", "job", job.ID, "err", mErr)
 		d.repo.DeleteBYOSQueue(ctx, it.JobID)
@@ -163,6 +167,11 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 func rcPermanent(err error) bool {
 	var e *rclonerc.Error
 	return errors.As(err, &e) && e.Permanent()
+}
+
+func rcAuth(err error) bool {
+	var e *rclonerc.Error
+	return errors.As(err, &e) && e.Auth()
 }
 
 func bucketOf(c *auth.StorageCreds) string {

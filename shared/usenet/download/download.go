@@ -138,7 +138,7 @@ func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, out
 	var results []Result
 
 	for _, file := range n.Files {
-		name := filepath.Base(fileName(file))
+		name := filepath.Base(FileName(file))
 		if isOptional(name) {
 			continue
 		}
@@ -284,7 +284,7 @@ func isArticleMissing(err error) bool {
 		strings.Contains(s, "430 ") || strings.Contains(s, "423 ")
 }
 
-func fileName(f nzb.File) string {
+func FileName(f nzb.File) string {
 	if f.Filename != "" {
 		return f.Filename
 	}

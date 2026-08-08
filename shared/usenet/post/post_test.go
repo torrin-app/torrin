@@ -183,3 +183,29 @@ func TestPostArticleRetriesOnDrop(t *testing.T) {
 		t.Errorf("expected 2 pool.Get calls (retry), got %d", pool.gets)
 	}
 }
+
+type capConn struct{ buf bytes.Buffer }
+
+func (c *capConn) RawPost(r io.Reader) error { io.Copy(&c.buf, r); return nil }
+func (c *capConn) Close()                    {}
+
+func TestPostKeepsNameInNzbObfuscatesArticle(t *testing.T) {
+	cap := &capConn{}
+	p := &Poster{cfg: Config{Group: "alt.binaries.test", From: "x@y.com"}, pool: &scriptPool{conns: []nntpConn{cap}}}
+	orig := "Secret.Show.S01E01.1080p.WEB.mkv"
+	nzbBytes, err := p.Post(context.Background(), []FileInput{{
+		Name: orig, Size: 10,
+		Open: func() (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("0123456789")), nil },
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the private NZB must carry the original filename (so restore recovers proper names + video ext)
+	if !strings.Contains(string(nzbBytes), orig) {
+		t.Errorf("NZB missing original name; got:\n%s", nzbBytes)
+	}
+	// the public posted article must NOT leak the title (obfuscated subject + yEnc name)
+	if strings.Contains(cap.buf.String(), "Secret") {
+		t.Errorf("posted article leaked the original name:\n%s", cap.buf.String())
+	}
+}

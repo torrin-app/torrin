@@ -125,7 +125,7 @@ func main() {
 		Password: os.Getenv("USENET_PASS"),
 		SSL:      os.Getenv("USENET_SSL") != "false",
 		MaxConns: atoiOr(os.Getenv("USENET_MAXCONNS"), 20),
-	})
+	}, cipher)
 
 	usenetFallback := release.NewUsenetFallback(users, usenetRunner, env.Get("USENET_INDEXER_URL", ""), env.Get("USENET_INDEXER_KEY", ""))
 

@@ -71,3 +71,27 @@ func TestEnsureUserRemoteCrypt(t *testing.T) {
 		t.Errorf("crypt password not passed through: %v", p["password"])
 	}
 }
+
+func TestErrorAuth(t *testing.T) {
+	auth := []*Error{
+		{Status: 401},
+		{Status: 403},
+		{Status: 500, Msg: "Update mkParentDir failed: Unauthorized: 401 Unauthorized"},
+		{Status: 500, Msg: "403 Forbidden"},
+	}
+	for _, e := range auth {
+		if !e.Auth() {
+			t.Errorf("expected Auth()=true for %+v", e)
+		}
+	}
+	notAuth := []*Error{
+		{Status: 404, Msg: "directory not found"},
+		{Status: 500, Msg: "connection reset by peer"},
+		{Status: 429, Msg: "rate limited"},
+	}
+	for _, e := range notAuth {
+		if e.Auth() {
+			t.Errorf("expected Auth()=false for %+v", e)
+		}
+	}
+}

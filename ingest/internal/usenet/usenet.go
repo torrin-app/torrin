@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -33,10 +35,11 @@ type Runner struct {
 	ban      screen.BanFunc
 	scratch  string
 	sysCreds download.Credentials
+	cipher   *crypto.Stream
 }
 
-func NewRunner(repo jobs.Repository, store *storage.Client, users *auth.Store, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, sysCreds download.Credentials) *Runner {
-	return &Runner{repo: repo, store: store, users: users, pub: pub, bus: b, ban: ban, scratch: scratch, sysCreds: sysCreds}
+func NewRunner(repo jobs.Repository, store *storage.Client, users *auth.Store, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, sysCreds download.Credentials, cipher *crypto.Stream) *Runner {
+	return &Runner{repo: repo, store: store, users: users, pub: pub, bus: b, ban: ban, scratch: scratch, sysCreds: sysCreds, cipher: cipher}
 }
 
 func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
@@ -94,6 +97,7 @@ func (r *Runner) RunNZB(ctx context.Context, job *jobs.Job, data []byte) error {
 	if err != nil {
 		return err
 	}
+	r.restoreNames(ctx, job.InfoHash, parsed, files)
 	return jobrun.Complete(ctx, r.repo, r.bus, r.pub, job, files)
 }
 
@@ -180,6 +184,14 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	job.Status = jobs.StatusProcessing
 	r.repo.Update(ctx, job)
 
+	if r.cipher != nil {
+		if _, _, ok := r.users.GetCairnArchive(ctx, job.InfoHash); ok {
+			if err := r.decryptCairn(dir); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	pwds := postproc.PasswordCandidates(parsed.Meta["password"], job.Name, parsed.Name())
 	files, err := postproc.Process(dir, pwds, job.Name)
 	if err != nil {
@@ -193,6 +205,103 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 		pubFiles[i] = publish.File{Name: f.Name, Path: f.Path, Size: f.Size}
 	}
 	return pubFiles, nil
+}
+
+func (r *Runner) decryptCairn(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if err := decryptInPlace(filepath.Join(dir, e.Name()), r.cipher); err != nil {
+			slog.Warn("cairn: decrypt failed", "file", e.Name(), "err", err)
+			return failure.Newf("cairn_incomplete", "this archived copy is incomplete and can't be restored")
+		}
+	}
+	return nil
+}
+
+func decryptInPlace(path string, cipher *crypto.Stream) error {
+	in, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".dec"
+	out, err := os.Create(tmp)
+	if err != nil {
+		in.Close()
+		return err
+	}
+	err = cipher.DecryptAll(out, in)
+	out.Close()
+	in.Close()
+	if err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+func (r *Runner) restoreNames(ctx context.Context, hash string, parsed *nzb.NZB, files []publish.File) {
+	orig := r.originalNames(ctx, hash, len(parsed.Files))
+	if orig == nil {
+		return
+	}
+	byDisk := make(map[string]string, len(parsed.Files))
+	for i, f := range parsed.Files {
+		byDisk[filepath.Base(download.FileName(f))] = orig[i]
+	}
+	for i := range files {
+		if name := byDisk[filepath.Base(files[i].Name)]; name != "" {
+			files[i].Name = name
+		}
+	}
+}
+
+func (r *Runner) originalNames(ctx context.Context, hash string, n int) []string {
+	list, err := r.repo.ListByInfoHash(ctx, hash)
+	if err != nil {
+		return nil
+	}
+	for _, j := range list {
+		if len(j.Files) != n || allBlobNames(j.Files) {
+			continue
+		}
+		names := make([]string, n)
+		for i, f := range j.Files {
+			names[i] = f.Name
+		}
+		return names
+	}
+	return nil
+}
+
+func allBlobNames(files []jobs.File) bool {
+	for _, f := range files {
+		if !isBlobName(f.Name) {
+			return false
+		}
+	}
+	return true
+}
+
+func isBlobName(name string) bool {
+	stem := name[strings.LastIndex(name, "/")+1:]
+	if i := strings.LastIndex(stem, "."); i >= 0 {
+		stem = stem[:i]
+	}
+	if len(stem) != 20 {
+		return false
+	}
+	for _, c := range stem {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func stallWatch(ctx context.Context, cancel context.CancelFunc, lastAt *atomic.Int64, jobID string) {

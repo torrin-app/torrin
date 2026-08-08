@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func (p *Poster) Post(ctx context.Context, files []FileInput) ([]byte, error) {
 		}
 		slog.Info("cairn: posted file", "name", f.Name, "segments", len(posted.segments))
 		out = append(out, nzb.OutFile{
-			Subject: posted.subject, Name: posted.name,
+			Subject: posted.subject, Name: posted.origName,
 			Group: p.cfg.Group, Segments: posted.segments,
 		})
 	}
@@ -91,6 +92,7 @@ func (p *Poster) Post(ctx context.Context, files []FileInput) ([]byte, error) {
 
 type postedFile struct {
 	subject, name string
+	origName      string
 	segments      []nzb.Segment
 }
 
@@ -101,7 +103,7 @@ func (p *Poster) postFile(ctx context.Context, poster articlePoster, from string
 	if total == 0 {
 		total = 1
 	}
-	out := postedFile{subject: randSubject(), name: randName()}
+	out := postedFile{subject: randSubject(), name: randName(), origName: filepath.Base(f.Name)}
 	src, err := f.Open()
 	if err != nil {
 		return out, fmt.Errorf("open %s: %w", f.Name, err)
