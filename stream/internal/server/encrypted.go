@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,11 +11,12 @@ import (
 func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string) {
 	head, err := s.store.Head(r.Context(), key)
 	if err != nil {
-		httpError(w, 404, "not found")
+		s.notFound(w, r, key, err)
 		return
 	}
 	plainTotal, err := s.cipher.PlainSize(head.Size)
 	if err != nil {
+		slog.Warn("stream: bad encrypted object", "key", key, "size", head.Size, "err", err)
 		httpError(w, 500, "bad object")
 		return
 	}
@@ -31,7 +33,7 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 	if !isRange {
 		obj, err := s.store.Get(r.Context(), key, "")
 		if err != nil {
-			httpError(w, 404, "not found")
+			s.notFound(w, r, key, err)
 			return
 		}
 		defer obj.Body.Close()
@@ -49,7 +51,7 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 	encRange := fmt.Sprintf("bytes=%d-%d", plan.EncStart, plan.EncEnd-1)
 	obj, err := s.store.Get(r.Context(), key, encRange)
 	if err != nil {
-		httpError(w, 404, "not found")
+		s.notFound(w, r, key, err)
 		return
 	}
 	defer obj.Body.Close()

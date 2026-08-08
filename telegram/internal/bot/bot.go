@@ -115,7 +115,8 @@ func (b *Bot) onStart(ctx *ext.Context, u *ext.Update) error {
 			return nil
 		}
 		if fields := strings.Fields(u.EffectiveMessage.Text); len(fields) > 1 {
-			if _, ok := b.Link(fields[1], tgUser.ID); ok {
+			if uid, ok := b.Link(fields[1], tgUser.ID); ok {
+				slog.Info("telegram: linked", "user", uid, "tg", tgUser.ID)
 				_, err := ctx.Reply(u, ext.ReplyTextString("✅ Linked. Forward me a video to cache it."), nil)
 				return err
 			}
@@ -142,7 +143,8 @@ func (b *Bot) onLink(ctx *ext.Context, u *ext.Update) error {
 		_, _ = ctx.Reply(u, ext.ReplyTextString("Usage: /link <code>, get one in Torrin settings"), nil)
 		return nil
 	}
-	if _, ok := b.Link(fields[1], tgUser.ID); ok {
+	if uid, ok := b.Link(fields[1], tgUser.ID); ok {
+		slog.Info("telegram: linked", "user", uid, "tg", tgUser.ID)
 		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Linked. Forward me a video to cache it."), nil)
 	} else {
 		_, _ = ctx.Reply(u, ext.ReplyTextString("❌ That code is invalid or expired."), nil)
@@ -197,6 +199,7 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		if v.Ban && b.Ban != nil {
 			b.Ban(userID, v.Reason)
 		}
+		slog.Warn("telegram: blocked content", "user", userID, "name", name, "reason", v.Reason, "banned", v.Ban)
 		_, _ = ctx.Reply(u, ext.ReplyTextString("❌ That file is blocked and can't be cached."), nil)
 		return nil
 	}
@@ -228,6 +231,7 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		if b.Bus != nil {
 			b.Bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
 		}
+		slog.Info("telegram: cached", "user", userID, "name", name, "job", job.ID)
 		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Done, "+name+" is in your Torrin library. Play it in Stremio."), nil)
 	}()
 	return nil

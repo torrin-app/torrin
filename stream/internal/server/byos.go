@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -36,6 +37,7 @@ func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID s
 	remote, err := auth.EnsureRemote(rctx, b.rc, userID, creds)
 	cancel()
 	if err != nil {
+		slog.Warn("stream: byos remote setup failed", "user", userID, "err", err)
 		return false
 	}
 
@@ -49,10 +51,12 @@ func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID s
 	}
 	resp, err := b.hc.Do(req)
 	if err != nil {
+		slog.Warn("stream: byos upstream unreachable", "user", userID, "err", err)
 		return false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound || resp.StatusCode >= 500 {
+		slog.Warn("stream: byos upstream error", "user", userID, "status", resp.StatusCode)
 		io.Copy(io.Discard, resp.Body)
 		return false
 	}

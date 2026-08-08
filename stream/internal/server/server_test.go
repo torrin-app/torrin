@@ -4,7 +4,9 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -19,6 +21,7 @@ type fakeStorage struct {
 	data         []byte
 	manifestJSON []byte
 	valid        bool
+	fetchErr     error
 }
 
 func (f *fakeStorage) Verify(string, int64, string, string) bool { return f.valid }
@@ -31,16 +34,55 @@ func (f *fakeStorage) GetBytes(context.Context, string) ([]byte, error) {
 }
 
 func (f *fakeStorage) Head(context.Context, string) (*storage.Object, error) {
+	if f.fetchErr != nil {
+		return nil, f.fetchErr
+	}
 	return &storage.Object{Size: int64(len(f.data)), ContentType: "video/x-matroska"}, nil
 }
 
 func (f *fakeStorage) Get(_ context.Context, _, rng string) (*storage.Object, error) {
+	if f.fetchErr != nil {
+		return nil, f.fetchErr
+	}
 	o := &storage.Object{Body: io.NopCloser(bytes.NewReader(f.data)), Size: int64(len(f.data)), ContentType: "video/x-matroska"}
 	if rng != "" {
 		o.ContentRange = "bytes 0-9/" + strconv.Itoa(len(f.data))
 		o.Size = 10
 	}
 	return o, nil
+}
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestServeFetchFailureLogs(t *testing.T) {
+	buf := captureLogs(t)
+	srv := New(&fakeStorage{valid: true, fetchErr: errors.New("upstream down")}, "*", "", nil)
+	w := do(srv, "GET", "/hash/file_0/movie.mkv?expires=9999999999&sig=ok", nil)
+	if w.Code != 404 {
+		t.Fatalf("got %d, want 404", w.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "stream: fetch failed") || !strings.Contains(out, "upstream down") {
+		t.Errorf("expected fetch-failed log, got: %q", out)
+	}
+}
+
+func TestServeSuccessDoesNotWarn(t *testing.T) {
+	buf := captureLogs(t)
+	srv := New(&fakeStorage{data: []byte("hello world"), valid: true}, "*", "", nil)
+	if w := do(srv, "GET", "/hash/file_0/movie.mkv?expires=9999999999&sig=ok", nil); w.Code != 200 {
+		t.Fatalf("got %d, want 200", w.Code)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("successful serve must not warn, got: %q", buf.String())
+	}
 }
 
 func do(srv *Server, method, target string, header http.Header) *httptest.ResponseRecorder {

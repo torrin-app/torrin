@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -106,7 +107,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serveHead(w http.ResponseWriter, r *http.Request, key string, enc bool) {
 	obj, err := s.store.Head(r.Context(), key)
 	if err != nil {
-		httpError(w, 404, "not found")
+		s.notFound(w, r, key, err)
 		return
 	}
 	size := obj.Size
@@ -160,7 +161,7 @@ func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, key string) {
 	rng := r.Header.Get("Range")
 	obj, err := s.store.Get(r.Context(), key, rng)
 	if err != nil {
-		httpError(w, 404, "not found")
+		s.notFound(w, r, key, err)
 		return
 	}
 	defer obj.Body.Close()
@@ -219,6 +220,11 @@ func (s *Server) setCORS(w http.ResponseWriter) {
 	h.Set("Access-Control-Allow-Headers", "Content-Type, Range")
 	h.Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, X-File-Size")
 	h.Set("Cross-Origin-Resource-Policy", "cross-origin")
+}
+
+func (s *Server) notFound(w http.ResponseWriter, r *http.Request, key string, err error) {
+	slog.Warn("stream: fetch failed", "key", key, "range", r.Header.Get("Range"), "err", err)
+	httpError(w, 404, "not found")
 }
 
 func httpError(w http.ResponseWriter, status int, msg string) {

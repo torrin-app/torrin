@@ -3,6 +3,7 @@ package addon
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -75,13 +76,14 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		streams = append(streams, s.byLibrary(r, r.PathValue("type"), imdbID, user.ID, byos)...)
 	}
 
-	if len(streams) > 0 && infoHash != "" {
-		s.jobs.RecordView(r.Context(), infoHash, user.ID)
-	}
 	if len(streams) == 0 {
 		writeJSON(w, 200, empty)
 		return
 	}
+	if infoHash != "" {
+		s.jobs.RecordView(r.Context(), infoHash, user.ID)
+	}
+	slog.Info("stremio: served", "user", user.ID, "id", contentID, "streams", len(streams))
 	writeJSON(w, 200, map[string]any{"streams": streams})
 }
 
@@ -103,6 +105,7 @@ func (s *Server) byHash(r *http.Request, infoHash, userID string, byos bool) []m
 	}
 	man, err := manifest.Parse(data)
 	if err != nil {
+		slog.Warn("stremio: bad manifest", "hash", infoHash, "err", err)
 		return nil
 	}
 	var out []map[string]any

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,40 @@ import (
 
 	"github.com/torrin-app/torrin/shared/jobs"
 )
+
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+func TestServeLogsErrors(t *testing.T) {
+	buf := captureLogs(t)
+	w := httptest.NewRecorder()
+	(&Server{}).serve(w, httptest.NewRequest(http.MethodGet, "/private.mkv", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("code %d, want 401", w.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "status=401") || !strings.Contains(out, "/private.mkv") {
+		t.Errorf("expected error log with status+path, got: %q", out)
+	}
+}
+
+func TestServeDoesNotLogSuccess(t *testing.T) {
+	buf := captureLogs(t)
+	w := httptest.NewRecorder()
+	(&Server{}).serve(w, httptest.NewRequest(http.MethodOptions, "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d, want 200", w.Code)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("success must not log, got: %q", buf.String())
+	}
+}
 
 type fakeRepo struct {
 	jobs.Repository
