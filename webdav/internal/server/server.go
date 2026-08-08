@@ -43,14 +43,18 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-	var userID string
+	var userID, authReason string
 	defer func() {
 		if sw.status >= 400 {
-			slog.Warn("webdav", "method", r.Method, "path", r.URL.Path, "status", sw.status, "user", userID)
+			slog.Warn("webdav", "method", r.Method, "path", r.URL.Path, "status", sw.status, "user", userID, "reason", authReason)
 		}
 	}()
 	user, err := s.authenticate(r)
 	if err != nil {
+		authReason = err.Error()
+		if user != nil {
+			userID = user.ID
+		}
 		sw.Header().Set("WWW-Authenticate", `Basic realm="Torrin"`)
 		http.Error(sw, "Unauthorized", http.StatusUnauthorized)
 		return
@@ -104,7 +108,7 @@ func (s *Server) authenticate(r *http.Request) (*auth.User, error) {
 		return nil, fmt.Errorf("invalid api key")
 	}
 	if time.Now().After(user.ExpiresAt) {
-		return nil, fmt.Errorf("subscription expired")
+		return user, fmt.Errorf("subscription expired")
 	}
 	return user, nil
 }

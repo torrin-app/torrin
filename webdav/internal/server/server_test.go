@@ -35,6 +35,9 @@ func TestServeLogsErrors(t *testing.T) {
 	if !strings.Contains(out, "status=401") || !strings.Contains(out, "/private.mkv") {
 		t.Errorf("expected error log with status+path, got: %q", out)
 	}
+	if !strings.Contains(out, `reason="no credentials"`) {
+		t.Errorf("expected auth-failure reason in log, got: %q", out)
+	}
 }
 
 func TestServeDoesNotLogSuccess(t *testing.T) {
