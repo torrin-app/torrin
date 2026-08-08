@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -258,8 +259,9 @@ func (t *torbox) createTorrent(ctx context.Context, magnet string) (int, error) 
 func (t *torbox) requestLink(ctx context.Context, id, fileID int) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		u := fmt.Sprintf("%s/torrents/requestdl?token=%s&torrent_id=%d&file_id=%d", tbBase, url.QueryEscape(t.key), id, fileID)
+		u := fmt.Sprintf("%s/torrents/requestdl?torrent_id=%d&file_id=%d", tbBase, id, fileID)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		req.Header.Set("Authorization", "Bearer "+t.key)
 		body, err := t.do(req)
 		if err != nil {
 			lastErr = err
@@ -295,10 +297,20 @@ func (t *torbox) do(req *http.Request) ([]byte, error) {
 	waitLimits(req.Context(), t.limiters)
 	status, body, err := breaker.RoundTrip("torbox", t.http, req)
 	if err != nil {
-		return nil, err
+		return nil, t.redact(err)
 	}
 	if status >= 400 {
 		return nil, fmt.Errorf("torbox HTTP %d: %s", status, body)
 	}
 	return body, nil
+}
+
+func (t *torbox) redact(err error) error {
+	if t.key == "" {
+		return err
+	}
+	if msg := err.Error(); strings.Contains(msg, t.key) {
+		return errors.New(strings.ReplaceAll(msg, t.key, "REDACTED"))
+	}
+	return err
 }

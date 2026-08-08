@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +43,7 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 	seekable := true
 	for i, f := range m.Files {
 		entries[i] = zipEntry{name: f.FileName, size: f.FileSize, crc: f.Crc32}
-		if f.Crc32 == 0 {
+		if f.Crc32 == 0 || f.Enc {
 			seekable = false
 		}
 	}
@@ -84,7 +85,7 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 	s.recordView(r, infoHash+"/")
 	w.WriteHeader(status)
 	fetch := func(idx int, off, length int64) (io.ReadCloser, error) {
-		key := manifest.Key(infoHash, idx, m.Files[idx].FileName)
+		key := manifest.ResolveKey(infoHash, idx, m.Files[idx].DirectURL, m.Files[idx].FileName)
 		obj, err := s.store.Get(r.Context(), key, fmt.Sprintf("bytes=%d-%d", off, off+length-1))
 		if err != nil {
 			return nil, err
@@ -112,8 +113,9 @@ func (s *Server) streamZip(w http.ResponseWriter, r *http.Request, infoHash stri
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 	for i, f := range m.Files {
-		obj, err := s.store.Get(r.Context(), manifest.Key(infoHash, i, f.FileName), "")
+		obj, err := s.store.Get(r.Context(), manifest.ResolveKey(infoHash, i, f.DirectURL, f.FileName), "")
 		if err != nil {
+			slog.Warn("zip: file fetch failed", "hash", infoHash, "file", f.FileName, "err", err)
 			return
 		}
 		entry, err := zw.CreateHeader(&zip.FileHeader{Name: f.FileName, Method: zip.Store})
@@ -121,9 +123,15 @@ func (s *Server) streamZip(w http.ResponseWriter, r *http.Request, infoHash stri
 			obj.Body.Close()
 			return
 		}
-		_, copyErr := streamCopy(entry, obj.Body)
+		var copyErr error
+		if f.Enc && s.cipher != nil {
+			copyErr = s.cipher.DecryptAll(entry, obj.Body)
+		} else {
+			_, copyErr = streamCopy(entry, obj.Body)
+		}
 		obj.Body.Close()
 		if copyErr != nil {
+			slog.Warn("zip: stream failed", "hash", infoHash, "file", f.FileName, "err", copyErr)
 			return
 		}
 	}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/storage"
 )
@@ -82,6 +83,52 @@ func TestServeSuccessDoesNotWarn(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("successful serve must not warn, got: %q", buf.String())
+	}
+}
+
+func TestServeZipDecryptsEncryptedBlobs(t *testing.T) {
+	cipher, err := crypto.NewStream(strings.Repeat("ab", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := append([]byte{0x1A, 0x45, 0xDF, 0xA3}, bytes.Repeat([]byte("matroska-payload"), 500)...)
+	enc, err := cipher.EncryptReader(bytes.NewReader(plain))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encBytes, err := io.ReadAll(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	man := manifest.Manifest{Name: "Show S01", Files: []manifest.File{
+		{FileName: "Show.S01E01.mkv", DirectURL: "blobs/b_deadbeef", FileSize: int64(len(plain)), Crc32: 0x12345678, Enc: true},
+	}}
+	mj, err := man.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(&fakeStorage{data: encBytes, manifestJSON: mj, valid: true}, "*", "", cipher)
+
+	hash := strings.Repeat("a", 40)
+	w := do(srv, "GET", "/"+hash+"/all.zip?expires=9999999999&sig=ok&u=u1", nil)
+	if w.Code != 200 {
+		t.Fatalf("code %d, want 200", w.Code)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	if err != nil {
+		t.Fatalf("output is not a valid zip: %v", err)
+	}
+	if len(zr.File) != 1 || zr.File[0].Name != "Show.S01E01.mkv" {
+		t.Fatalf("wrong zip contents: %+v", zr.File)
+	}
+	rc, err := zr.File[0].Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(rc)
+	if !bytes.Equal(got, plain) {
+		t.Fatalf("zip entry not decrypted: got %d bytes, want %d", len(got), len(plain))
 	}
 }
 

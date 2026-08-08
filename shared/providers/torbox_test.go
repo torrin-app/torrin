@@ -2,8 +2,10 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -57,5 +59,52 @@ func TestTorboxFinishedResolves(t *testing.T) {
 	}
 	if res == nil || len(res.Files) != 1 || res.Files[0].Name != "movie.mkv" {
 		t.Fatalf("expected 1 resolved video file, got %+v", res)
+	}
+}
+
+func TestTorboxRequestdlUsesHeaderNotURL(t *testing.T) {
+	var gotAuth, gotToken string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/torrents/checkcached":
+			w.Write([]byte(`{"success":true,"data":[{"name":"pack","size":100}]}`))
+		case "/torrents/createtorrent":
+			w.Write([]byte(`{"success":true,"data":{"torrent_id":1}}`))
+		case "/torrents/mylist":
+			w.Write([]byte(`{"success":true,"data":{"hash":"h","name":"pack","size":100,"progress":1,"download_finished":true,"download_present":true,"files":[{"id":0,"name":"movie.mkv","size":100}]}}`))
+		case "/torrents/requestdl":
+			gotAuth = r.Header.Get("Authorization")
+			gotToken = r.URL.Query().Get("token")
+			w.Write([]byte(`{"success":true,"data":"http://` + r.Host + `/cdn/movie.mkv"}`))
+		case "/cdn/movie.mkv":
+			w.WriteHeader(200)
+		default:
+			w.Write([]byte(`{"success":true}`))
+		}
+	}))
+	defer srv.Close()
+	old := tbBase
+	tbBase = srv.URL
+	defer func() { tbBase = old }()
+
+	if _, err := NewTorBox("tb_secretkey").Fetch(context.Background(), "magnet:x", "h"); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer tb_secretkey" {
+		t.Errorf("requestdl must authenticate via header, got %q", gotAuth)
+	}
+	if gotToken != "" {
+		t.Errorf("requestdl leaked key in URL query: token=%q", gotToken)
+	}
+}
+
+func TestTorboxRedactsKeyInError(t *testing.T) {
+	tb := &torbox{key: "tb_secret123"}
+	err := tb.redact(errors.New(`Get "https://api.torbox.app/v1/api/torrents/requestdl?token=tb_secret123&x=1": context deadline exceeded`))
+	if strings.Contains(err.Error(), "tb_secret123") {
+		t.Errorf("key not redacted from error: %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "REDACTED") {
+		t.Errorf("expected REDACTED marker, got: %q", err.Error())
 	}
 }

@@ -1,15 +1,19 @@
 package stremthru
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 )
+
+const checkBudget = 20 * time.Second
 
 func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *auth.User) {
 	var magnets []string
@@ -43,128 +47,136 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		valid = append(valid, entry{hash, m})
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), checkBudget)
+	defer cancel()
 	byok := plans.CanBYOK(user.PlanID)
 
+	var mu sync.Mutex
+	setStatus := func(hash, status string) {
+		mu.Lock()
+		if idx, ok := idxOf[hash]; ok && items[idx]["status"] == "unknown" {
+			items[idx]["status"] = status
+		}
+		mu.Unlock()
+	}
 	uncached := func() []string {
 		var hs []string
+		mu.Lock()
 		for _, e := range valid {
 			if items[idxOf[e.hash]]["status"] == "unknown" {
 				hs = append(hs, e.hash)
 			}
 		}
+		mu.Unlock()
 		return hs
+	}
+	fanOut := func(hashes []string, fn func(hash string)) {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, 32)
+		for _, hash := range hashes {
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(hash string) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				fn(hash)
+			}(hash)
+		}
+		wg.Wait()
 	}
 
 	// Tier 1: our shared cache. Fan out (each is a storage round-trip) so a 150-hash
 	// batch doesn't take ~24s and make the client drop the whole thing to uncached.
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	sem := make(chan struct{}, 32)
-	for _, e := range valid {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(e entry) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			name, files, ok := h.cachedFiles(r.Context(), e.hash)
-			if !ok {
-				return
-			}
-			if name == "" {
-				name = displayName(e.magnet)
-			}
-			mu.Lock()
-			items[idxOf[e.hash]] = map[string]any{"hash": e.hash, "magnet": magnet.Build(e.hash, name), "status": "cached", "name": name, "files": files}
-			mu.Unlock()
-		}(e)
-	}
-	wg.Wait()
+	fanOut(uncached(), func(hash string) {
+		name, files, ok := h.cachedFiles(ctx, hash)
+		if !ok {
+			return
+		}
+		mu.Lock()
+		if name == "" {
+			name, _ = items[idxOf[hash]]["name"].(string)
+		}
+		items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": files}
+		mu.Unlock()
+	})
 
 	// Tier 1b: known release links (hdencode/scene-rls) are fetchable via AD + unrar.
-	for _, hash := range uncached() {
-		if pURL, _, _, _ := h.Jobs.ReleaseLink(r.Context(), hash); pURL != "" {
-			items[idxOf[hash]]["status"] = "acceleratable"
+	// Tier 2: system AD library (torrin's own shared pool), fast DB lookup.
+	fanOut(uncached(), func(hash string) {
+		if pURL, _, _, _ := h.Jobs.ReleaseLink(ctx, hash); pURL != "" {
+			setStatus(hash, "acceleratable")
+			return
 		}
+		if h.Users.IsInADLibrary(ctx, hash) {
+			setStatus(hash, "acceleratable")
+		}
+	})
+
+	if still := uncached(); len(still) > 0 {
+		h.liveCacheCheck(ctx, user, byok, still, setStatus)
 	}
 
-	// Tier 2: system AD library (torrin's own shared pool), fast DB lookup.
-	for _, hash := range uncached() {
-		if h.Users.IsInADLibrary(r.Context(), hash) {
-			items[idxOf[hash]]["status"] = "acceleratable"
-		}
+	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items}})
+}
+
+func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool, hashes []string, setStatus func(hash, status string)) {
+	var wg sync.WaitGroup
+	run := func(fn func()) {
+		wg.Add(1)
+		go func() { defer wg.Done(); fn() }()
 	}
 
 	// Tier 3: live TorrentClaw check across every provider the user can stream from
 	// (system AD/RD + their BYOK). Runs on TorrentClaw's side.
 	if h.TC != nil {
-		if still := uncached(); len(still) > 0 {
-			type pk struct{ provider, key string }
-			var checks []pk
-			if h.SysADKey != "" {
-				checks = append(checks, pk{"alldebrid", h.SysADKey})
+		type pk struct{ provider, key string }
+		var checks []pk
+		if h.SysADKey != "" {
+			checks = append(checks, pk{"alldebrid", h.SysADKey})
+		}
+		if h.SysRDKey != "" {
+			checks = append(checks, pk{"real-debrid", h.SysRDKey})
+		}
+		if byok {
+			if k, _ := h.Users.GetRDKey(ctx, user.ID); k != "" {
+				checks = append(checks, pk{"real-debrid", k})
 			}
-			if h.SysRDKey != "" {
-				checks = append(checks, pk{"real-debrid", h.SysRDKey})
+			if k, _ := h.Users.GetADKey(ctx, user.ID); k != "" {
+				checks = append(checks, pk{"alldebrid", k})
 			}
-			if byok {
-				if k, _ := h.Users.GetRDKey(r.Context(), user.ID); k != "" {
-					checks = append(checks, pk{"real-debrid", k})
-				}
-				if k, _ := h.Users.GetADKey(r.Context(), user.ID); k != "" {
-					checks = append(checks, pk{"alldebrid", k})
-				}
-				if k, _ := h.Users.GetTBKey(r.Context(), user.ID); k != "" {
-					checks = append(checks, pk{"torbox", k})
-				}
-				if k, _ := h.Users.GetPMKey(r.Context(), user.ID); k != "" {
-					checks = append(checks, pk{"premiumize", k})
-				}
-			}
-			var cmu sync.Mutex
-			var cwg sync.WaitGroup
-			for _, c := range checks {
-				cwg.Add(1)
-				go func(c pk) {
-					defer cwg.Done()
-					cached := h.TC.CheckCache(r.Context(), c.provider, c.key, still)
-					cmu.Lock()
-					for hash, ok := range cached {
-						if ok {
-							if idx, found := idxOf[strings.ToLower(hash)]; found && items[idx]["status"] == "unknown" {
-								items[idx]["status"] = "acceleratable"
-							}
-						}
+		}
+		for _, c := range checks {
+			c := c
+			run(func() {
+				for hash, ok := range h.TC.CheckCache(ctx, c.provider, c.key, hashes) {
+					if ok {
+						setStatus(strings.ToLower(hash), "acceleratable")
 					}
-					cmu.Unlock()
-				}(c)
-			}
-			cwg.Wait()
+				}
+			})
 		}
 	}
 
-	// Tier 4: the user's Premiumize cache, checked directly.
-	if pm := uncached(); len(pm) > 0 && byok {
-		if k, _ := h.Users.GetPMKey(r.Context(), user.ID); k != "" {
-			for hash, ok := range providers.PremiumizeCached(r.Context(), k, pm) {
-				if ok {
-					if idx, found := idxOf[hash]; found {
-						items[idx]["status"] = "acceleratable"
+	if byok {
+		// Tier 4: the user's Premiumize cache, checked directly.
+		run(func() {
+			if k, _ := h.Users.GetPMKey(ctx, user.ID); k != "" {
+				for hash, ok := range providers.PremiumizeCached(ctx, k, hashes) {
+					if ok {
+						setStatus(hash, "acceleratable")
 					}
 				}
 			}
-		}
-	}
-
-	// Tier 5: the user's TorBox cache, checked directly.
-	if tb := uncached(); len(tb) > 0 && byok {
-		if k, _ := h.Users.GetTBKey(r.Context(), user.ID); k != "" {
-			for hash := range providers.TorBoxCached(r.Context(), k, tb) {
-				if idx, found := idxOf[hash]; found {
-					items[idx]["status"] = "acceleratable"
+		})
+		// Tier 5: the user's TorBox cache, checked directly.
+		run(func() {
+			if k, _ := h.Users.GetTBKey(ctx, user.ID); k != "" {
+				for hash := range providers.TorBoxCached(ctx, k, hashes) {
+					setStatus(hash, "acceleratable")
 				}
 			}
-		}
+		})
 	}
 
-	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items}})
+	wg.Wait()
 }
