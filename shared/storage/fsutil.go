@@ -24,7 +24,7 @@ func ctypeFor(key, path string) string {
 	return "application/octet-stream"
 }
 
-func parseRange(header string, total int64) (start, end int64, ok bool) {
+func ParseRange(header string, total int64) (start, end int64, ok bool) {
 	if !strings.HasPrefix(header, "bytes=") {
 		return 0, 0, false
 	}

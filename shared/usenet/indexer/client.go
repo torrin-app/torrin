@@ -32,6 +32,7 @@ type Result struct {
 	IMDBTitle string    `json:"imdb_title,omitempty"`
 	IMDBYear  int       `json:"imdb_year,omitempty"`
 	Grabs     int       `json:"grabs"`
+	Source    string    `json:"source,omitempty"`
 }
 
 func NewClient(baseURL, apiKey string) *Client {
@@ -76,29 +77,45 @@ func ValidateURL(rawURL string) error {
 	return nil
 }
 
-func (c *Client) SearchMovie(imdbID string) ([]Result, error) {
-	return c.search(url.Values{
-		"t": {"movie"}, "imdbid": {strings.TrimPrefix(imdbID, "tt")},
-		"cat": {"2000,2040,2045,2050"}, "extended": {"1"}, "limit": {"50"}, "apikey": {c.apiKey},
-	})
+func (c *Client) query(t string, extra url.Values, offset, limit int) ([]Result, error) {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	extra.Set("t", t)
+	extra.Set("extended", "1")
+	extra.Set("offset", strconv.Itoa(offset))
+	extra.Set("limit", strconv.Itoa(limit))
+	extra.Set("apikey", c.apiKey)
+	return c.search(extra)
 }
 
-func (c *Client) SearchTV(imdbID string, season, episode int) ([]Result, error) {
-	return c.search(url.Values{
-		"t": {"tvsearch"}, "imdbid": {strings.TrimPrefix(imdbID, "tt")},
-		"season": {strconv.Itoa(season)}, "ep": {strconv.Itoa(episode)},
-		"cat": {"5000,5040,5045"}, "extended": {"1"}, "limit": {"50"}, "apikey": {c.apiKey},
-	})
+func (c *Client) SearchMovie(imdbID string, offset, limit int) ([]Result, error) {
+	return c.query("movie", url.Values{
+		"imdbid": {strings.TrimPrefix(imdbID, "tt")},
+		"cat":    {"2000,2040,2045,2050"},
+	}, offset, limit)
 }
 
-func (c *Client) SearchQuery(query, categories string) ([]Result, error) {
+func (c *Client) SearchTV(imdbID string, season, episode, offset, limit int) ([]Result, error) {
+	return c.query("tvsearch", url.Values{
+		"imdbid": {strings.TrimPrefix(imdbID, "tt")},
+		"season": {strconv.Itoa(season)},
+		"ep":     {strconv.Itoa(episode)},
+		"cat":    {"5000,5040,5045"},
+	}, offset, limit)
+}
+
+func (c *Client) SearchQuery(query, categories string, offset, limit int) ([]Result, error) {
 	if categories == "" {
 		categories = "2000,5000"
 	}
-	return c.search(url.Values{
-		"t": {"search"}, "q": {query}, "cat": {categories},
-		"extended": {"1"}, "limit": {"50"}, "apikey": {c.apiKey},
-	})
+	return c.query("search", url.Values{
+		"q":   {query},
+		"cat": {categories},
+	}, offset, limit)
 }
 
 func (c *Client) DownloadNZB(result *Result) ([]byte, error) {

@@ -5,7 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
+
+	"github.com/torrin-app/torrin/shared/storage"
 )
 
 func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string) {
@@ -29,7 +30,7 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 	s.setDownloadDisposition(w, r, key)
 	s.recordView(r, key)
 
-	start, end, isRange := parseRange(r.Header.Get("Range"), plainTotal)
+	start, end, isRange := storage.ParseRange(r.Header.Get("Range"), plainTotal)
 	if !isRange {
 		obj, err := s.store.Get(r.Context(), key, "")
 		if err != nil {
@@ -60,43 +61,4 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 	h.Set("Content-Length", strconv.FormatInt(end-start+1, 10))
 	w.WriteHeader(http.StatusPartialContent)
 	s.cipher.DecryptRange(w, obj.Body, plan)
-}
-
-func parseRange(header string, total int64) (start, end int64, ok bool) {
-	if !strings.HasPrefix(header, "bytes=") {
-		return 0, 0, false
-	}
-	spec := strings.TrimPrefix(header, "bytes=")
-	if strings.Contains(spec, ",") {
-		return 0, 0, false
-	}
-	dash := strings.IndexByte(spec, '-')
-	if dash < 0 {
-		return 0, 0, false
-	}
-	lo, hi := spec[:dash], spec[dash+1:]
-	if lo == "" {
-		n, err := strconv.ParseInt(hi, 10, 64)
-		if err != nil || n <= 0 {
-			return 0, 0, false
-		}
-		if n > total {
-			n = total
-		}
-		return total - n, total - 1, true
-	}
-	start, err := strconv.ParseInt(lo, 10, 64)
-	if err != nil || start >= total {
-		return 0, 0, false
-	}
-	end = total - 1
-	if hi != "" {
-		if e, err := strconv.ParseInt(hi, 10, 64); err == nil && e < end {
-			end = e
-		}
-	}
-	if end < start {
-		return 0, 0, false
-	}
-	return start, end, true
 }

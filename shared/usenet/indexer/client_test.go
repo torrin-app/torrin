@@ -27,7 +27,7 @@ func TestSearchParse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	res, err := NewTestClient(srv.URL, "k").SearchMovie("tt0816692")
+	res, err := NewTestClient(srv.URL, "k").SearchMovie("tt0816692", 0, 50)
 	if err != nil {
 		t.Fatal(err)
 	}

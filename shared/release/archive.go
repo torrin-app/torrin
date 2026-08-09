@@ -85,17 +85,17 @@ func hasRARParts(names []string) bool {
 }
 
 func pickMatch(names []string, want string) string {
-	wanted := tokenize(want)
+	wanted := Tokenize(want)
 	best, bestScore := "", -1
 	for _, n := range names {
-		if s := overlap(tokenize(n), wanted); s > bestScore {
+		if s := Overlap(Tokenize(n), wanted); s > bestScore {
 			best, bestScore = n, s
 		}
 	}
 	return best
 }
 
-func tokenize(s string) map[string]struct{} {
+func Tokenize(s string) map[string]struct{} {
 	out := map[string]struct{}{}
 	for _, t := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
@@ -105,7 +105,7 @@ func tokenize(s string) map[string]struct{} {
 	return out
 }
 
-func overlap(a, b map[string]struct{}) int {
+func Overlap(a, b map[string]struct{}) int {
 	n := 0
 	for t := range a {
 		if _, ok := b[t]; ok {

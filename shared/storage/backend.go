@@ -51,7 +51,7 @@ func (b *fsBackend) get(_ context.Context, key, rng string) (*Object, error) {
 	if rng == "" {
 		return &Object{Body: f, Size: size, ContentType: ct}, nil
 	}
-	start, end, ok := parseRange(rng, size)
+	start, end, ok := ParseRange(rng, size)
 	if !ok {
 		return &Object{Body: f, Size: size, ContentType: ct}, nil
 	}

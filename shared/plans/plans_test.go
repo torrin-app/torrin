@@ -2,24 +2,24 @@ package plans
 
 import "testing"
 
-func TestIndexerAccess(t *testing.T) {
+func TestIndexerPolicy(t *testing.T) {
 	cases := []struct {
-		name           string
-		plan           Plan
-		hasOwn, hasSys bool
-		want           string
+		name                string
+		plan                Plan
+		toggle              bool
+		wantBYO, wantSystem bool
 	}{
-		{"free own+sys blocked", Free, true, true, ""},
-		{"free nothing", Free, false, false, ""},
-		{"starter own", Starter, true, true, "own"},
-		{"starter sys-only blocked", Starter, false, true, ""},
-		{"standard system", Standard, false, true, "system"},
-		{"standard own preferred", Standard, true, true, "own"},
-		{"pro no system configured", Pro, false, false, ""},
+		{"free never", Free, true, false, false},
+		{"starter byo only", Starter, true, true, false},
+		{"standard both on", Standard, true, true, true},
+		{"standard system off", Standard, false, true, false},
+		{"pro both on", Pro, true, true, true},
+		{"pro system off", Pro, false, true, false},
 	}
 	for _, c := range cases {
-		if got := IndexerAccess(c.plan, c.hasOwn, c.hasSys); got != c.want {
-			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		byo, sys := IndexerPolicy(c.plan, c.toggle)
+		if byo != c.wantBYO || sys != c.wantSystem {
+			t.Errorf("%s: got byo=%v system=%v want byo=%v system=%v", c.name, byo, sys, c.wantBYO, c.wantSystem)
 		}
 	}
 }

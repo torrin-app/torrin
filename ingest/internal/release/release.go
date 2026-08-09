@@ -172,7 +172,7 @@ func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n in
 			if providers.DeadLink(err) {
 				return 0, err
 			}
-			backoff(ctx, attempt)
+			providers.Backoff(ctx, attempt)
 			continue
 		}
 		path := filepath.Join(dir, filepath.Base(name))
@@ -211,20 +211,7 @@ func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n in
 		}
 		lastErr = err
 		slog.Warn("release part failed, re-unlocking", "job", job.ID, "part", i+1, "err", err)
-		backoff(ctx, attempt)
+		providers.Backoff(ctx, attempt)
 	}
 	return 0, lastErr
-}
-
-func backoff(ctx context.Context, attempt int) {
-	d := time.Duration(1<<uint(attempt)) * time.Second
-	if d > 30*time.Second {
-		d = 30 * time.Second
-	}
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-	case <-t.C:
-	}
 }

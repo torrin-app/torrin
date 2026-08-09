@@ -61,7 +61,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v0/store/newz", h.withAuth(h.addNewz))
 	mux.HandleFunc("GET /v0/store/newz/{id}", h.withAuth(h.getNewz))
 	mux.HandleFunc("DELETE /v0/store/newz/{id}", h.withAuth(h.removeNewz))
-	mux.HandleFunc("POST /v0/store/newz/link/generate", h.withAuth(h.generateNewzLink))
+	mux.HandleFunc("POST /v0/store/newz/link/generate", h.withAuth(h.generateLink))
 }
 
 func (h *Handler) withAuth(next func(http.ResponseWriter, *http.Request, *auth.User)) http.HandlerFunc {

@@ -43,8 +43,6 @@ func New(base string) *Client {
 	return &Client{base: strings.TrimRight(base, "/"), http: &http.Client{Timeout: 0}}
 }
 
-func (c *Client) Base() string { return c.base }
-
 func (c *Client) CheckAccess(ctx context.Context, fs string) error {
 	_, err := c.call(ctx, "operations/list", map[string]any{"fs": fs, "remote": ""})
 	return err
@@ -110,16 +108,6 @@ func (c *Client) CreateRemote(ctx context.Context, name, backend string, params 
 
 func (c *Client) Purge(ctx context.Context, fs, remote string) error {
 	_, err := c.call(ctx, "operations/purge", map[string]any{"fs": fs, "remote": remote})
-	return err
-}
-
-func (c *Client) CopyFile(ctx context.Context, srcFs, srcRemote, dstFs, dstRemote string) error {
-	_, err := c.call(ctx, "operations/copyfile", map[string]any{
-		"srcFs":     srcFs,
-		"srcRemote": srcRemote,
-		"dstFs":     dstFs,
-		"dstRemote": dstRemote,
-	})
 	return err
 }
 

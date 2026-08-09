@@ -13,7 +13,7 @@ import (
 
 const maxDownloadAttempts = 6
 
-var backoff = sleepBackoff
+var backoff = Backoff
 
 type RangeOpener func(offset int64) (body io.ReadCloser, total int64, full bool, err error)
 
@@ -156,7 +156,7 @@ func copyBody(ctx context.Context, body io.Reader, f io.Writer, written, total i
 	}
 }
 
-func sleepBackoff(ctx context.Context, attempt int) {
+func Backoff(ctx context.Context, attempt int) {
 	d := time.Duration(1<<uint(attempt)) * time.Second
 	if d > 30*time.Second {
 		d = 30 * time.Second

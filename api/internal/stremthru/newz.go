@@ -2,7 +2,6 @@ package stremthru
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -130,17 +129,6 @@ func (h *Handler) removeNewz(w http.ResponseWriter, r *http.Request, user *auth.
 	}
 	h.Jobs.Delete(r.Context(), job.ID)
 	stJSON(w, 200, map[string]any{"data": map[string]any{"id": id}})
-}
-
-func (h *Handler) generateNewzLink(w http.ResponseWriter, r *http.Request, user *auth.User) {
-	var req struct {
-		Link string `json:"link"`
-	}
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Link == "" {
-		stError(w, 400, "link required")
-		return
-	}
-	stJSON(w, 200, map[string]any{"data": map[string]any{"link": req.Link}})
 }
 
 func (h *Handler) resolveNewz(ctx context.Context, user *auth.User, id string) (*jobs.Job, string, bool) {

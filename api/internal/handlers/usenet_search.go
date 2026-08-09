@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
-	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
+
+const usenetMaxPage = 100
 
 func fallbackQuery(title string, season, episode int) string {
 	if season > 0 && episode > 0 {
@@ -23,90 +26,29 @@ func fallbackQuery(title string, season, episode int) string {
 }
 
 func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
+	mux.Handle("GET /api/usenet/search", authMW(http.HandlerFunc(s.usenetSearch)))
+	mux.Handle("POST /api/usenet/grab", authMW(http.HandlerFunc(s.usenetGrab)))
+	mux.Handle("POST /api/usenet/indexer/test", authMW(http.HandlerFunc(s.testIndexer)))
 	mux.Handle("POST /api/usenet/indexer", authMW(http.HandlerFunc(s.setIndexer)))
 	mux.Handle("GET /api/usenet/indexer", authMW(http.HandlerFunc(s.getIndexer)))
 	mux.Handle("DELETE /api/usenet/indexer", authMW(http.HandlerFunc(s.delIndexer)))
-	mux.Handle("POST /api/usenet/indexer/test", authMW(http.HandlerFunc(s.testIndexer)))
-	mux.Handle("GET /api/usenet/search", authMW(http.HandlerFunc(s.usenetSearch)))
-	mux.Handle("POST /api/usenet/grab", authMW(http.HandlerFunc(s.usenetGrab)))
+	mux.Handle("GET /api/usenet/indexers", authMW(http.HandlerFunc(s.listIndexers)))
+	mux.Handle("POST /api/usenet/indexers", authMW(http.HandlerFunc(s.addIndexer)))
+	mux.Handle("POST /api/usenet/indexers/test", authMW(http.HandlerFunc(s.testIndexer)))
+	mux.Handle("PUT /api/usenet/indexers/{id}", authMW(http.HandlerFunc(s.editIndexer)))
+	mux.Handle("DELETE /api/usenet/indexers/{id}", authMW(http.HandlerFunc(s.deleteIndexerH)))
+	mux.Handle("POST /api/usenet/indexers/{id}/toggle", authMW(http.HandlerFunc(s.toggleIndexerH)))
+	mux.Handle("GET /api/usenet/system-indexer", authMW(http.HandlerFunc(s.getSystemIndexer)))
+	mux.Handle("POST /api/usenet/system-indexer/toggle", authMW(http.HandlerFunc(s.toggleSystemIndexer)))
 }
 
-func (s *Server) resolveIndexer(ctx context.Context, userID string, plan plans.Plan) (*indexer.Client, bool) {
-	own, err := s.Users.GetUsenetIndexer(ctx, userID)
-	switch plans.IndexerAccess(plan, err == nil, s.IndexerURL != "") {
-	case "own":
-		return indexer.NewClient(own.URL, own.APIKey), true
-	case "system":
-		return indexer.NewClient(s.IndexerURL, s.IndexerKey), true
-	}
-	return nil, false
-}
-
-func (s *Server) setIndexer(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUser(r)
-	if !plans.CanBYOK(middleware.GetPlan(r).ID) {
-		web.WriteError(w, 403, "bring-your-own usenet requires a paid plan")
-		return
-	}
-	var req struct {
-		URL    string `json:"url"`
-		APIKey string `json:"api_key"`
-	}
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.URL == "" || req.APIKey == "" {
-		web.WriteError(w, 400, "url and api_key required")
-		return
-	}
-	url := normalizeIndexerURL(req.URL)
-	if err := indexer.ValidateURL(url); err != nil {
-		web.WriteError(w, 400, "invalid indexer URL")
-		return
-	}
-	if err := s.Users.SaveUsenetIndexer(r.Context(), user.ID, &auth.UsenetIndexer{URL: url, APIKey: req.APIKey}); err != nil {
-		web.WriteError(w, 500, "failed to save indexer")
-		return
-	}
-	s.Users.AuditLog(r.Context(), user.ID, "usenet_indexer_added", "url="+url, clientIP(r))
-	web.WriteJSON(w, 200, map[string]string{"status": "ok"})
-}
-
-func (s *Server) testIndexer(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		URL    string `json:"url"`
-		APIKey string `json:"api_key"`
-	}
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.URL == "" || req.APIKey == "" {
-		web.WriteError(w, 400, "url and api_key required")
-		return
-	}
-	url := normalizeIndexerURL(req.URL)
-	if indexer.ValidateURL(url) != nil {
-		web.WriteError(w, 400, "invalid indexer URL")
-		return
-	}
-	if _, err := indexer.NewClient(url, req.APIKey).SearchQuery("test", "2000"); err != nil {
-		web.WriteError(w, 502, "indexer connection failed")
-		return
-	}
-	web.WriteJSON(w, 200, map[string]any{"ok": true})
-}
-
-func (s *Server) getIndexer(w http.ResponseWriter, r *http.Request) {
-	idx, err := s.Users.GetUsenetIndexer(r.Context(), middleware.GetUser(r).ID)
-	if err != nil {
-		web.WriteJSON(w, 200, map[string]any{"configured": false})
-		return
-	}
-	web.WriteJSON(w, 200, map[string]any{"configured": true, "url": idx.URL})
-}
-
-func (s *Server) delIndexer(w http.ResponseWriter, r *http.Request) {
-	s.Users.DeleteUsenetIndexer(r.Context(), middleware.GetUser(r).ID)
-	web.WriteJSON(w, 200, map[string]string{"status": "ok"})
+func (s *Server) resolveSources(ctx context.Context, userID string, plan plans.Plan) []indexer.Source {
+	return s.Users.IndexerSources(ctx, userID, plan, s.IndexerURL, s.IndexerKey)
 }
 
 func (s *Server) usenetSearch(w http.ResponseWriter, r *http.Request) {
-	client, ok := s.resolveIndexer(r.Context(), middleware.GetUser(r).ID, middleware.GetPlan(r))
-	if !ok {
+	sources := s.resolveSources(r.Context(), middleware.GetUser(r).ID, middleware.GetPlan(r))
+	if len(sources) == 0 {
 		web.WriteError(w, 400, "configure a usenet indexer first")
 		return
 	}
@@ -114,63 +56,112 @@ func (s *Server) usenetSearch(w http.ResponseWriter, r *http.Request) {
 	imdb, query, title := q.Get("imdb"), q.Get("q"), q.Get("title")
 	season, _ := strconv.Atoi(q.Get("season"))
 	episode, _ := strconv.Atoi(q.Get("ep"))
+	offset, _ := strconv.Atoi(q.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	if limit > usenetMaxPage {
+		limit = usenetMaxPage
+	}
 	if imdb == "" && query == "" {
 		web.WriteError(w, 400, "provide imdb, q, or imdb+season+ep")
 		return
 	}
-
-	key := strings.Join([]string{client.BaseURL(), imdb, query, title, q.Get("cat"), q.Get("season"), q.Get("ep")}, "|")
-	results, hit := usenetCacheGet(key)
-	if !hit {
-		var err error
-		switch {
-		case imdb != "" && season > 0 && episode > 0:
-			results, err = client.SearchTV(imdb, season, episode)
-		case imdb != "":
-			results, err = client.SearchMovie(imdb)
-		default:
-			results, err = client.SearchQuery(query, q.Get("cat"))
-		}
-		if err != nil {
-			web.WriteError(w, 502, "indexer search failed")
-			return
-		}
-		if imdb != "" && title != "" && len(indexer.Verify(results, imdb, title, season, episode)) == 0 {
-			if fb, e := client.SearchQuery(fallbackQuery(title, season, episode), ""); e == nil {
-				results = append(results, fb...)
-			}
-		}
-		usenetCacheSet(key, results)
-	}
-	results = indexer.Verify(results, imdb, title, season, episode)
+	merged := indexer.FanOut(r.Context(), sources, 8*time.Second, func(c *indexer.Client) ([]indexer.Result, error) {
+		return s.searchOne(c, imdb, query, title, q.Get("cat"), q.Get("season"), q.Get("ep"), season, episode, offset, limit)
+	})
+	results := indexer.Verify(indexer.Dedup(merged), imdb, title, season, episode)
 	if results == nil {
 		results = []indexer.Result{}
 	}
 	web.WriteJSON(w, 200, results)
 }
 
+func (s *Server) searchOne(c *indexer.Client, imdb, query, title, cat, seasonStr, epStr string, season, episode, offset, limit int) ([]indexer.Result, error) {
+	key := strings.Join([]string{c.BaseURL(), imdb, query, title, cat, seasonStr, epStr, strconv.Itoa(offset), strconv.Itoa(limit)}, "|")
+	if cached, hit := usenetCacheGet(key); hit {
+		return cached, nil
+	}
+	var results []indexer.Result
+	var err error
+	switch {
+	case imdb != "" && season > 0 && episode > 0:
+		results, err = c.SearchTV(imdb, season, episode, offset, limit)
+	case imdb != "":
+		results, err = c.SearchMovie(imdb, offset, limit)
+	default:
+		results, err = c.SearchQuery(query, cat, offset, limit)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if imdb != "" && title != "" && len(indexer.Verify(results, imdb, title, season, episode)) == 0 {
+		if fb, e := c.SearchQuery(fallbackQuery(title, season, episode), "", offset, limit); e == nil {
+			results = append(results, fb...)
+		}
+	}
+	usenetCacheSet(key, results)
+	return results, nil
+}
+
 func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	plan := middleware.GetPlan(r)
-	client, ok := s.resolveIndexer(r.Context(), user.ID, plan)
-	if !ok {
+	sources := s.resolveSources(r.Context(), user.ID, plan)
+	if len(sources) == 0 {
 		web.WriteError(w, 400, "configure a usenet indexer first")
 		return
 	}
 	var req struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
+		ID     string `json:"id"`
+		Source string `json:"source"`
+		NZBURL string `json:"nzb_url"`
+		Title  string `json:"title"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ID == "" {
 		web.WriteError(w, 400, "id required")
 		return
 	}
-	nzbData, err := client.DownloadNZB(&indexer.Result{ID: req.ID})
+	client := pickSource(sources, req.Source, req.NZBURL)
+	if client == nil {
+		web.WriteError(w, 404, "indexer not found")
+		return
+	}
+	nzbData, err := client.DownloadNZB(&indexer.Result{ID: req.ID, NZBURL: req.NZBURL})
 	if err != nil {
 		web.WriteError(w, 502, "failed to download NZB")
 		return
 	}
 	s.ingestNZB(w, r, user, plan, nzbData, req.Title)
+}
+
+func pickSource(sources []indexer.Source, sourceID, nzbURL string) *indexer.Client {
+	if c := indexer.Find(sources, sourceID); c != nil {
+		return c
+	}
+	if host := urlHost(nzbURL); host != "" {
+		for i := range sources {
+			if urlHost(sources[i].Client.BaseURL()) == host {
+				return sources[i].Client
+			}
+		}
+	}
+	if len(sources) == 1 {
+		return sources[0].Client
+	}
+	return nil
+}
+
+func urlHost(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 func normalizeIndexerURL(raw string) string {

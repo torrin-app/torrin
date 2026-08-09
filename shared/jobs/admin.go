@@ -85,7 +85,7 @@ type CacheItem struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
-func (p *Postgres) CacheTopItems(ctx context.Context, limit int) ([]CacheItem, error) {
+func (p *Postgres) queryCacheItems(ctx context.Context, orderBy string, limit int) ([]CacheItem, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -93,7 +93,7 @@ func (p *Postgres) CacheTopItems(ctx context.Context, limit int) ([]CacheItem, e
 		SELECT id, info_hash, name, file_size, access_count,
 			COALESCE(last_accessed_at, created_at), created_at
 		FROM jobs WHERE status='complete'
-		ORDER BY access_count DESC LIMIT $1`, limit)
+		ORDER BY `+orderBy+` LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -108,30 +108,14 @@ func (p *Postgres) CacheTopItems(ctx context.Context, limit int) ([]CacheItem, e
 	return out, rows.Err()
 }
 
+func (p *Postgres) CacheTopItems(ctx context.Context, limit int) ([]CacheItem, error) {
+	return p.queryCacheItems(ctx, `access_count DESC`, limit)
+}
+
 func (p *Postgres) CacheEvictionCandidates(ctx context.Context, limit int) ([]CacheItem, error) {
-	if limit <= 0 {
-		limit = 20
-	}
-	rows, err := p.pool.Query(ctx, `
-		SELECT id, info_hash, name, file_size, access_count,
-			COALESCE(last_accessed_at, created_at), created_at
-		FROM jobs WHERE status='complete'
-		ORDER BY
-			CASE WHEN access_count=0 THEN 0 WHEN access_count<10 THEN 1 ELSE 2 END ASC,
-			COALESCE(last_accessed_at, created_at) ASC
-		LIMIT $1`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []CacheItem{}
-	for rows.Next() {
-		var c CacheItem
-		if rows.Scan(&c.ID, &c.InfoHash, &c.Name, &c.FileSize, &c.AccessCount, &c.LastAccessed, &c.CreatedAt) == nil {
-			out = append(out, c)
-		}
-	}
-	return out, rows.Err()
+	return p.queryCacheItems(ctx, `
+		CASE WHEN access_count=0 THEN 0 WHEN access_count<10 THEN 1 ELSE 2 END ASC,
+		COALESCE(last_accessed_at, created_at) ASC`, limit)
 }
 
 func (p *Postgres) DeleteCachedByHash(ctx context.Context, infoHash string) error {

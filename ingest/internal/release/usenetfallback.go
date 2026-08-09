@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	tnp "github.com/torrin-app/torrent-name-parser"
 	"github.com/torrin-app/torrin/shared/auth"
@@ -12,6 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
+	srelease "github.com/torrin-app/torrin/shared/release"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
 
@@ -50,48 +52,58 @@ func (f *UsenetFallback) Try(ctx context.Context, job *jobs.Job) error {
 	if !f.un.HasProvider(ctx, job.UserID) {
 		return failure.Wrap(failure.UsenetNotSetup, "no usenet provider for user")
 	}
-	client, ok := f.indexerFor(ctx, job.UserID)
-	if !ok {
+	sources := f.sourcesFor(ctx, job.UserID)
+	if len(sources) == 0 {
 		return failure.Wrap(failure.UsenetNotSetup, "no usenet indexer for user")
 	}
 	ri := parseRel(job.Name)
 	if ri.season > 0 && ri.episode == 0 {
-		return f.tryPack(ctx, job, client, ri)
+		return f.tryPack(ctx, job, sources, ri)
 	}
-	return f.trySingle(ctx, job, client, ri)
+	return f.trySingle(ctx, job, sources, ri)
 }
 
-func (f *UsenetFallback) indexerFor(ctx context.Context, userID string) (*indexer.Client, bool) {
+func (f *UsenetFallback) sourcesFor(ctx context.Context, userID string) []indexer.Source {
 	u, err := f.users.GetByID(ctx, userID)
 	if err != nil || u == nil {
-		return nil, false
+		return nil
 	}
 	plan, _ := plans.Get(u.PlanID)
-	idx, ierr := f.users.GetUsenetIndexer(ctx, userID)
-	switch plans.IndexerAccess(plan, ierr == nil && idx != nil && idx.URL != "", f.sysURL != "") {
-	case "own":
-		return indexer.NewClient(idx.URL, idx.APIKey), true
-	case "system":
-		return indexer.NewClient(f.sysURL, f.sysKey), true
-	}
-	return nil, false
+	return f.users.IndexerSources(ctx, userID, plan, f.sysURL, f.sysKey)
 }
 
-func (f *UsenetFallback) trySingle(ctx context.Context, job *jobs.Job, client *indexer.Client, ri relInfo) error {
+func clientFor(sources []indexer.Source, id string) *indexer.Client {
+	if c := indexer.Find(sources, id); c != nil {
+		return c
+	}
+	if len(sources) > 0 {
+		return sources[0].Client
+	}
+	return nil
+}
+
+func (f *UsenetFallback) trySingle(ctx context.Context, job *jobs.Job, sources []indexer.Source, ri relInfo) error {
 	var results []indexer.Result
 	if job.IMDBID != "" {
-		if ri.season > 0 && ri.episode > 0 {
-			results, _ = client.SearchTV(job.IMDBID, ri.season, ri.episode)
-		} else {
-			results, _ = client.SearchMovie(job.IMDBID)
-		}
+		results = indexer.FanOut(ctx, sources, 10*time.Second, func(c *indexer.Client) ([]indexer.Result, error) {
+			if ri.season > 0 && ri.episode > 0 {
+				return c.SearchTV(job.IMDBID, ri.season, ri.episode, 0, 0)
+			}
+			return c.SearchMovie(job.IMDBID, 0, 0)
+		})
 	}
 	best := bestMatch(results, job.Name, job.FileSize, job.IMDBID)
 	if best == nil {
-		q, _ := client.SearchQuery(buildQuery(ri), "")
+		q := indexer.FanOut(ctx, sources, 10*time.Second, func(c *indexer.Client) ([]indexer.Result, error) {
+			return c.SearchQuery(buildQuery(ri), "", 0, 0)
+		})
 		best = bestMatch(q, job.Name, job.FileSize, job.IMDBID)
 	}
 	if best == nil {
+		return failure.Wrap(failure.NotOnUsenet, "no matching nzb on indexer")
+	}
+	client := clientFor(sources, best.Source)
+	if client == nil {
 		return failure.Wrap(failure.NotOnUsenet, "no matching nzb on indexer")
 	}
 	data, err := client.DownloadNZB(best)
@@ -102,12 +114,14 @@ func (f *UsenetFallback) trySingle(ctx context.Context, job *jobs.Job, client *i
 	return f.un.RunNZB(ctx, job, data)
 }
 
-func (f *UsenetFallback) tryPack(ctx context.Context, job *jobs.Job, client *indexer.Client, ri relInfo) error {
+func (f *UsenetFallback) tryPack(ctx context.Context, job *jobs.Job, sources []indexer.Source, ri relInfo) error {
 	query := fmt.Sprintf("%s S%02d", ri.title, ri.season)
 	if ri.res != "" {
 		query += " " + ri.res
 	}
-	results, _ := client.SearchQuery(query, "5000,5040,5045")
+	results := indexer.FanOut(ctx, sources, 10*time.Second, func(c *indexer.Client) ([]indexer.Result, error) {
+		return c.SearchQuery(query, "5000,5040,5045", 0, 0)
+	})
 
 	byEp := map[int]*indexer.Result{}
 	for i := range results {
@@ -135,6 +149,10 @@ func (f *UsenetFallback) tryPack(ctx context.Context, job *jobs.Job, client *ind
 	}
 	parts := make([][]byte, 0, want)
 	for e := 1; e <= want; e++ {
+		client := clientFor(sources, byEp[e].Source)
+		if client == nil {
+			return failure.Wrap(failure.NotOnUsenet, "indexer unavailable for episode %d", e)
+		}
 		data, err := client.DownloadNZB(byEp[e])
 		if err != nil {
 			return fmt.Errorf("download nzb %q: %w", byEp[e].Title, err)
@@ -200,28 +218,8 @@ func betterEp(a, b *indexer.Result) bool {
 	return a.Size > b.Size
 }
 
-func tokenize(s string) map[string]struct{} {
-	out := map[string]struct{}{}
-	for _, t := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
-		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
-	}) {
-		out[t] = struct{}{}
-	}
-	return out
-}
-
-func overlap(a, b map[string]struct{}) int {
-	n := 0
-	for t := range a {
-		if _, ok := b[t]; ok {
-			n++
-		}
-	}
-	return n
-}
-
 func bestMatch(results []indexer.Result, title string, size int64, jobIMDB string) *indexer.Result {
-	want := tokenize(title)
+	want := srelease.Tokenize(title)
 	if len(want) == 0 {
 		return nil
 	}
@@ -231,7 +229,7 @@ func bestMatch(results []indexer.Result, title string, size int64, jobIMDB strin
 		if !indexer.IMDBEqual(results[i].IMDBID, jobIMDB) || !indexer.TitleMatch(results[i].Title, title) {
 			continue
 		}
-		frac := float64(overlap(tokenize(results[i].Title), want)) / float64(len(want))
+		frac := float64(srelease.Overlap(srelease.Tokenize(results[i].Title), want)) / float64(len(want))
 		if frac < 0.5 {
 			continue
 		}

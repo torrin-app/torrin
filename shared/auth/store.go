@@ -20,7 +20,7 @@ var ErrNotFound = errors.New("user not found")
 
 const userColumns = `id, email, api_key, plan_id, subscription_id, license_key, recurrence,
 	expires_at, paused_at, remaining_days, pause_count, last_paused_at, banned, ban_reason,
-	created_at, updated_at`
+	created_at, updated_at, system_indexer_enabled`
 
 type Store struct {
 	pool  *pgxpool.Pool
@@ -84,7 +84,7 @@ func scanOne(row pgx.Row) (*User, error) {
 	var pausedAt, lastPausedAt *time.Time
 	err := row.Scan(&u.ID, &u.Email, &u.APIKey, &u.PlanID, &u.SubscriptionID, &u.LicenseKey,
 		&u.Recurrence, &u.ExpiresAt, &pausedAt, &u.RemainingDays, &u.PauseCount, &lastPausedAt,
-		&u.Banned, &u.BanReason, &u.CreatedAt, &u.UpdatedAt)
+		&u.Banned, &u.BanReason, &u.CreatedAt, &u.UpdatedAt, &u.SystemIndexerEnabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
