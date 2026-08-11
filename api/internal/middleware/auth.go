@@ -20,10 +20,16 @@ func expiredFreeAllowed(path string) bool {
 		path == "/api/redeem" || strings.HasPrefix(path, "/api/billing/")
 }
 
+func largeUpload(path string) bool {
+	return path == "/api/jobs/nzb" || path == "/api/torrents/upload"
+}
+
 func Auth(store *auth.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
+			if !largeUpload(r.URL.Path) {
+				r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
+			}
 			apiKey := extractAPIKey(r)
 			if apiKey == "" {
 				web.WriteError(w, 401, "missing api key, use Authorization: Bearer tr_...")
