@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
@@ -72,6 +73,28 @@ func parseRcloneConfig(block string) (backend string, params map[string]string, 
 	return backend, params, nil
 }
 
+func normalizeConfigPass(ctx context.Context, rc *rclonerc.Client, params map[string]string) {
+	p := params["pass"]
+	if p == "" || rc == nil {
+		return
+	}
+	if plain, ok := rc.Reveal(ctx, p); ok && plain != "" && isPrintablePass(plain) {
+		params["pass"] = plain
+	}
+}
+
+func isPrintablePass(s string) bool {
+	if !utf8.ValidString(s) {
+		return false
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	if user.PlanID == "free" {
@@ -121,7 +144,8 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 		defer cancel()
-		remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, backend, params, false, cryptPass, "")
+		normalizeConfigPass(ctx, s.RClone, params)
+		remote, rerr := s.RClone.EnsureUserRemote(ctx, user.ID, backend, params, true, cryptPass, "")
 		if rerr != nil {
 			web.WriteError(w, 400, "could not set up that connection, please retry")
 			return

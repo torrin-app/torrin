@@ -67,3 +67,18 @@ func (c *Client) Obscure(ctx context.Context, plain string) (string, bool) {
 	}
 	return plain, false
 }
+
+func (c *Client) Reveal(ctx context.Context, obscured string) (string, bool) {
+	out, err := c.call(ctx, "core/command", map[string]any{
+		"command":    "reveal",
+		"arg":        []string{obscured},
+		"returnType": "COMBINED_OUTPUT",
+	})
+	if err != nil || out == nil {
+		return "", false
+	}
+	if s, ok := out["result"].(string); ok {
+		return strings.TrimSpace(s), true
+	}
+	return "", false
+}
