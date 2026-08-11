@@ -3,6 +3,7 @@ package usenet
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -11,9 +12,24 @@ import (
 
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/shared/crypto"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
 )
+
+func TestReasonSurfacesRealError(t *testing.T) {
+	r := &Runner{scratch: "/scratch"}
+	job := &jobs.Job{InfoHash: "abc"}
+
+	err := r.reason(job, fmt.Errorf("download: rename /scratch/abc/File.part /scratch/abc/File: no such file or directory"))
+	if got := failure.Message(err); got != "download: rename File.part File: no such file or directory" {
+		t.Fatalf("got %q", got)
+	}
+
+	if got := failure.Message(r.reason(job, failure.Newf("too_large", "nzb too large"))); got != "nzb too large" {
+		t.Fatalf("typed passthrough got %q", got)
+	}
+}
 
 type nameRepo struct {
 	jobs.Repository

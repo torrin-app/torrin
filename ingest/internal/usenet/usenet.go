@@ -3,6 +3,7 @@ package usenet
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -46,9 +47,18 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 	go func() {
 		defer done()
 		if err := r.process(ctx, job); err != nil {
-			jobrun.Fail(ctx, r.repo, r.bus, job, err)
+			jobrun.Fail(ctx, r.repo, r.bus, job, r.reason(job, err))
 		}
 	}()
+}
+
+func (r *Runner) reason(job *jobs.Job, err error) error {
+	var f *failure.Failure
+	if errors.As(err, &f) {
+		return err
+	}
+	msg := strings.ReplaceAll(err.Error(), filepath.Join(r.scratch, job.InfoHash)+"/", "")
+	return failure.Newf("usenet", "%s", msg)
 }
 
 func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
