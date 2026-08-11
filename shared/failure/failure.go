@@ -42,6 +42,7 @@ var (
 	Unpack         = &Failure{"unpack", "couldn't unpack this release"}
 	Interrupted    = &Failure{"interrupted", "download interrupted, please retry"}
 	NoSources      = &Failure{"no_sources", "no working sources for this release right now"}
+	DeadLinks      = &Failure{"dead_links", "these download links are dead, try a different release"}
 	NoVideo        = &Failure{"no_video", "no playable video found in this release"}
 	Upstream       = &Failure{"upstream", "source temporarily unavailable, please retry"}
 	Generic        = &Failure{"generic", "download failed, please retry"}

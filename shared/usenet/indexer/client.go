@@ -54,6 +54,9 @@ func newClient(baseURL, apiKey string, allowLocal bool) *Client {
 }
 
 func (c *Client) BaseURL() string {
+	if c == nil {
+		return ""
+	}
 	return c.baseURL
 }
 

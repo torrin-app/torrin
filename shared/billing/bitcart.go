@@ -72,30 +72,52 @@ func (b *BitcartHandler) CreateInvoice(ctx context.Context, email, planID, perio
 	}
 	body, _ := json.Marshal(payload)
 
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			time.Sleep(400 * time.Millisecond)
+		}
+		id, retryable, err := b.postInvoice(ctx, body)
+		if err == nil {
+			return id, nil
+		}
+		lastErr = err
+		if !retryable {
+			return "", err
+		}
+	}
+	return "", lastErr
+}
+
+func (b *BitcartHandler) postInvoice(ctx context.Context, body []byte) (string, bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.apiURL+"/invoices", bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := b.http.Do(req)
 	if err != nil {
-		return "", err
+		return "", true, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode/100 == 5 {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", true, fmt.Errorf("bitcart create invoice: %d %s", resp.StatusCode, msg)
+	}
 	if resp.StatusCode/100 != 2 {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", fmt.Errorf("bitcart create invoice: %d %s", resp.StatusCode, msg)
+		return "", false, fmt.Errorf("bitcart create invoice: %d %s", resp.StatusCode, msg)
 	}
 
 	var inv bitcartInvoice
 	if err := json.NewDecoder(resp.Body).Decode(&inv); err != nil {
-		return "", err
+		return "", true, err
 	}
 	if inv.ID == "" {
-		return "", fmt.Errorf("bitcart create invoice: empty id")
+		return "", true, fmt.Errorf("bitcart create invoice: empty id")
 	}
-	return inv.ID, nil
+	return inv.ID, false, nil
 }
 
 type InvoicePayment struct {

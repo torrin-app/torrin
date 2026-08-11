@@ -68,7 +68,7 @@ func (s *Server) usenetSearch(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "provide imdb, q, or imdb+season+ep")
 		return
 	}
-	merged := indexer.FanOut(r.Context(), sources, 8*time.Second, func(c *indexer.Client) ([]indexer.Result, error) {
+	merged := indexer.FanOut(r.Context(), sources, 18*time.Second, func(c *indexer.Client) ([]indexer.Result, error) {
 		return s.searchOne(c, imdb, query, title, q.Get("cat"), q.Get("season"), q.Get("ep"), season, episode, offset, limit)
 	})
 	results := indexer.Verify(indexer.Dedup(merged), imdb, title, season, episode)

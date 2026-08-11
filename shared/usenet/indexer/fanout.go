@@ -39,9 +39,15 @@ func FanOut(ctx context.Context, sources []Source, perTimeout time.Duration, fn 
 
 			done := make(chan []Result, 1)
 			go func() {
+				defer func() {
+					if p := recover(); p != nil {
+						slog.Error("indexer search panicked", "indexer", src.Client.BaseURL(), "panic", p)
+						done <- nil
+					}
+				}()
 				res, err := fn(src.Client)
 				if err != nil {
-					slog.Warn("indexer search failed", "source", src.Label, "err", err)
+					slog.Warn("indexer search failed", "indexer", src.Client.BaseURL(), "err", err)
 					done <- nil
 					return
 				}
@@ -52,7 +58,7 @@ func FanOut(ctx context.Context, sources []Source, perTimeout time.Duration, fn 
 			select {
 			case res = <-done:
 			case <-time.After(perTimeout):
-				slog.Warn("indexer search timed out", "source", src.Label)
+				slog.Warn("indexer search timed out", "indexer", src.Client.BaseURL())
 				return
 			case <-ctx.Done():
 				return

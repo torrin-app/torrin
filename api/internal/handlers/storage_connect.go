@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +13,16 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/rclonerc"
 )
+
+func storageAccessMsg(err error, fallback string) string {
+	var rcErr *rclonerc.Error
+	if errors.As(err, &rcErr) && rcErr.Msg != "" {
+		return rcErr.Msg
+	}
+	return fallback
+}
 
 var rcloneBackends = map[string]bool{
 	"mega": true, "pikpak": true, "gofile": true,
@@ -116,7 +127,8 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.RClone.CheckAccess(ctx, remote+":"); err != nil {
-			web.WriteError(w, 400, "couldn't access that storage, check the config you pasted")
+			slog.Warn("byos connect: access check failed", "backend", backend, "user", user.ID, "err", err)
+			web.WriteError(w, 400, storageAccessMsg(err, "couldn't access that storage, check the config you pasted"))
 			return
 		}
 		cfg, _ := json.Marshal(params)
@@ -147,7 +159,8 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.RClone.CheckAccess(ctx, remote+":"); err != nil {
-			web.WriteError(w, 400, "couldn't access your account, double-check your credentials")
+			slog.Warn("byos connect: access check failed", "provider", req.Provider, "user", user.ID, "err", err)
+			web.WriteError(w, 400, storageAccessMsg(err, "couldn't access your account, double-check your credentials"))
 			return
 		}
 		cfg, _ := json.Marshal(params)

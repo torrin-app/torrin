@@ -62,6 +62,39 @@ func TestRcloneCacheRead(t *testing.T) {
 	}
 }
 
+func TestRclone404FallsBackToOrigin(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "5")
+		w.Header().Set("Content-Type", "video/x-matroska")
+		w.Write([]byte("fresh"))
+	}))
+	defer origin.Close()
+	stale := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer stale.Close()
+
+	c := NewClient(origin.URL, "garage", "k", "s", "bucket", "", "")
+	c.SetRcloneCache(stale.URL)
+
+	o, err := c.Get(context.Background(), "blobs/b_fresh", "")
+	if err != nil {
+		t.Fatalf("Get should fall back to origin when the cache 404s, got %v", err)
+	}
+	b, _ := io.ReadAll(o.Body)
+	o.Body.Close()
+	if string(b) != "fresh" {
+		t.Errorf("body = %q, want fresh", b)
+	}
+	ho, err := c.Head(context.Background(), "blobs/b_fresh")
+	if err != nil {
+		t.Fatalf("Head should fall back to origin when the cache 404s, got %v", err)
+	}
+	if ho.Size != 5 {
+		t.Errorf("head size = %d, want 5", ho.Size)
+	}
+}
+
 func TestRcloneCacheFallbackToOrigin(t *testing.T) {
 	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "5")

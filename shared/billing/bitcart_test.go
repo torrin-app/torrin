@@ -50,6 +50,48 @@ func TestBitcartCreateInvoiceUnknownPlan(t *testing.T) {
 	}
 }
 
+func TestBitcartCreateInvoiceRetriesTransient(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": "inv123"})
+	}))
+	defer srv.Close()
+
+	b := NewBitcartHandler(srv.URL, "http://x", "s1", "", "", nil)
+	id, err := b.CreateInvoice(context.Background(), "a@b.com", "starter", "monthly", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "inv123" {
+		t.Errorf("invoice id = %q after retry", id)
+	}
+	if calls != 2 {
+		t.Errorf("expected 1 fail + 1 retry = 2 calls, got %d", calls)
+	}
+}
+
+func TestBitcartCreateInvoiceNoRetryOn4xx(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(400)
+	}))
+	defer srv.Close()
+
+	b := NewBitcartHandler(srv.URL, "http://x", "s1", "", "", nil)
+	if _, err := b.CreateInvoice(context.Background(), "a@b.com", "starter", "monthly", 0); err == nil {
+		t.Error("expected error on 400")
+	}
+	if calls != 1 {
+		t.Errorf("4xx must not retry, got %d calls", calls)
+	}
+}
+
 func TestBitcartWebhookIgnoresUnsettled(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"id": "inv123", "status": "pending"})

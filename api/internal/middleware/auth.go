@@ -15,6 +15,11 @@ type contextKey string
 
 const UserContextKey contextKey = "user"
 
+func expiredFreeAllowed(path string) bool {
+	return path == "/api/me" || path == "/api/plans" || path == "/api/stats" ||
+		path == "/api/redeem" || strings.HasPrefix(path, "/api/billing/")
+}
+
 func Auth(store *auth.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +55,7 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 			if time.Now().After(user.ExpiresAt) {
 				if user.PlanID == "free" {
 					path := r.URL.Path
-					if !(path == "/api/me" || path == "/api/plans" || path == "/api/stats" || path == "/api/redeem") {
+					if !expiredFreeAllowed(path) {
 						web.WriteError(w, 403, "free trial expired, upgrade at https://torrin.app")
 						return
 					}

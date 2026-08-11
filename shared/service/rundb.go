@@ -35,7 +35,15 @@ func RunDB(name, defaultPort string, build func(DB) http.Handler) {
 }
 
 func StoreFromEnv() *storage.Client {
-	s := storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), env.Get("PUBLIC_URL", ""), MustEnv("SIGNING_KEY"))
+	signing := MustEnv("SIGNING_KEY")
+	var s *storage.Client
+	if env.Get("STORE_BACKEND", "") == "s3" {
+		s = storage.NewClient(env.Get("S3_ENDPOINT", ""), env.Get("S3_REGION", ""),
+			env.Get("S3_ACCESS_KEY", ""), env.Get("S3_SECRET_KEY", ""),
+			env.Get("S3_BUCKET", ""), env.Get("PUBLIC_URL", ""), signing)
+	} else {
+		s = storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), env.Get("PUBLIC_URL", ""), signing)
+	}
 	if err := s.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
 		Fatal("storage key", err)
 	}

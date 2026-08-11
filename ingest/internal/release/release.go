@@ -154,10 +154,12 @@ func (r *Runner) fetchPart(ctx context.Context, adKey string, mirrors []string, 
 			slog.Warn("release mirror failed, trying next", "job", job.ID, "part", i+1, "mirror", mi+1, "of", len(mirrors), "err", err)
 		}
 	}
-	if providers.DeadLink(lastErr) {
-		return 0, fmt.Errorf("%w: %w", lastErr, ErrSourceUnavailable)
-	}
-	return 0, lastErr
+	slog.Warn("release part dead, all mirrors exhausted", "job", job.ID, "part", i+1, "of", n, "mirrors", len(mirrors), "err", lastErr)
+	return 0, deadLinksErr()
+}
+
+func deadLinksErr() error {
+	return fmt.Errorf("%w: %w", failure.DeadLinks, ErrSourceUnavailable)
 }
 
 func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n int, dir string, job *jobs.Job) (int64, error) {

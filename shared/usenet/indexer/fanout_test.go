@@ -54,6 +54,22 @@ func TestFanOutAbandonsHungSource(t *testing.T) {
 	}
 }
 
+func TestFanOutRecoversPanic(t *testing.T) {
+	sources := []Source{
+		{ID: "ok", Client: NewTestClient("http://ok", "k")},
+		{ID: "bad", Client: NewTestClient("http://bad", "k")},
+	}
+	got := FanOut(context.Background(), sources, time.Second, func(c *Client) ([]Result, error) {
+		if c.BaseURL() == "http://bad" {
+			panic("boom")
+		}
+		return []Result{{Title: "z"}}, nil
+	})
+	if len(got) != 1 {
+		t.Fatalf("a panicking indexer must not crash the search; got %d results", len(got))
+	}
+}
+
 func TestDedupKeepsHigherGrabs(t *testing.T) {
 	in := []Result{
 		{Title: "The.Show.S01E01.1080p", Size: 100, Grabs: 3},
