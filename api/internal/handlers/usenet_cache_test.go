@@ -1,12 +1,34 @@
 package handlers
 
 import (
+	"bytes"
+	"mime/multipart"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
+
+func TestReadNZBBody(t *testing.T) {
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	fw, _ := mw.CreateFormFile("nzb", "x.nzb")
+	fw.Write([]byte("<nzb>multi</nzb>"))
+	mw.Close()
+	r := httptest.NewRequest("POST", "/api/jobs/nzb", &buf)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	if got, err := readNZBBody(r); err != nil || string(got) != "<nzb>multi</nzb>" {
+		t.Fatalf("multipart: got %q err %v", got, err)
+	}
+
+	r2 := httptest.NewRequest("POST", "/api/jobs/nzb", strings.NewReader("<nzb>raw</nzb>"))
+	if got, err := readNZBBody(r2); err != nil || string(got) != "<nzb>raw</nzb>" {
+		t.Fatalf("raw: got %q err %v", got, err)
+	}
+}
 
 func TestUserJobForHash(t *testing.T) {
 	sibs := []*jobs.Job{

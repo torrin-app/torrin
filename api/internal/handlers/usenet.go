@@ -36,13 +36,26 @@ func (s *Server) registerUsenetRoutes(mux *http.ServeMux, authMW func(http.Handl
 }
 
 func (s *Server) submitNZB(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 20*1024*1024))
+	r.Body = http.MaxBytesReader(w, r.Body, 20*1024*1024)
+	body, err := readNZBBody(r)
 	if err != nil {
 		web.WriteError(w, 400, "could not read nzb")
 		return
 	}
 	name := strings.TrimSuffix(r.URL.Query().Get("name"), ".nzb")
 	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name)
+}
+
+func readNZBBody(r *http.Request) ([]byte, error) {
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/") {
+		file, _, err := r.FormFile("nzb")
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
+		return io.ReadAll(file)
+	}
+	return io.ReadAll(r.Body)
 }
 
 func usenetEntitled(hasOwnCreds bool, plan plans.Plan) bool {
