@@ -25,6 +25,23 @@ func TestUserJobForHash(t *testing.T) {
 	}
 }
 
+func TestRecentlyFailed(t *testing.T) {
+	sibs := []*jobs.Job{
+		{UserID: "u1", Status: jobs.StatusComplete, UpdatedAt: time.Now()},
+		{UserID: "u1", Status: jobs.StatusFailed, UpdatedAt: time.Now().Add(-2 * time.Hour)},
+	}
+	if recentlyFailed(sibs, "u1", 30*time.Minute) != nil {
+		t.Error("a stale failure past the cooldown should allow retry")
+	}
+	sibs = append(sibs, &jobs.Job{UserID: "u1", Status: jobs.StatusFailed, UpdatedAt: time.Now()})
+	if recentlyFailed(sibs, "u1", 30*time.Minute) == nil {
+		t.Error("a fresh failure within the cooldown should suppress re-grab")
+	}
+	if recentlyFailed(sibs, "other", 30*time.Minute) != nil {
+		t.Error("another user's failure must not suppress this user")
+	}
+}
+
 func TestLockGrabSerializes(t *testing.T) {
 	unlock := lockGrab("h1")
 	done := make(chan struct{})

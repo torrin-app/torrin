@@ -288,6 +288,9 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 	if job.Status.Active() {
 		s.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID})
 	}
+	if job.Source == jobs.SourceUsenet && s.Users != nil {
+		s.Users.TombstoneUsenet(r.Context(), user.ID, job.InfoHash, time.Now().Add(usenetDeleteTombstone))
+	}
 	if job.Status.Active() && job.Source == jobs.SourceTorrent && s.Qbit != nil {
 		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) == 0 {
 			if s.Qbit.Login() == nil {

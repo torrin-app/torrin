@@ -22,6 +22,11 @@ import (
 
 const maxUsenetConns = 30
 
+const (
+	usenetFailCooldown    = 30 * time.Minute
+	usenetDeleteTombstone = 24 * time.Hour
+)
+
 func (s *Server) registerUsenetRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.Handle("POST /api/jobs/nzb", authMW(http.HandlerFunc(s.submitNZB)))
 	mux.Handle("POST /api/usenet/credentials", authMW(http.HandlerFunc(s.setUsenetCreds)))
@@ -47,6 +52,16 @@ func usenetEntitled(hasOwnCreds bool, plan plans.Plan) bool {
 func userJobForHash(sibs []*jobs.Job, userID string) *jobs.Job {
 	for _, j := range sibs {
 		if j.UserID == userID && j.Status != jobs.StatusFailed {
+			return j
+		}
+	}
+	return nil
+}
+
+func recentlyFailed(sibs []*jobs.Job, userID string, within time.Duration) *jobs.Job {
+	cutoff := time.Now().Add(-within)
+	for _, j := range sibs {
+		if j.UserID == userID && j.Status == jobs.StatusFailed && j.UpdatedAt.After(cutoff) {
 			return j
 		}
 	}
@@ -82,6 +97,19 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			j.StreamURLs = s.signStreams(j, r)
 		}
 		web.WriteJSON(w, 200, j)
+		return
+	}
+
+	if s.Users != nil && s.Users.UsenetTombstoned(r.Context(), user.ID, hash) {
+		web.WriteError(w, 409, "you removed this download, search for it again to re-add")
+		return
+	}
+	if j := recentlyFailed(sibs, user.ID, usenetFailCooldown); j != nil {
+		msg := j.Error
+		if msg == "" {
+			msg = "this release failed recently, try again later"
+		}
+		web.WriteError(w, 409, msg)
 		return
 	}
 

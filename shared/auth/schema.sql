@@ -245,3 +245,10 @@ CREATE TABLE IF NOT EXISTS debrid_usage (
 );
 
 ALTER TABLE cairn_archives ADD COLUMN IF NOT EXISTS nzb BYTEA;
+
+CREATE TABLE IF NOT EXISTS usenet_tombstones (
+    user_id   TEXT NOT NULL,
+    info_hash TEXT NOT NULL,
+    until     TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (user_id, info_hash)
+);
