@@ -6,13 +6,34 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lindell/go-burner-email-providers/burner"
 )
 
+func NormalizeEmail(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	at := strings.LastIndex(email, "@")
+	if at < 1 || at == len(email)-1 {
+		return email
+	}
+	local, domain := email[:at], email[at+1:]
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+	if domain == "googlemail.com" {
+		domain = "gmail.com"
+	}
+	if domain == "gmail.com" {
+		local = strings.ReplaceAll(local, ".", "")
+	}
+	return local + "@" + domain
+}
+
 func (s *Store) CreateUser(ctx context.Context, email string, referralCode ...string) (*User, error) {
+	email = NormalizeEmail(email)
 	if s.IsEmailDeleted(ctx, email) {
 		return nil, fmt.Errorf("account previously deleted")
 	}

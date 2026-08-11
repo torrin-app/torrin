@@ -10,6 +10,14 @@ func (s *Store) AuditLog(ctx context.Context, userID, action, detail, ip string)
 		userID, action, detail, ip)
 }
 
+func (s *Store) SignupsFromIP(ctx context.Context, ip string, since time.Time) int {
+	var n int
+	s.pool.QueryRow(ctx,
+		`SELECT count(*) FROM audit_log WHERE action='account_created' AND ip=$1 AND created_at >= $2`,
+		ip, since).Scan(&n)
+	return n
+}
+
 type AuditEntry struct {
 	Action    string    `json:"action"`
 	Detail    string    `json:"detail"`

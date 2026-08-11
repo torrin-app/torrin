@@ -3,9 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/plans"
 )
 
@@ -18,6 +21,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "email required")
 		return
 	}
+	req.Email = auth.NormalizeEmail(req.Email)
 	if req.Ref == "" {
 		req.Ref = r.URL.Query().Get("ref")
 	}
@@ -29,6 +33,12 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	if existing, err := s.Users.GetByEmail(r.Context(), req.Email); err == nil && existing != nil {
 		web.WriteError(w, 409, "account already exists - use your API key to log in")
 		return
+	}
+	if limit := int(env.Int("FREE_SIGNUPS_PER_IP", 5)); limit > 0 {
+		if ip := clientIP(r); ip != "" && s.Users.SignupsFromIP(r.Context(), ip, time.Now().Add(-30*24*time.Hour)) >= limit {
+			web.WriteError(w, 429, "too many accounts from your network, contact support if this is a mistake")
+			return
+		}
 	}
 	user, err := s.Users.CreateUser(r.Context(), req.Email, req.Ref)
 	if err != nil {

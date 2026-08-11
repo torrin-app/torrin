@@ -7,6 +7,22 @@ import (
 	"time"
 )
 
+func TestNormalizeEmail(t *testing.T) {
+	cases := map[string]string{
+		"You+promo@Gmail.com":  "you@gmail.com",
+		"y.o.u@googlemail.com": "you@gmail.com",
+		" Ab@Proton.me ":       "ab@proton.me",
+		"tag+x@outlook.com":    "tag@outlook.com",
+		"no.dots@fastmail.com": "no.dots@fastmail.com",
+		"weird":                "weird",
+	}
+	for in, want := range cases {
+		if got := NormalizeEmail(in); got != want {
+			t.Errorf("NormalizeEmail(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestIsPaused(t *testing.T) {
 	var u User
 	if u.IsPaused() {

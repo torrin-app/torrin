@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_ip_action ON audit_log(ip, action, created_at);
 
 CREATE TABLE IF NOT EXISTS blocklist_terms (
     term TEXT PRIMARY KEY,
