@@ -50,6 +50,20 @@ func StoreFromEnv() *storage.Client {
 	return s
 }
 
+func CairnStore() *storage.Client {
+	ep := env.Get("CAIRN_S3_ENDPOINT", "")
+	if ep == "" {
+		return nil
+	}
+	c := storage.NewClient(ep, env.Get("CAIRN_S3_REGION", "auto"),
+		env.Get("CAIRN_S3_ACCESS_KEY", ""), env.Get("CAIRN_S3_SECRET_KEY", ""),
+		env.Get("CAIRN_S3_BUCKET", ""), "", env.Get("SIGNING_KEY", ""))
+	if err := c.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
+		Fatal("cairn storage key", err)
+	}
+	return c
+}
+
 func MustEnv(k string) string {
 	v := os.Getenv(k)
 	if v == "" {

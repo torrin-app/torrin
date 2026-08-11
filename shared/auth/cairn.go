@@ -32,6 +32,33 @@ func (s *Store) GetCairnNZB(ctx context.Context, infoHash string) ([]byte, bool)
 	return nzb, err == nil && len(nzb) > 0
 }
 
+type CairnNZB struct {
+	InfoHash string
+	NZB      []byte
+}
+
+func (s *Store) CairnArchivesToBackfill(ctx context.Context, limit int) ([]CairnNZB, error) {
+	rows, err := s.pool.Query(ctx, `SELECT info_hash, nzb FROM cairn_archives WHERE nzb IS NOT NULL LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CairnNZB
+	for rows.Next() {
+		var c CairnNZB
+		if err := rows.Scan(&c.InfoHash, &c.NZB); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ClearCairnNZB(ctx context.Context, infoHash string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE cairn_archives SET nzb = NULL WHERE info_hash = $1`, infoHash)
+	return err
+}
+
 func (s *Store) PendingCairns(ctx context.Context) ([]string, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT DISTINCT c.info_hash FROM user_cairns c

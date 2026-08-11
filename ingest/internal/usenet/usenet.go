@@ -28,19 +28,20 @@ import (
 )
 
 type Runner struct {
-	repo     jobs.Repository
-	store    *storage.Client
-	users    *auth.Store
-	pub      *publish.Publisher
-	bus      *bus.Bus
-	ban      screen.BanFunc
-	scratch  string
-	sysCreds download.Credentials
-	cipher   *crypto.Stream
+	repo       jobs.Repository
+	store      *storage.Client
+	cairnStore *storage.Client
+	users      *auth.Store
+	pub        *publish.Publisher
+	bus        *bus.Bus
+	ban        screen.BanFunc
+	scratch    string
+	sysCreds   download.Credentials
+	cipher     *crypto.Stream
 }
 
-func NewRunner(repo jobs.Repository, store *storage.Client, users *auth.Store, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, sysCreds download.Credentials, cipher *crypto.Stream) *Runner {
-	return &Runner{repo: repo, store: store, users: users, pub: pub, bus: b, ban: ban, scratch: scratch, sysCreds: sysCreds, cipher: cipher}
+func NewRunner(repo jobs.Repository, store, cairnStore *storage.Client, users *auth.Store, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, sysCreds download.Credentials, cipher *crypto.Stream) *Runner {
+	return &Runner{repo: repo, store: store, cairnStore: cairnStore, users: users, pub: pub, bus: b, ban: ban, scratch: scratch, sysCreds: sysCreds, cipher: cipher}
 }
 
 func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
@@ -74,11 +75,20 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 }
 
 func (r *Runner) recoverNZB(ctx context.Context, job *jobs.Job) ([]byte, error) {
-	data, ok := r.users.GetCairnNZB(ctx, job.InfoHash)
-	if !ok {
-		return nil, fmt.Errorf("nzb missing")
+	key := nzb.StorageKey(job.InfoHash)
+	var data []byte
+	if r.cairnStore != nil {
+		if b, err := r.cairnStore.GetBytes(ctx, key); err == nil && len(b) > 0 {
+			data = b
+		}
 	}
-	if err := r.store.Put(ctx, nzb.StorageKey(job.InfoHash), bytes.NewReader(data), "application/x-nzb"); err != nil {
+	if data == nil {
+		var ok bool
+		if data, ok = r.users.GetCairnNZB(ctx, job.InfoHash); !ok {
+			return nil, fmt.Errorf("nzb missing")
+		}
+	}
+	if err := r.store.Put(ctx, key, bytes.NewReader(data), "application/x-nzb"); err != nil {
 		slog.Warn("cairn: repopulate nzb cache", "hash", job.InfoHash, "err", err)
 	}
 	return data, nil
@@ -253,65 +263,6 @@ func decryptInPlace(path string, cipher *crypto.Stream) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-func (r *Runner) restoreNames(ctx context.Context, hash string, parsed *nzb.NZB, files []publish.File) {
-	orig := r.originalNames(ctx, hash, len(parsed.Files))
-	if orig == nil {
-		return
-	}
-	byDisk := make(map[string]string, len(parsed.Files))
-	for i, f := range parsed.Files {
-		byDisk[filepath.Base(download.FileName(f))] = orig[i]
-	}
-	for i := range files {
-		if name := byDisk[filepath.Base(files[i].Name)]; name != "" {
-			files[i].Name = name
-		}
-	}
-}
-
-func (r *Runner) originalNames(ctx context.Context, hash string, n int) []string {
-	list, err := r.repo.ListByInfoHash(ctx, hash)
-	if err != nil {
-		return nil
-	}
-	for _, j := range list {
-		if len(j.Files) != n || allBlobNames(j.Files) {
-			continue
-		}
-		names := make([]string, n)
-		for i, f := range j.Files {
-			names[i] = f.Name
-		}
-		return names
-	}
-	return nil
-}
-
-func allBlobNames(files []jobs.File) bool {
-	for _, f := range files {
-		if !isBlobName(f.Name) {
-			return false
-		}
-	}
-	return true
-}
-
-func isBlobName(name string) bool {
-	stem := name[strings.LastIndex(name, "/")+1:]
-	if i := strings.LastIndex(stem, "."); i >= 0 {
-		stem = stem[:i]
-	}
-	if len(stem) != 20 {
-		return false
-	}
-	for _, c := range stem {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
 
 func stallWatch(ctx context.Context, cancel context.CancelFunc, lastAt *atomic.Int64, jobID string) {

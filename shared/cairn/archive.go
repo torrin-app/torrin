@@ -20,15 +20,23 @@ type Store interface {
 }
 
 type Archiver struct {
-	store  Store
-	users  *auth.Store
-	poster *post.Poster
-	mu     sync.Mutex
-	active map[string]bool
+	store    Store
+	nzbStore Store
+	users    *auth.Store
+	poster   *post.Poster
+	mu       sync.Mutex
+	active   map[string]bool
 }
 
-func NewArchiver(store Store, users *auth.Store, poster *post.Poster) *Archiver {
-	return &Archiver{store: store, users: users, poster: poster, active: map[string]bool{}}
+func NewArchiver(store, nzbStore Store, users *auth.Store, poster *post.Poster) *Archiver {
+	return &Archiver{store: store, nzbStore: nzbStore, users: users, poster: poster, active: map[string]bool{}}
+}
+
+func (a *Archiver) nzbTarget(nzbBytes []byte) (Store, []byte) {
+	if a.nzbStore != nil {
+		return a.nzbStore, nil
+	}
+	return a.store, nzbBytes
 }
 
 func (a *Archiver) begin(hash string) bool {
@@ -81,11 +89,12 @@ func (a *Archiver) Archive(ctx context.Context, hash string) {
 		slog.Warn("cairn: post failed", "hash", hash, "err", err)
 		return
 	}
-	if err := a.store.Put(ctx, nzb.StorageKey(hash), bytes.NewReader(nzbBytes), "application/x-nzb"); err != nil {
+	target, dbNzb := a.nzbTarget(nzbBytes)
+	if err := target.Put(ctx, nzb.StorageKey(hash), bytes.NewReader(nzbBytes), "application/x-nzb"); err != nil {
 		slog.Warn("cairn: store nzb", "hash", hash, "err", err)
 		return
 	}
-	if err := a.users.SetCairnArchive(ctx, hash, nzb.StorageKey(hash), man.Name, total, nzbBytes); err != nil {
+	if err := a.users.SetCairnArchive(ctx, hash, nzb.StorageKey(hash), man.Name, total, dbNzb); err != nil {
 		slog.Warn("cairn: record", "hash", hash, "err", err)
 		return
 	}

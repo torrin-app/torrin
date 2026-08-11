@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/service"
 	"github.com/torrin-app/torrin/shared/storage"
+	"github.com/torrin-app/torrin/shared/usenet/nzb"
 	"github.com/torrin-app/torrin/shared/usenet/post"
 )
 
@@ -46,7 +48,8 @@ func main() {
 	if err != nil {
 		fatal("poster", err)
 	}
-	arch := cairn.NewArchiver(store, users, poster)
+	cairnStore := service.CairnStore()
+	arch := cairn.NewArchiver(store, cairnStore, users, poster)
 
 	if _, err := bus.Subscribe(b, events.CairnRequested, func(req events.CairnRequest) {
 		go arch.Archive(context.Background(), req.InfoHash)
@@ -54,6 +57,9 @@ func main() {
 		fatal("subscribe", err)
 	}
 	go reconcile(ctx, users, store, arch)
+	if cairnStore != nil {
+		go backfillNZB(ctx, users, cairnStore)
+	}
 
 	slog.Info("cairn service started")
 	service.RunHealth("cairn", env.Get("PORT", "8080"))
@@ -77,6 +83,35 @@ func reconcile(ctx context.Context, users *auth.Store, store *storage.Client, ar
 				}
 			}
 			t.Reset(5 * time.Minute)
+		}
+	}
+}
+
+func backfillNZB(ctx context.Context, users *auth.Store, dst *storage.Client) {
+	moved := 0
+	for {
+		batch, err := users.CairnArchivesToBackfill(ctx, 10)
+		if err != nil {
+			slog.Warn("cairn backfill: query", "err", err)
+			return
+		}
+		if len(batch) == 0 {
+			slog.Info("cairn backfill: complete", "moved", moved)
+			return
+		}
+		for _, c := range batch {
+			key := nzb.StorageKey(c.InfoHash)
+			if has, _ := dst.Has(ctx, key); !has {
+				if err := dst.Put(ctx, key, bytes.NewReader(c.NZB), "application/x-nzb"); err != nil {
+					slog.Warn("cairn backfill: upload", "hash", c.InfoHash, "err", err)
+					continue
+				}
+			}
+			if err := users.ClearCairnNZB(ctx, c.InfoHash); err != nil {
+				slog.Warn("cairn backfill: clear", "hash", c.InfoHash, "err", err)
+				continue
+			}
+			moved++
 		}
 	}
 }

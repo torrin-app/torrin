@@ -118,7 +118,7 @@ func main() {
 		return sysAD
 	}, repo, pub, b, ban, scratch, dlConns)
 
-	usenetRunner := usenet.NewRunner(repo, store, users, pub, b, ban, scratch, download.Credentials{
+	usenetRunner := usenet.NewRunner(repo, store, service.CairnStore(), users, pub, b, ban, scratch, download.Credentials{
 		Host:     os.Getenv("USENET_HOST"),
 		Port:     atoiOr(os.Getenv("USENET_PORT"), 563),
 		Username: os.Getenv("USENET_USER"),

@@ -162,6 +162,11 @@ services:
       NATS_URL: *nats
       NODE_ID: "${NODE_ID:-}" # cluster: this box's id, stamped on jobs it publishes (empty = single-box)
       SCRATCH_DIR: "/scratch"
+      CAIRN_S3_ENDPOINT: "${CAIRN_S3_ENDPOINT:-}"
+      CAIRN_S3_ACCESS_KEY: "${CAIRN_S3_ACCESS_KEY:-}"
+      CAIRN_S3_SECRET_KEY: "${CAIRN_S3_SECRET_KEY:-}"
+      CAIRN_S3_BUCKET: "${CAIRN_S3_BUCKET:-}"
+      CAIRN_S3_REGION: "${CAIRN_S3_REGION:-auto}"
       RD_API_KEY: "${RD_API_KEY:-}"
       AD_API_KEY: "${AD_API_KEY:-}"
       QBIT_URL: *qbit-url
@@ -201,6 +206,11 @@ services:
       USENET_POST_PASS: "${USENET_POST_PASS:-}"
       USENET_POST_GROUP: "${USENET_POST_GROUP:-alt.binaries.boneless}"
       USENET_POST_FROM: "${USENET_POST_FROM:-}"
+      CAIRN_S3_ENDPOINT: "${CAIRN_S3_ENDPOINT:-}"
+      CAIRN_S3_ACCESS_KEY: "${CAIRN_S3_ACCESS_KEY:-}"
+      CAIRN_S3_SECRET_KEY: "${CAIRN_S3_SECRET_KEY:-}"
+      CAIRN_S3_BUCKET: "${CAIRN_S3_BUCKET:-}"
+      CAIRN_S3_REGION: "${CAIRN_S3_REGION:-auto}"
     depends_on: *needs-db
     restart: *restart
 
