@@ -14,6 +14,9 @@ func TestIsPrintablePass(t *testing.T) {
 	if isPrintablePass("K\x02B\x9dW\x00\x1f\xff") {
 		t.Error("reveal garbage (raw token) must not count as printable")
 	}
+	if isPrintablePass("K�2B�W") {
+		t.Error("reveal garbage arrives as U+FFFD replacement chars via the rc json layer; must be rejected")
+	}
 }
 
 func TestStorageAccessMsgSurfacesProviderReason(t *testing.T) {

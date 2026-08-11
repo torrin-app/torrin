@@ -88,7 +88,7 @@ func isPrintablePass(s string) bool {
 		return false
 	}
 	for _, r := range s {
-		if r < 0x20 || r == 0x7f {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
 			return false
 		}
 	}
