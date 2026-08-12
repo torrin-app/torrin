@@ -43,7 +43,7 @@ func (s *Server) submitNZB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSuffix(r.URL.Query().Get("name"), ".nzb")
-	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name)
+	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name, true)
 }
 
 func readNZBBody(r *http.Request) ([]byte, error) {
@@ -71,6 +71,10 @@ func userJobForHash(sibs []*jobs.Job, userID string) *jobs.Job {
 	return nil
 }
 
+func tombstoneBlocks(explicit, tombstoned bool) bool {
+	return !explicit && tombstoned
+}
+
 func recentlyFailed(sibs []*jobs.Job, userID string, within time.Duration) *jobs.Job {
 	cutoff := time.Now().Add(-within)
 	for _, j := range sibs {
@@ -81,7 +85,7 @@ func recentlyFailed(sibs []*jobs.Job, userID string, within time.Duration) *jobs
 	return nil
 }
 
-func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint string) {
+func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint string, explicit bool) {
 	if _, err := s.Users.GetUsenetCreds(r.Context(), user.ID); !usenetEntitled(err == nil, plan) {
 		web.WriteError(w, 403, "usenet needs your own provider, add NNTP credentials in settings, or upgrade to a plan that includes usenet")
 		return
@@ -113,9 +117,15 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		return
 	}
 
-	if s.Users != nil && s.Users.UsenetTombstoned(r.Context(), user.ID, hash) {
-		web.WriteError(w, 409, "you removed this download, search for it again to re-add")
-		return
+	if s.Users != nil {
+		tombstoned := s.Users.UsenetTombstoned(r.Context(), user.ID, hash)
+		if tombstoneBlocks(explicit, tombstoned) {
+			web.WriteError(w, 409, "you removed this download, search for it again to re-add")
+			return
+		}
+		if tombstoned {
+			s.Users.ClearUsenetTombstone(r.Context(), user.ID, hash)
+		}
 	}
 	if j := recentlyFailed(sibs, user.ID, usenetFailCooldown); j != nil {
 		msg := j.Error

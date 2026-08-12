@@ -13,6 +13,13 @@ func (s *Store) TombstoneUsenet(ctx context.Context, userID, infoHash string, un
 	return err
 }
 
+func (s *Store) ClearUsenetTombstone(ctx context.Context, userID, infoHash string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM usenet_tombstones WHERE user_id=$1 AND info_hash=$2`,
+		userID, infoHash)
+	return err
+}
+
 func (s *Store) UsenetTombstoned(ctx context.Context, userID, infoHash string) bool {
 	var until time.Time
 	if err := s.pool.QueryRow(ctx,

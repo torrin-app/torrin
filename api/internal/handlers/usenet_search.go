@@ -114,10 +114,11 @@ func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		ID     string `json:"id"`
-		Source string `json:"source"`
-		NZBURL string `json:"nzb_url"`
-		Title  string `json:"title"`
+		ID       string `json:"id"`
+		Source   string `json:"source"`
+		NZBURL   string `json:"nzb_url"`
+		Title    string `json:"title"`
+		Explicit bool   `json:"explicit"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ID == "" {
 		web.WriteError(w, 400, "id required")
@@ -133,7 +134,7 @@ func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 502, "failed to download NZB")
 		return
 	}
-	s.ingestNZB(w, r, user, plan, nzbData, req.Title)
+	s.ingestNZB(w, r, user, plan, nzbData, req.Title, req.Explicit)
 }
 
 func pickSource(sources []indexer.Source, sourceID, nzbURL string) *indexer.Client {
