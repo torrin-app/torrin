@@ -85,6 +85,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.HandleFunc("GET /api/billing/crypto/invoice/{id}", s.cryptoInvoice)
 	mux.HandleFunc("POST /api/billing/crypto/invoice/{id}/address", s.cryptoInvoiceAddress)
 	mux.Handle("POST /api/jobs", authMW(http.HandlerFunc(s.submitJob)))
+	mux.Handle("POST /api/add", authMW(http.HandlerFunc(s.addJob)))
 	mux.Handle("GET /api/jobs", authMW(http.HandlerFunc(s.listJobs)))
 	mux.Handle("GET /api/jobs/{id}", authMW(http.HandlerFunc(s.getJob)))
 	mux.Handle("GET /api/jobs/{id}/progress", authMW(http.HandlerFunc(s.progressJob)))

@@ -18,7 +18,6 @@ import (
 )
 
 func (s *Server) submitJob(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUser(r)
 	var req struct {
 		Magnet string `json:"magnet"`
 	}
@@ -26,19 +25,24 @@ func (s *Server) submitJob(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "magnet required")
 		return
 	}
-	if s.blockedBySafety(w, r, user.ID, req.Magnet) {
+	s.ingestText(w, r, req.Magnet)
+}
+
+func (s *Server) ingestText(w http.ResponseWriter, r *http.Request, input string) {
+	user := middleware.GetUser(r)
+	if s.blockedBySafety(w, r, user.ID, input) {
 		return
 	}
-	if isWebURL(req.Magnet) {
-		s.submitMagnet(w, r, urlKey(req.Magnet), req.Magnet, "", jobs.SourceYtdlp, true)
+	if isWebURL(input) {
+		s.submitMagnet(w, r, urlKey(input), input, "", jobs.SourceYtdlp, true)
 		return
 	}
-	infoHash := extractInfoHash(req.Magnet)
+	infoHash := extractInfoHash(input)
 	if infoHash == "" {
 		web.WriteError(w, 400, "cannot extract infohash")
 		return
 	}
-	s.submitMagnet(w, r, infoHash, req.Magnet, "", jobs.SourceTorrent, true)
+	s.submitMagnet(w, r, infoHash, input, "", jobs.SourceTorrent, true)
 }
 
 func (s *Server) blockedBySafety(w http.ResponseWriter, r *http.Request, userID string, texts ...string) bool {

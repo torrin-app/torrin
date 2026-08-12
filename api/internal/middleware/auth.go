@@ -21,7 +21,7 @@ func expiredFreeAllowed(path string) bool {
 }
 
 func largeUpload(path string) bool {
-	return path == "/api/jobs/nzb" || path == "/api/torrents/upload"
+	return path == "/api/jobs/nzb" || path == "/api/torrents/upload" || path == "/api/add"
 }
 
 func Auth(store *auth.Store) func(http.Handler) http.Handler {

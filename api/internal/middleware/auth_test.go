@@ -3,7 +3,7 @@ package middleware
 import "testing"
 
 func TestLargeUpload(t *testing.T) {
-	for _, p := range []string{"/api/jobs/nzb", "/api/torrents/upload"} {
+	for _, p := range []string{"/api/jobs/nzb", "/api/torrents/upload", "/api/add"} {
 		if !largeUpload(p) {
 			t.Errorf("%s must skip the 1MB body cap (uploads set their own)", p)
 		}
