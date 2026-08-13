@@ -15,11 +15,12 @@ import (
 )
 
 type Item struct {
-	GUID   string
-	Title  string
-	Magnet string
-	NzbURL string
-	Link   string
+	GUID       string
+	Title      string
+	Magnet     string
+	TorrentURL string
+	NzbURL     string
+	Link       string
 }
 
 func FetchFeed(ctx context.Context, feedURL string) ([]Item, error) {
@@ -38,11 +39,15 @@ func FetchFeed(ctx context.Context, feedURL string) ([]Item, error) {
 	var items []Item
 	for _, entry := range feed.Items {
 		magnet := extractMagnet(entry)
+		torrentURL := ""
 		nzbURL := ""
 		if magnet == "" {
+			torrentURL = extractTorrentURL(entry)
+		}
+		if magnet == "" && torrentURL == "" {
 			nzbURL = extractNZB(entry)
 		}
-		if magnet == "" && nzbURL == "" && entry.Link == "" {
+		if magnet == "" && torrentURL == "" && nzbURL == "" && entry.Link == "" {
 			continue
 		}
 		guid := entry.GUID
@@ -50,28 +55,39 @@ func FetchFeed(ctx context.Context, feedURL string) ([]Item, error) {
 			guid = entry.Link
 		}
 		if guid == "" {
-			if magnet != "" {
+			switch {
+			case magnet != "":
 				guid = magnet
-			} else {
+			case torrentURL != "":
+				guid = torrentURL
+			default:
 				guid = nzbURL
 			}
 		}
-		items = append(items, Item{GUID: guid, Title: entry.Title, Magnet: magnet, NzbURL: nzbURL, Link: entry.Link})
+		items = append(items, Item{GUID: guid, Title: entry.Title, Magnet: magnet, TorrentURL: torrentURL, NzbURL: nzbURL, Link: entry.Link})
 	}
 	return items, nil
 }
 
-func extractNZB(entry *gofeed.Item) string {
+func extractEnclosure(entry *gofeed.Item, typeNeedle, urlNeedle string) string {
 	for _, enc := range entry.Enclosures {
-		if strings.Contains(strings.ToLower(enc.Type), "nzb") ||
-			strings.Contains(strings.ToLower(enc.URL), ".nzb") {
+		if strings.Contains(strings.ToLower(enc.Type), typeNeedle) ||
+			strings.Contains(strings.ToLower(enc.URL), urlNeedle) {
 			return enc.URL
 		}
 	}
-	if strings.Contains(strings.ToLower(entry.Link), ".nzb") {
+	if strings.Contains(strings.ToLower(entry.Link), urlNeedle) {
 		return entry.Link
 	}
 	return ""
+}
+
+func extractTorrentURL(entry *gofeed.Item) string {
+	return extractEnclosure(entry, "bittorrent", ".torrent")
+}
+
+func extractNZB(entry *gofeed.Item) string {
+	return extractEnclosure(entry, "nzb", ".nzb")
 }
 
 func extractMagnet(entry *gofeed.Item) string {

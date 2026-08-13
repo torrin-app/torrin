@@ -2,9 +2,13 @@ package torrent
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/qbit"
 )
 
 type fakeRepo struct {
@@ -14,6 +18,43 @@ type fakeRepo struct {
 
 func (f *fakeRepo) ListByStatus(_ context.Context, s jobs.Status) ([]*jobs.Job, error) {
 	return f.byStatus[s], nil
+}
+
+type progRepo struct {
+	jobs.Repository
+	pct   float64
+	speed int64
+}
+
+func (p *progRepo) SetProgress(_ context.Context, _ string, pct float64, speed int64) error {
+	p.pct, p.speed = pct, speed
+	return nil
+}
+
+func TestDrivePersistsProgress(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.Contains(r.URL.Path, "auth/login"):
+			w.Write([]byte("Ok."))
+		case strings.Contains(r.URL.Path, "torrents/info"):
+			w.Write([]byte(`[{"hash":"aabbcc","progress":0.42,"dlspeed":1000,"state":"downloading","size":100,"name":"x"}]`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	fr := &progRepo{}
+	r := &Runner{qb: qbit.NewClient(srv.URL, "u", "p"), repo: fr}
+	job := &jobs.Job{ID: "j1", InfoHash: "aabbcc", Name: "x", Files: []jobs.File{{Index: 0}}}
+	r.drive(context.Background(), job)
+
+	if fr.pct != 42 {
+		t.Fatalf("progress not persisted to db: got %v, want 42", fr.pct)
+	}
+	if fr.speed != 1000 {
+		t.Fatalf("speed not persisted: got %d, want 1000", fr.speed)
+	}
 }
 
 func TestActiveHashesProtectsLiveJobs(t *testing.T) {

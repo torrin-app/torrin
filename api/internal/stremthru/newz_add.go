@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -128,9 +129,9 @@ func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans
 	if existing, err := h.Jobs.GetByInfoHash(ctx, contentHash); err == nil && existing != nil &&
 		existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
 		if existing.UserID == user.ID {
-			return newzStatus(existing.Status), 0, ""
+			return stStatus(existing.Status), 0, ""
 		}
-		linked := &jobs.Job{UserID: user.ID, InfoHash: contentHash, Name: existing.Name, Source: jobs.SourceUsenet, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize}
+		linked := &jobs.Job{UserID: user.ID, InfoHash: contentHash, Name: existing.Name, Source: jobs.SourceUsenet, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node}
 		active := existing.Status.Active()
 		if active && !h.Slots.Acquire(ctx, user.ID, plan) {
 			return "", 429, "slot limit reached"
@@ -144,7 +145,7 @@ func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans
 		if active {
 			h.Slots.Release(user.ID)
 		}
-		return newzStatus(linked.Status), 0, ""
+		return stStatus(linked.Status), 0, ""
 	}
 
 	if !h.Slots.Acquire(ctx, user.ID, plan) {
@@ -154,13 +155,16 @@ func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans
 		h.Slots.Release(user.ID)
 		return "", 500, "failed to store nzb"
 	}
+	h.Users.SetJobNZB(ctx, contentHash, body)
 	job := &jobs.Job{UserID: user.ID, InfoHash: contentHash, Name: name, FileSize: size, Source: jobs.SourceUsenet, Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority}
 	err := h.Jobs.Create(ctx, job)
 	h.Slots.Release(user.ID)
 	if err != nil {
 		return "", 500, "could not start this download"
 	}
-	h.Bus.Publish(events.JobAssigned, events.Assigned{JobID: job.ID, InfoHash: job.InfoHash, Source: string(jobs.SourceUsenet), MaxBytes: job.MaxBytes})
+	job.Node = cluster.TargetNode(context.Background(), h.Jobs, string(jobs.SourceUsenet), job.MaxBytes)
+	h.Jobs.Update(context.Background(), job)
+	h.Bus.Publish(events.JobAssigned, events.Assigned{JobID: job.ID, InfoHash: job.InfoHash, Source: string(jobs.SourceUsenet), MaxBytes: job.MaxBytes, Node: job.Node})
 	return "queued", 0, ""
 }
 

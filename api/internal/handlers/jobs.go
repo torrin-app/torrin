@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
@@ -85,7 +87,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		}
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: infoHash, Name: existing.Name, Magnet: magnet,
-			Source: source, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize,
+			Source: source, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
 		activeLink := linked.Status.Active()
 		if activeLink && !s.Slots.Acquire(r.Context(), user.ID, plan) {
@@ -167,7 +169,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 404, "job not found")
 		return
 	}
-	if !job.Status.Active() {
+	if !job.Status.Active() || job.Status == jobs.StatusSeeding {
 		job.StreamURLs = s.signStreams(job, r)
 	}
 	web.WriteJSON(w, 200, job)
@@ -180,7 +182,7 @@ func (s *Server) jobZip(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 404, "job not found")
 		return
 	}
-	if job.Status != jobs.StatusComplete {
+	if job.Status != jobs.StatusComplete && job.Status != jobs.StatusSeeding {
 		web.WriteError(w, 409, "job not complete")
 		return
 	}
@@ -209,7 +211,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		list, _ = s.Jobs.ListByUser(r.Context(), user.ID, limit)
 	}
 	for _, j := range list {
-		if !j.Status.Active() && len(j.Files) > 0 {
+		if (!j.Status.Active() || j.Status == jobs.StatusSeeding) && len(j.Files) > 0 {
 			j.StreamURLs = s.signStreams(j, r)
 		}
 	}
@@ -276,6 +278,11 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if job.Seed && job.Status == jobs.StatusSeeding {
+		web.WriteError(w, 409, "seeding until it meets its ratio/time target, this frees automatically")
+		return
+	}
+
 	if job.Status == jobs.StatusComplete {
 		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) <= 1 {
 			job.UserID = "system"
@@ -294,11 +301,18 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 	if job.Source == jobs.SourceUsenet && s.Users != nil {
 		s.Users.TombstoneUsenet(r.Context(), user.ID, job.InfoHash, time.Now().Add(usenetDeleteTombstone))
-	}
-	if job.Status.Active() && job.Source == jobs.SourceTorrent && s.Qbit != nil {
 		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) == 0 {
-			if s.Qbit.Login() == nil {
-				s.Qbit.Delete(job.InfoHash)
+			s.Users.ClearJobNZB(r.Context(), job.InfoHash)
+		}
+	}
+	qb := s.Qbit
+	if job.Seed {
+		qb = s.QbitSeed
+	}
+	if job.Status.Active() && job.Source == jobs.SourceTorrent && qb != nil {
+		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) == 0 {
+			if qb.Login() == nil {
+				qb.Delete(job.InfoHash)
 			}
 		}
 	}
@@ -306,10 +320,7 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) assign(job *jobs.Job) {
-	s.Bus.Publish(events.JobAssigned, events.Assigned{
-		JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
-		Source: string(job.Source), MaxBytes: job.MaxBytes,
-	})
+	cluster.Assign(context.Background(), s.Bus, s.JobsPG, s.Jobs, job)
 }
 
 func slotMsg(s *Server, r *http.Request, userID string, max int) string {

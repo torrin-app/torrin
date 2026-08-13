@@ -22,11 +22,20 @@ func (p *Postgres) RecordView(ctx context.Context, infoHash, userID string) (boo
 		return false, nil
 	}
 	p.pool.Exec(ctx, `UPDATE jobs SET last_accessed_at=now(), access_count=access_count+1, updated_at=now()
-		WHERE info_hash=$1 AND status='complete'`, infoHash)
+		WHERE info_hash=$1 AND status IN ('complete','seeding')`, infoHash)
 	return true, nil
 }
 
-func (p *Postgres) GetTotalCachedSize(ctx context.Context) (int64, error) {
+func (p *Postgres) GetTotalCachedSize(ctx context.Context, node string) (int64, error) {
+	var total int64
+	err := p.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(max_size), 0) FROM (
+			SELECT MAX(file_size) AS max_size FROM jobs WHERE status='complete' AND node=$1 GROUP BY info_hash
+		) t`, node).Scan(&total)
+	return total, err
+}
+
+func (p *Postgres) GetTotalCachedSizeAll(ctx context.Context) (int64, error) {
 	var total int64
 	err := p.pool.QueryRow(ctx, `
 		SELECT COALESCE(SUM(max_size), 0) FROM (
@@ -35,20 +44,20 @@ func (p *Postgres) GetTotalCachedSize(ctx context.Context) (int64, error) {
 	return total, err
 }
 
-func (p *Postgres) GetEvictionCandidates(ctx context.Context) ([]EvictionCandidate, error) {
+func (p *Postgres) GetEvictionCandidates(ctx context.Context, node string) ([]EvictionCandidate, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT MIN(id), info_hash, MAX(name), MAX(file_size), COALESCE(SUM(access_count), 0) AS access_total,
 			CAST(EXTRACT(EPOCH FROM (now() - MAX(COALESCE(last_accessed_at, created_at)))) / 86400 AS INTEGER) AS days_inactive,
 			MAX(CASE WHEN user_id='prewarm' THEN 1 ELSE 0 END) AS is_prewarm
 		FROM jobs
-		WHERE status='complete'
+		WHERE status='complete' AND node=$1
 		GROUP BY info_hash
 		ORDER BY
 			CASE WHEN COALESCE(SUM(access_count),0)=0 THEN 0
 			     WHEN COALESCE(SUM(access_count),0)<10 THEN 1
 			     ELSE 2 END ASC,
 			days_inactive DESC,
-			MAX(file_size) DESC`)
+			MAX(file_size) DESC`, node)
 	if err != nil {
 		return nil, err
 	}

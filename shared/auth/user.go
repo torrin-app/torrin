@@ -19,6 +19,8 @@ type User struct {
 	BanReason            string    `json:"ban_reason,omitempty"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+	SeedSlotPacks        int       `json:"seed_slot_packs"`
+	SeedSlotSub          string    `json:"-"`
 	SystemIndexerEnabled bool      `json:"system_indexer_enabled"`
 }
 

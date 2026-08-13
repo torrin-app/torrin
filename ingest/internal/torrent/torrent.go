@@ -13,24 +13,34 @@ import (
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/qbit"
+	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/video"
 )
 
 const stalledMsg = "stalled, waiting for peers"
 
 type Runner struct {
-	qb       *qbit.Client
-	repo     jobs.Repository
-	pub      *publish.Publisher
-	bus      *bus.Bus
-	ban      screen.BanFunc
-	interval time.Duration
-	inflight sync.Map
-	sem      chan struct{}
+	qb        *qbit.Client
+	repo      jobs.Repository
+	pub       *publish.Publisher
+	bus       *bus.Bus
+	ban       screen.BanFunc
+	store     *storage.Client
+	downloads string
+	seedOnly  bool
+	node      string
+	category  string
+	interval  time.Duration
+	inflight  sync.Map
+	sem       chan struct{}
 }
 
-func NewRunner(qb *qbit.Client, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc) *Runner {
-	return &Runner{qb: qb, repo: repo, pub: pub, bus: b, ban: ban, interval: 15 * time.Second, sem: make(chan struct{}, 5)}
+func NewRunner(qb *qbit.Client, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, store *storage.Client, downloads string, seedOnly bool, node string) *Runner {
+	category := "torrin"
+	if seedOnly {
+		category = "torrin-seed"
+	}
+	return &Runner{qb: qb, repo: repo, pub: pub, bus: b, ban: ban, store: store, downloads: downloads, seedOnly: seedOnly, node: node, category: category, interval: 15 * time.Second, sem: make(chan struct{}, 5)}
 }
 
 func (r *Runner) Hold(infoHash string) bool {
@@ -66,7 +76,7 @@ func (r *Runner) poll(ctx context.Context) {
 	}
 	active, _ := r.repo.ListByStatus(ctx, jobs.StatusDownloading)
 	for _, job := range active {
-		if job.Source != jobs.SourceTorrent || job.InfoHash == "" {
+		if job.Node != r.node || job.Source != jobs.SourceTorrent || job.InfoHash == "" || job.Seed != r.seedOnly {
 			continue
 		}
 		if _, busy := r.inflight.Load(job.InfoHash); busy {
@@ -92,6 +102,7 @@ func (r *Runner) drive(ctx context.Context, job *jobs.Job) {
 			r.bus.Publish(events.JobAssigned, events.Assigned{
 				JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
 				Source: string(job.Source), MaxBytes: job.MaxBytes,
+				Node: job.Node,
 			})
 		}
 		return
@@ -119,6 +130,8 @@ func (r *Runner) drive(ctx context.Context, job *jobs.Job) {
 		return
 	}
 
+	r.repo.SetProgress(ctx, job.ID, t.Progress*100, t.DlSpeed)
+
 	if r.recoverStall(ctx, job, hash, t) {
 		return
 	}
@@ -144,7 +157,7 @@ func (r *Runner) onMetadata(ctx context.Context, job *jobs.Job, hash string, t *
 				skip = append(skip, f.Index)
 			}
 		}
-		if len(skip) > 0 && len(skip) < len(files) {
+		if !job.Seed && len(skip) > 0 && len(skip) < len(files) {
 			r.qb.SetFilePriority(hash, skip, 0)
 		}
 	}

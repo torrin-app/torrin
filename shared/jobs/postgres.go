@@ -61,11 +61,11 @@ func (p *Postgres) Create(ctx context.Context, j *Job) error {
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO jobs (id, user_id, info_hash, name, magnet, source, status, error,
 			files, selected_idxs, imdb_id, title_norm, file_size, max_bytes, priority,
-			node, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+			node, created_at, updated_at, seed)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		j.ID, j.UserID, j.InfoHash, j.Name, j.Magnet, string(j.Source), string(j.Status),
 		j.Error, files, idxs, j.IMDBID, titleNormFromName(j.Name), j.FileSize, j.MaxBytes, j.Priority,
-		j.Node, j.CreatedAt, j.UpdatedAt)
+		j.Node, j.CreatedAt, j.UpdatedAt, j.Seed)
 	return err
 }
 
@@ -76,10 +76,10 @@ func (p *Postgres) Update(ctx context.Context, j *Job) error {
 	ct, err := p.pool.Exec(ctx, `
 		UPDATE jobs SET user_id=$2, info_hash=$3, name=$4, magnet=$5, source=$6,
 			status=$7, error=$8, files=$9, selected_idxs=$10, imdb_id=$11,
-			title_norm=$12, file_size=$13, max_bytes=$14, priority=$15, node=$16, updated_at=$17
+			title_norm=$12, file_size=$13, max_bytes=$14, priority=$15, node=$16, updated_at=$17, seed=$18
 		WHERE id=$1`,
 		j.ID, j.UserID, j.InfoHash, j.Name, j.Magnet, string(j.Source), string(j.Status),
-		j.Error, files, idxs, j.IMDBID, titleNormFromName(j.Name), j.FileSize, j.MaxBytes, j.Priority, j.Node, j.UpdatedAt)
+		j.Error, files, idxs, j.IMDBID, titleNormFromName(j.Name), j.FileSize, j.MaxBytes, j.Priority, j.Node, j.UpdatedAt, j.Seed)
 	if err != nil {
 		return err
 	}
@@ -91,7 +91,7 @@ func (p *Postgres) Update(ctx context.Context, j *Job) error {
 
 const cols = `id, user_id, info_hash, name, magnet, source, status, error,
 	files, selected_idxs, imdb_id, file_size, max_bytes, priority,
-	created_at, updated_at, progress, dl_speed, node`
+	created_at, updated_at, progress, dl_speed, node, seed`
 
 func (p *Postgres) Requeue(ctx context.Context, id string) error {
 	ct, err := p.pool.Exec(ctx,
@@ -182,7 +182,7 @@ func (p *Postgres) Delete(ctx context.Context, id string) error {
 func (p *Postgres) ActiveCount(ctx context.Context, userID string) (int, error) {
 	var n int
 	err := p.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status IN `+activeStates, userID).Scan(&n)
+		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status IN `+concurrencyStates, userID).Scan(&n)
 	return n, err
 }
 
@@ -236,7 +236,7 @@ func scan(s scanner) (*Job, error) {
 	var files, idxs []byte
 	err := s.Scan(&j.ID, &j.UserID, &j.InfoHash, &j.Name, &j.Magnet, &source, &status,
 		&j.Error, &files, &idxs, &j.IMDBID, &j.FileSize, &j.MaxBytes, &j.Priority,
-		&j.CreatedAt, &j.UpdatedAt, &j.Progress, &j.Speed, &j.Node)
+		&j.CreatedAt, &j.UpdatedAt, &j.Progress, &j.Speed, &j.Node, &j.Seed)
 	if err != nil {
 		return nil, err
 	}

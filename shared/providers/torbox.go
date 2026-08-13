@@ -192,7 +192,7 @@ func TBLibrary(ctx context.Context, tbKey string) ([]LibraryItem, error) {
 
 func TorBoxCached(ctx context.Context, tbKey string, hashes []string) map[string]bool {
 	t := newTorbox(tbKey)
-	u := tbBase + "/torrents/checkcached?hash=" + url.QueryEscape(strings.Join(hashes, ",")) + "&format=list"
+	u := checkcachedURL(strings.Join(hashes, ","))
 	body, err := t.get(ctx, u)
 	if err != nil {
 		return nil
@@ -213,8 +213,12 @@ func TorBoxCached(ctx context.Context, tbKey string, hashes []string) map[string
 	return out
 }
 
+func checkcachedURL(hash string) string {
+	return tbBase + "/torrents/checkcached?hash=" + url.QueryEscape(hash) + "&format=list"
+}
+
 func (t *torbox) cached(ctx context.Context, hash string) (*tbCache, error) {
-	u := tbBase + "/torrents/checkcached?hash=" + url.QueryEscape(hash) + "&format=list"
+	u := checkcachedURL(hash)
 	body, err := t.get(ctx, u)
 	if err != nil {
 		return nil, err

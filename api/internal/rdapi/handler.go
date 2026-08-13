@@ -11,7 +11,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
-	"github.com/torrin-app/torrin/shared/events"
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -117,7 +117,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: existing.Name,
 			Source: jobs.SourceTorrent, Status: existing.Status, IMDBID: existing.IMDBID,
-			Files: existing.Files, FileSize: existing.FileSize,
+			Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
 		active := existing.Status.Active()
 		if active && !h.Slots.Acquire(r.Context(), user.ID, plan) {
@@ -152,10 +152,18 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	writeJSON(w, 201, map[string]any{"id": job.ID, "uri": "/rest/1.0/torrents/info/" + job.ID})
 }
 
-func (h *Handler) selectFiles(w http.ResponseWriter, r *http.Request, user *auth.User) {
+func (h *Handler) ownedJob(w http.ResponseWriter, r *http.Request, user *auth.User) (*jobs.Job, bool) {
 	job, err := h.Jobs.Get(r.Context(), r.PathValue("id"))
 	if err != nil || job.UserID != user.ID {
 		writeRDError(w, 404, 7, "unknown resource")
+		return nil, false
+	}
+	return job, true
+}
+
+func (h *Handler) selectFiles(w http.ResponseWriter, r *http.Request, user *auth.User) {
+	job, ok := h.ownedJob(w, r, user)
+	if !ok {
 		return
 	}
 	if job.Status != jobs.StatusComplete && h.Qbit != nil && h.Qbit.Login() == nil {
@@ -165,18 +173,16 @@ func (h *Handler) selectFiles(w http.ResponseWriter, r *http.Request, user *auth
 }
 
 func (h *Handler) torrentInfo(w http.ResponseWriter, r *http.Request, user *auth.User) {
-	job, err := h.Jobs.Get(r.Context(), r.PathValue("id"))
-	if err != nil || job.UserID != user.ID {
-		writeRDError(w, 404, 7, "unknown resource")
+	job, ok := h.ownedJob(w, r, user)
+	if !ok {
 		return
 	}
 	writeJSON(w, 200, jobToRDTorrentFull(job, h.Store))
 }
 
 func (h *Handler) deleteTorrent(w http.ResponseWriter, r *http.Request, user *auth.User) {
-	job, err := h.Jobs.Get(r.Context(), r.PathValue("id"))
-	if err != nil || job.UserID != user.ID {
-		writeRDError(w, 404, 7, "unknown resource")
+	job, ok := h.ownedJob(w, r, user)
+	if !ok {
 		return
 	}
 	if job.Status.Active() && h.Qbit != nil && h.Qbit.Login() == nil {
@@ -236,10 +242,7 @@ func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *a
 }
 
 func (h *Handler) assign(job *jobs.Job) {
-	h.Bus.Publish(events.JobAssigned, events.Assigned{
-		JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
-		Source: string(jobs.SourceTorrent), MaxBytes: job.MaxBytes,
-	})
+	cluster.Assign(context.Background(), h.Bus, h.Jobs, h.Jobs, job)
 }
 
 func (h *Handler) manifestMeta(ctx context.Context, infoHash string) (string, int64, []jobs.File) {

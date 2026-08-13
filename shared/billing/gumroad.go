@@ -62,6 +62,7 @@ func (g *GumroadHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	case "subscription_ended", "refund":
 		if sub := v.Get("subscription_id"); sub != "" {
 			g.userStore.Downgrade(ctx, sub)
+			g.userStore.ClearSeedSlotsBySub(ctx, sub)
 			slog.Info("subscription downgraded", "event", event, "subscription_id", sub)
 		}
 	case "cancellation":
@@ -83,6 +84,15 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 		return
 	}
 
+	if permalink == plans.SeedSlotProduct {
+		g.handleSeedSlots(ctx, v)
+		if saleID != "" {
+			seedCents, _ := strconv.Atoi(v.Get("price"))
+			g.userStore.RecordProcessedSale(ctx, saleID, "", seedCents, v.Get("currency"))
+		}
+		return
+	}
+
 	planID, ok := plans.ByGumroadProduct[permalink]
 	if !ok {
 		slog.Warn("unknown gumroad product, rejecting", "permalink", permalink)
@@ -94,12 +104,12 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 		return
 	}
 
-	user, err := g.userStore.GetByEmail(ctx, email)
-	if err != nil || user == nil {
-		if user, err = g.userStore.CreateUser(ctx, email); err != nil {
-			slog.Error("create user", "err", err)
-			return
-		}
+	user, created, err := getOrCreateUser(ctx, g.userStore, email)
+	if err != nil {
+		slog.Error("create user", "err", err)
+		return
+	}
+	if created {
 		slog.Info("new user created via gumroad", "email", email)
 	}
 
@@ -130,23 +140,37 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 	}
 }
 
+func (g *GumroadHandler) handleSeedSlots(ctx context.Context, v url.Values) {
+	email := v.Get("email")
+	user, _, err := getOrCreateUser(ctx, g.userStore, email)
+	if err != nil {
+		slog.Error("create user for seed slots", "err", err)
+		return
+	}
+	packs, _ := strconv.Atoi(v.Get("quantity"))
+	if packs < 1 {
+		packs = 1
+	}
+	if packs > 2 {
+		packs = 2
+	}
+	if err := g.userStore.SetSeedSlots(ctx, user.ID, packs, v.Get("subscription_id")); err != nil {
+		slog.Error("set seed slots", "err", err)
+		return
+	}
+	slog.Info("seed slots granted", "email", email, "packs", packs)
+}
+
 func saleExpiry(period, permalink string, recurrence *string) time.Time {
+	days := 0
 	switch period {
 	case "lifetime":
 		*recurrence = "lifetime"
-		return time.Date(2099, 12, 31, 0, 0, 0, 0, time.UTC)
-	case "yearly":
-		return time.Now().Add(365 * 24 * time.Hour)
 	case "days":
-		days := plans.DaysFromProduct(permalink)
-		if days <= 0 {
-			days = 7
-		}
+		days = plans.DaysFromProduct(permalink)
 		*recurrence = "days"
-		return time.Now().Add(time.Duration(days) * 24 * time.Hour)
-	default:
-		return time.Now().Add(35 * 24 * time.Hour)
 	}
+	return cryptoExpiry(period, days)
 }
 
 func (g *GumroadHandler) handleDispute(ctx context.Context, v url.Values) {

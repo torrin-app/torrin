@@ -12,7 +12,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
-	"github.com/torrin-app/torrin/shared/events"
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -108,10 +108,7 @@ func (h *Handler) generateLink(w http.ResponseWriter, r *http.Request, user *aut
 }
 
 func (h *Handler) assign(job *jobs.Job) {
-	h.Bus.Publish(events.JobAssigned, events.Assigned{
-		JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
-		Source: string(jobs.SourceTorrent), MaxBytes: job.MaxBytes,
-	})
+	cluster.Assign(context.Background(), h.Bus, h.Jobs, h.Jobs, job)
 }
 
 func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
@@ -120,7 +117,7 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339),
 		"files": []map[string]any{},
 	}
-	if j.Status == jobs.StatusComplete {
+	if j.Status == jobs.StatusComplete || j.Status == jobs.StatusSeeding {
 		files := j.Files
 		if _, _, mf := h.manifestMeta(ctx, j.InfoHash); mf != nil {
 			files = mf
@@ -168,7 +165,7 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) (string, []m
 
 func stStatus(s jobs.Status) string {
 	switch s {
-	case jobs.StatusComplete:
+	case jobs.StatusComplete, jobs.StatusSeeding:
 		return "downloaded"
 	case jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing:
 		return "downloading"

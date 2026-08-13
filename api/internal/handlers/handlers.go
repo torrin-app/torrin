@@ -34,20 +34,24 @@ type Publisher interface {
 }
 
 type Deps struct {
-	Jobs    jobs.Repository
-	JobsPG  *jobs.Postgres
-	Users   *auth.Store
-	Store   Storage
-	Bus     Publisher
-	Slots   *middleware.SlotTracker
-	Qbit    *qbit.Client
-	Scrape  *scrape.Client
-	Mailer  *email.Client
-	RClone  *rclonerc.Client
-	Bitcart *billing.BitcartHandler
-	Bachs   *billing.BachsHandler
-	SignKey []byte
-	Budget  int64
+	Jobs     jobs.Repository
+	JobsPG   *jobs.Postgres
+	Users    *auth.Store
+	Store    Storage
+	Bus      Publisher
+	Slots    *middleware.SlotTracker
+	Qbit     *qbit.Client
+	QbitSeed *qbit.Client
+	Scrape   *scrape.Client
+	Mailer   *email.Client
+	RClone   *rclonerc.Client
+	Bitcart  *billing.BitcartHandler
+	Bachs    *billing.BachsHandler
+	SignKey  []byte
+	Budget   int64
+
+	SeedingEnabled    bool
+	SeedingAllowUsers map[string]bool
 
 	Internal      string
 	AdminKey      string
@@ -82,6 +86,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.Handle("GET /api/me", authMW(http.HandlerFunc(s.me)))
 	mux.Handle("POST /api/billing/crypto/checkout", authMW(http.HandlerFunc(s.cryptoCheckout)))
 	mux.Handle("POST /api/billing/bachs/checkout", authMW(http.HandlerFunc(s.bachsCheckout)))
+	s.registerAdminRoutes(mux)
 	mux.HandleFunc("GET /api/billing/crypto/invoice/{id}", s.cryptoInvoice)
 	mux.HandleFunc("POST /api/billing/crypto/invoice/{id}/address", s.cryptoInvoiceAddress)
 	mux.Handle("POST /api/jobs", authMW(http.HandlerFunc(s.submitJob)))
@@ -94,6 +99,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.Handle("POST /api/jobs/{id}/recheck", authMW(http.HandlerFunc(s.recheckJob)))
 	mux.Handle("DELETE /api/jobs/{id}", authMW(http.HandlerFunc(s.deleteJob)))
 	mux.Handle("POST /api/jobs/hoster", authMW(http.HandlerFunc(s.submitHoster)))
+	mux.Handle("POST /api/torrents/upload", authMW(http.HandlerFunc(s.uploadTorrent)))
 	mux.Handle("GET /api/search", authMW(http.HandlerFunc(s.search)))
 	s.registerCredRoutes(mux, authMW, "/api/rd/credentials", credOps{s.Users.GetRDKey, s.Users.SetRDKey, s.Users.DeleteRDKey, providers.ValidateRD})
 	s.registerCredRoutes(mux, authMW, "/api/alldebrid/credentials", credOps{s.Users.GetADKey, s.Users.SetADKey, s.Users.DeleteADKey, providers.ValidateAD})
@@ -101,7 +107,6 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerCredRoutes(mux, authMW, "/api/torbox/credentials", credOps{s.Users.GetTBKey, s.Users.SetTBKey, s.Users.DeleteTBKey, providers.ValidateTB})
 	mux.Handle("GET /api/debrid/usage", authMW(http.HandlerFunc(s.debridUsage)))
 	s.registerLibraryRoutes(mux, authMW)
-	s.registerAdminRoutes(mux)
 	s.registerUsenetRoutes(mux, authMW)
 	s.registerCairnRoutes(mux, authMW)
 	s.registerUsenetSearchRoutes(mux, authMW)

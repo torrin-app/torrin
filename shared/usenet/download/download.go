@@ -2,7 +2,6 @@ package download
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Tensai75/nntpPool"
+	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/usenet/decoder"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
 )
@@ -272,9 +272,11 @@ func fetchSegment(ctx context.Context, pool nntpPool.ConnectionPool, msgID, grou
 		}
 		return data, nil
 	}
-	return nil, fmt.Errorf("segment %s after %d attempts: %w", msgID, segAttempts, lastErr)
+	return nil, failure.Wrap(failure.Interrupted, "segment %s after %d attempts: %v", msgID, segAttempts, lastErr)
 }
 
+// isArticleMissing reports whether the article is genuinely absent (NNTP 430/423)
+// rather than a transient connection error, no point retrying a missing article.
 func isArticleMissing(err error) bool {
 	if err == nil {
 		return false

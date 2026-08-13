@@ -1,9 +1,11 @@
 package qbit
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -29,6 +31,9 @@ type Torrent struct {
 	ContentPath string  `json:"content_path"`
 	Category    string  `json:"category"`
 	ETA         int64   `json:"eta"`
+	Ratio       float64 `json:"ratio"`
+	SeedingTime int64   `json:"seeding_time"`
+	Uploaded    int64   `json:"uploaded"`
 }
 
 type TorrentFile struct {
@@ -65,21 +70,46 @@ func (c *Client) Login() error {
 	return fmt.Errorf("login failed: %s (status %d)", body, resp.StatusCode)
 }
 
-func (c *Client) SetAutoTrackers(trackers string) error {
-	prefs, _ := json.Marshal(map[string]any{
-		"add_trackers_enabled": true,
-		"add_trackers":         trackers,
-	})
-	resp, err := c.http.PostForm(c.baseURL+"/api/v2/app/setPreferences", url.Values{"json": {string(prefs)}})
+func (c *Client) setPreferences(prefs map[string]any) error {
+	data, _ := json.Marshal(prefs)
+	resp, err := c.http.PostForm(c.baseURL+"/api/v2/app/setPreferences", url.Values{"json": {string(data)}})
 	if err != nil {
-		return fmt.Errorf("set trackers: %w", err)
+		return fmt.Errorf("set preferences: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 && resp.StatusCode != 204 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("set trackers failed: %s (status %d)", body, resp.StatusCode)
+		return fmt.Errorf("set preferences (%d): %s", resp.StatusCode, body)
 	}
 	return nil
+}
+
+func (c *Client) SetAutoTrackers(trackers string) error {
+	return c.setPreferences(map[string]any{
+		"add_trackers_enabled": true,
+		"add_trackers":         trackers,
+	})
+}
+
+func (c *Client) ConfigureForSeeding() error {
+	return c.setPreferences(map[string]any{
+		"max_ratio_enabled":        false,
+		"max_seeding_time_enabled": false,
+		"max_active_torrents":      100,
+		"max_active_uploads":       100,
+		"max_uploads":              200,
+		"max_uploads_per_torrent":  8,
+		"dht":                      false,
+		"pex":                      false,
+		"lsd":                      false,
+		"add_trackers_enabled":     false,
+		"encryption":               0,
+		"anonymous_mode":           false,
+		"up_limit":                 0,
+		"dl_limit":                 0,
+		"async_io_threads":         32,
+		"connection_speed":         100,
+	})
 }
 
 func (c *Client) AddMagnet(magnet string) error {
@@ -94,12 +124,45 @@ func (c *Client) AddMagnet(magnet string) error {
 	if err != nil {
 		return fmt.Errorf("add magnet: %w", err)
 	}
+	return addResult(resp, "add magnet")
+}
+
+func (c *Client) AddTorrentFile(data []byte, category string) error {
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	fw, err := w.CreateFormFile("torrents", "t.torrent")
+	if err != nil {
+		return err
+	}
+	if _, err := fw.Write(data); err != nil {
+		return err
+	}
+	fields := map[string]string{
+		"savepath":           "/downloads",
+		"category":           category,
+		"sequentialDownload": "true",
+		"firstLastPiecePrio": "true",
+		"ratioLimit":         "-1",
+		"seedingTimeLimit":   "-1",
+	}
+	for k, v := range fields {
+		w.WriteField(k, v)
+	}
+	w.Close()
+	resp, err := c.http.Post(c.baseURL+"/api/v2/torrents/add", w.FormDataContentType(), &body)
+	if err != nil {
+		return fmt.Errorf("add torrent file: %w", err)
+	}
+	return addResult(resp, "add torrent file")
+}
+
+func addResult(resp *http.Response, what string) error {
 	defer resp.Body.Close()
-	if resp.StatusCode == 409 || resp.StatusCode == 200 {
+	if resp.StatusCode == 200 || resp.StatusCode == 409 {
 		return nil
 	}
 	body, _ := io.ReadAll(resp.Body)
-	return fmt.Errorf("add magnet (%d): %s", resp.StatusCode, body)
+	return fmt.Errorf("%s (%d): %s", what, resp.StatusCode, body)
 }
 
 func (c *Client) torrentsInfo(query string) ([]Torrent, error) {
@@ -112,8 +175,8 @@ func (c *Client) torrentsInfo(query string) ([]Torrent, error) {
 	return torrents, json.NewDecoder(resp.Body).Decode(&torrents)
 }
 
-func (c *Client) ListTorrents() ([]Torrent, error) {
-	return c.torrentsInfo("category=torrin")
+func (c *Client) ListTorrents(category string) ([]Torrent, error) {
+	return c.torrentsInfo("category=" + category)
 }
 
 func (c *Client) GetTorrent(hash string) (*Torrent, error) {

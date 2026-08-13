@@ -17,12 +17,16 @@ func (s *Server) progressJob(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 404, "job not found")
 		return
 	}
+	qb := s.Qbit
+	if job.Seed {
+		qb = s.QbitSeed
+	}
 	resp := map[string]any{"status": job.Status, "name": job.Name}
 	switch {
 	case job.Status == jobs.StatusDownloading && job.Source == jobs.SourceTorrent:
 		fromQbit := false
-		if s.Qbit != nil && s.Qbit.Login() == nil {
-			if t, err := s.Qbit.GetTorrent(job.InfoHash); err == nil {
+		if qb != nil && qb.Login() == nil {
+			if t, err := qb.GetTorrent(job.InfoHash); err == nil {
 				resp["progress"] = t.Progress * 100
 				resp["speed"] = t.DlSpeed
 				resp["state"] = torrentState(t)
@@ -34,27 +38,26 @@ func (s *Server) progressJob(w http.ResponseWriter, r *http.Request) {
 			resp["progress"] = p
 			resp["speed"] = sp
 			resp["status"] = st
+			resp["state"] = remoteTorrentState(p, sp)
 		}
 	case job.Status == jobs.StatusDownloading && (job.Source == jobs.SourceUsenet || job.Source == jobs.SourceHDEncode || job.Source == jobs.SourceScenerls || job.Source == jobs.SourceHoster || job.Source == jobs.SourceYtdlp):
 		p, sp, st := s.liveProgress(r.Context(), job)
 		resp["progress"] = p
 		resp["speed"] = sp
 		resp["status"] = st
+	case job.Status == jobs.StatusSeeding:
+		resp["progress"] = 100
+		if qb != nil && qb.Login() == nil {
+			if t, err := qb.GetTorrent(job.InfoHash); err == nil {
+				resp["ratio"] = t.Ratio
+				resp["seeding_time"] = t.SeedingTime
+				resp["uploaded"] = t.Uploaded
+			}
+		}
 	case job.Status == jobs.StatusProcessing || job.Status == jobs.StatusPublishing:
 		resp["progress"] = job.Progress
 	}
 	web.WriteJSON(w, 200, resp)
-}
-
-func torrentState(t *qbit.Torrent) string {
-	switch {
-	case qbit.IsFetchingMetadata(t):
-		return "fetching metadata"
-	case qbit.IsStalled(t):
-		return "stalled"
-	default:
-		return "downloading"
-	}
 }
 
 func (s *Server) liveProgress(ctx context.Context, job *jobs.Job) (float64, int64, jobs.Status) {
@@ -71,4 +74,26 @@ func (s *Server) liveProgress(ctx context.Context, job *jobs.Job) (float64, int6
 		}
 	}
 	return job.Progress, job.Speed, job.Status
+}
+
+func remoteTorrentState(progress float64, speed int64) string {
+	switch {
+	case speed > 0:
+		return "downloading"
+	case progress <= 0:
+		return "fetching metadata"
+	default:
+		return "stalled"
+	}
+}
+
+func torrentState(t *qbit.Torrent) string {
+	switch {
+	case qbit.IsFetchingMetadata(t):
+		return "fetching metadata"
+	case qbit.IsStalled(t):
+		return "stalled"
+	default:
+		return "downloading"
+	}
 }

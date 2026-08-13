@@ -74,8 +74,12 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	userJobs, _ := s.Jobs.ListByUser(r.Context(), user.ID, 1000)
 	for _, j := range userJobs {
-		if j.Status.Active() && j.Source == jobs.SourceTorrent && s.Qbit != nil && s.Qbit.Login() == nil {
-			s.Qbit.Delete(j.InfoHash)
+		qb := s.Qbit
+		if j.Seed {
+			qb = s.QbitSeed
+		}
+		if j.Status.Active() && j.Source == jobs.SourceTorrent && qb != nil && qb.Login() == nil {
+			qb.Delete(j.InfoHash)
 		}
 		s.Jobs.Delete(r.Context(), j.ID)
 	}

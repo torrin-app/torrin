@@ -8,16 +8,31 @@ import (
 )
 
 type fakeRepo struct {
-	candidates []jobs.EvictionCandidate
-	total      int64
-	evicted    map[string]bool
-	orphans    map[string][]string
+	candidates   []jobs.EvictionCandidate
+	total        int64
+	evicted      map[string]bool
+	orphans      map[string][]string
+	blobs        []jobs.Blob
+	deletedBlobs map[string]bool
 }
 
-func (f *fakeRepo) GetEvictionCandidates(context.Context) ([]jobs.EvictionCandidate, error) {
+func (f *fakeRepo) OrphanedBlobs(_ context.Context, limit int) ([]jobs.Blob, error) {
+	var out []jobs.Blob
+	for _, b := range f.blobs {
+		if !f.deletedBlobs[b.ContentKey] {
+			out = append(out, b)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeRepo) GetEvictionCandidates(context.Context, string) ([]jobs.EvictionCandidate, error) {
 	return f.candidates, nil
 }
-func (f *fakeRepo) GetTotalCachedSize(context.Context) (int64, error) { return f.total, nil }
+func (f *fakeRepo) GetTotalCachedSize(context.Context, string) (int64, error) { return f.total, nil }
 func (f *fakeRepo) ListByInfoHash(_ context.Context, h string) ([]*jobs.Job, error) {
 	return []*jobs.Job{{ID: h, InfoHash: h}}, nil
 }
@@ -33,7 +48,13 @@ func (f *fakeRepo) DropBlobRefs(_ context.Context, infoHash string) ([]string, e
 	}
 	return f.orphans[infoHash], nil
 }
-func (f *fakeRepo) DeleteBlob(context.Context, string) error { return nil }
+func (f *fakeRepo) DeleteBlob(_ context.Context, ck string) error {
+	if f.deletedBlobs == nil {
+		f.deletedBlobs = map[string]bool{}
+	}
+	f.deletedBlobs[ck] = true
+	return nil
+}
 
 type fakeStorage struct {
 	deleted     map[string]bool
@@ -64,7 +85,7 @@ func TestTTLEviction(t *testing.T) {
 		},
 	}
 	store := &fakeStorage{deleted: map[string]bool{}}
-	New(repo, store, DefaultPolicy).RunDaily(context.Background())
+	New(repo, store, DefaultPolicy, "").RunDaily(context.Background())
 
 	for _, h := range []string{"never_old", "stale_mid", "big"} {
 		if !store.deleted[h+"/"] || !repo.evicted[h] {
@@ -88,7 +109,7 @@ func TestEvictPurgesOnlyOrphanBlobs(t *testing.T) {
 		},
 	}
 	store := &fakeStorage{deleted: map[string]bool{}}
-	New(repo, store, DefaultPolicy).RunDaily(context.Background())
+	New(repo, store, DefaultPolicy, "").RunDaily(context.Background())
 
 	if !store.deletedKeys["blobs/b_orphan"] {
 		t.Error("orphaned blob should be deleted")
@@ -109,7 +130,7 @@ func TestBudgetEvictsSmallBeforeLarge(t *testing.T) {
 		},
 	}
 	store := &fakeStorage{deleted: map[string]bool{}}
-	New(repo, store, DefaultPolicy).RunDaily(context.Background())
+	New(repo, store, DefaultPolicy, "").RunDaily(context.Background())
 
 	if store.deleted["big/"] {
 		t.Error("large file must be spared when evicting small files frees enough")
@@ -128,9 +149,32 @@ func TestBudgetPassRespectsGrace(t *testing.T) {
 		},
 	}
 	store := &fakeStorage{deleted: map[string]bool{}}
-	New(repo, store, DefaultPolicy).RunDaily(context.Background())
+	New(repo, store, DefaultPolicy, "").RunDaily(context.Background())
 
 	if store.deleted["fresh_big/"] {
 		t.Error("content inside grace window must not be budget-evicted")
+	}
+}
+
+func TestGCDeletesOrphanBlobs(t *testing.T) {
+	repo := &fakeRepo{
+		evicted:      map[string]bool{},
+		deletedBlobs: map[string]bool{},
+		blobs: []jobs.Blob{
+			{ContentKey: "b_1", Size: 100},
+			{ContentKey: "b_2", Size: 200},
+			{ContentKey: "b_3", Size: 300},
+		},
+	}
+	store := &fakeStorage{deleted: map[string]bool{}, deletedKeys: map[string]bool{}}
+	New(repo, store, DefaultPolicy, "").RunGC(context.Background())
+
+	for _, ck := range []string{"b_1", "b_2", "b_3"} {
+		if !repo.deletedBlobs[ck] {
+			t.Errorf("orphan %s not removed from blobs table", ck)
+		}
+		if !store.deletedKeys["blobs/"+ck] {
+			t.Errorf("orphan %s not physically deleted (keys=%v)", ck, store.deletedKeys)
+		}
 	}
 }

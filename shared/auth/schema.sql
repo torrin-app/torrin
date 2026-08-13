@@ -151,7 +151,6 @@ INSERT INTO usenet_indexer_list (id, user_id, label, url, api_key, enabled, crea
 SELECT md5(user_id), user_id, '', url, api_key, TRUE, updated_at, updated_at
 FROM usenet_indexers
 ON CONFLICT (id) DO NOTHING;
-ALTER TABLE users ADD COLUMN IF NOT EXISTS system_indexer_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE TABLE IF NOT EXISTS rd_library (
     info_hash TEXT NOT NULL,
@@ -222,6 +221,10 @@ CREATE TABLE IF NOT EXISTS telegram_link_codes (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS seed_slot_packs INT NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS seed_slot_sub TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS system_indexer_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
 CREATE TABLE IF NOT EXISTS cairn_archives (
     info_hash  TEXT PRIMARY KEY,
     nzb_key    TEXT NOT NULL,
@@ -246,6 +249,12 @@ CREATE TABLE IF NOT EXISTS debrid_usage (
 );
 
 ALTER TABLE cairn_archives ADD COLUMN IF NOT EXISTS nzb BYTEA;
+
+CREATE TABLE IF NOT EXISTS job_nzbs (
+    info_hash  TEXT PRIMARY KEY,
+    nzb        BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS usenet_tombstones (
     user_id   TEXT NOT NULL,

@@ -221,32 +221,16 @@ func (b *BachsHandler) activate(ctx context.Context, eventID string, meta map[st
 		return
 	}
 
-	user, err := b.users.GetByEmail(ctx, email)
-	if err != nil || user == nil {
-		if user, err = b.users.CreateUser(ctx, email); err != nil {
-			slog.Error("bachs create user", "err", err)
-			return
-		}
+	user, created, err := getOrCreateUser(ctx, b.users, email)
+	if err != nil {
+		slog.Error("bachs create user", "err", err)
+		return
+	}
+	if created {
 		slog.Info("new user created via bachs", "email", email)
 	}
 
 	days := 0
 	fmt.Sscanf(meta["days"], "%d", &days)
-	expiresAt := cryptoExpiry(period, days)
-	if user.ExpiresAt.After(time.Now()) && !user.IsPaused() && user.PlanID != "free" && period != "lifetime" {
-		if remaining := time.Until(user.ExpiresAt); remaining > 0 {
-			expiresAt = expiresAt.Add(remaining)
-		}
-	}
-
-	if err := b.users.UpdatePlan(ctx, user.ID, planID, "", eventID, period, expiresAt); err != nil {
-		slog.Error("bachs update plan", "err", err)
-		return
-	}
-	cents, _ := plans.PriceCents(planID, period, days)
-	b.users.RecordProcessedSale(ctx, eventID, user.ID, cents, "USD")
-	if period == "monthly" || period == "yearly" {
-		b.users.CreditReferral(ctx, user.ID)
-	}
-	slog.Info("plan activated via bachs", "email", email, "plan", planID, "period", period, "expires", expiresAt.Format("2006-01-02"))
+	applyCryptoPlan(ctx, b.users, user, email, eventID, planID, period, "bachs", days)
 }

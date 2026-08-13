@@ -88,7 +88,9 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 				mi = info
 			}
 		}
-		os.Remove(f.Path)
+		if !job.Seed {
+			os.Remove(f.Path)
+		}
 		total += f.Size
 		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, Crc32: crc, Enc: enc, MediaInfo: mi})
 	}
@@ -222,12 +224,14 @@ func (p *Publisher) complete(ctx context.Context, infoHash, name string, files [
 		return err
 	}
 	for _, sib := range siblings {
+		if sib.Node != p.node {
+			continue
+		}
 		sib.Status = jobs.StatusComplete
 		sib.Error = ""
 		sib.Name = name
 		sib.Files = jobFiles
 		sib.FileSize = total
-		sib.Node = p.node
 		if err := p.repo.Update(ctx, sib); err != nil {
 			return err
 		}

@@ -3,7 +3,7 @@ package jobs
 import "testing"
 
 func TestStatusActive(t *testing.T) {
-	for _, s := range []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing} {
+	for _, s := range []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing, StatusSeeding} {
 		if !s.Active() {
 			t.Errorf("%s should be active", s)
 		}
@@ -16,7 +16,7 @@ func TestStatusActive(t *testing.T) {
 }
 
 func TestActiveStatesSQL(t *testing.T) {
-	if activeStates != "('pending','queued','downloading','processing','publishing')" {
+	if activeStates != "('pending','queued','downloading','processing','publishing','seeding')" {
 		t.Errorf("activeStates drifted: %s", activeStates)
 	}
 	if downloadingStates != "('pending','downloading','processing','publishing')" {

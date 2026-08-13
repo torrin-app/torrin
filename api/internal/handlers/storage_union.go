@@ -51,15 +51,18 @@ func buildProvider(p providerReq) (auth.StorageProvider, error) {
 	if !strings.HasPrefix(ep, "http") {
 		ep = "https://" + ep
 	}
-	params := map[string]string{
+	return auth.StorageProvider{Backend: "s3", Params: s3Params(p.AccessKey, p.SecretKey, ep, p.Region), Bucket: bucket}, nil
+}
+
+func s3Params(accessKey, secretKey, endpoint, region string) map[string]string {
+	return map[string]string{
 		"provider":          "Other",
-		"access_key_id":     p.AccessKey,
-		"secret_access_key": p.SecretKey,
-		"endpoint":          ep,
-		"region":            p.Region,
+		"access_key_id":     accessKey,
+		"secret_access_key": secretKey,
+		"endpoint":          endpoint,
+		"region":            region,
 		"force_path_style":  "true",
 	}
-	return auth.StorageProvider{Backend: "s3", Params: params, Bucket: bucket}, nil
 }
 
 func (s *Server) setProviders(w http.ResponseWriter, r *http.Request) {

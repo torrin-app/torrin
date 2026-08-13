@@ -14,12 +14,13 @@ const (
 	StatusDownloading Status = "downloading"
 	StatusProcessing  Status = "processing"
 	StatusPublishing  Status = "publishing"
+	StatusSeeding     Status = "seeding"
 	StatusComplete    Status = "complete"
 	StatusFailed      Status = "failed"
 	StatusEvicted     Status = "evicted"
 )
 
-var activeStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing}
+var activeStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing, StatusSeeding}
 
 func (s Status) Active() bool {
 	for _, a := range activeStatuses {
@@ -31,6 +32,9 @@ func (s Status) Active() bool {
 }
 
 var activeStates = sqlInList(activeStatuses)
+
+var concurrencyStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing}
+var concurrencyStates = sqlInList(concurrencyStatuses)
 
 var downloadingStatuses = []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing}
 var downloadingStates = sqlInList(downloadingStatuses)
@@ -49,13 +53,14 @@ func sqlInList(ss []Status) string {
 type Source string
 
 const (
-	SourceTorrent  Source = "torrent"
-	SourceUsenet   Source = "usenet"
-	SourceHoster   Source = "hoster"
-	SourceHDEncode Source = "hdencode"
-	SourceScenerls Source = "scenerls"
-	SourceTelegram Source = "telegram"
-	SourceYtdlp    Source = "ytdlp"
+	SourceTorrent   Source = "torrent"
+	SourceUsenet    Source = "usenet"
+	SourceHoster    Source = "hoster"
+	SourceHDEncode  Source = "hdencode"
+	SourceScenerls  Source = "scenerls"
+	SourceTelegram  Source = "telegram"
+	SourceCrossSeed Source = "crossseed"
+	SourceYtdlp     Source = "ytdlp"
 )
 
 type Job struct {
@@ -66,6 +71,7 @@ type Job struct {
 	Magnet       string    `json:"magnet,omitempty"`
 	Source       Source    `json:"source"`
 	Status       Status    `json:"status"`
+	Seed         bool      `json:"seed,omitempty"`
 	Error        string    `json:"error,omitempty"`
 	Files        []File    `json:"files,omitempty"`
 	SelectedIdxs []int     `json:"selected_indexes,omitempty"`
@@ -88,6 +94,14 @@ type File struct {
 	Key       string          `json:"key,omitempty"`
 	Enc       bool            `json:"enc,omitempty"`
 	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
+}
+
+func (j *Job) FileSizes() []int64 {
+	out := make([]int64, len(j.Files))
+	for i, f := range j.Files {
+		out[i] = f.Size
+	}
+	return out
 }
 
 type Stream struct {

@@ -2,6 +2,7 @@ package eviction
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -31,12 +32,13 @@ var DefaultPolicy = Policy{
 const largeFileBytes int64 = 50_000_000_000
 
 type Repo interface {
-	GetEvictionCandidates(ctx context.Context) ([]jobs.EvictionCandidate, error)
-	GetTotalCachedSize(ctx context.Context) (int64, error)
+	GetEvictionCandidates(ctx context.Context, node string) ([]jobs.EvictionCandidate, error)
+	GetTotalCachedSize(ctx context.Context, node string) (int64, error)
 	ListByInfoHash(ctx context.Context, infoHash string) ([]*jobs.Job, error)
 	Update(ctx context.Context, j *jobs.Job) error
 	DropBlobRefs(ctx context.Context, infoHash string) ([]string, error)
 	DeleteBlob(ctx context.Context, contentKey string) error
+	OrphanedBlobs(ctx context.Context, limit int) ([]jobs.Blob, error)
 }
 
 type Storage interface {
@@ -48,14 +50,15 @@ type Engine struct {
 	repo   Repo
 	store  Storage
 	policy Policy
+	node   string
 }
 
-func New(repo Repo, store Storage, policy Policy) *Engine {
-	return &Engine{repo: repo, store: store, policy: policy}
+func New(repo Repo, store Storage, policy Policy, node string) *Engine {
+	return &Engine{repo: repo, store: store, policy: policy, node: node}
 }
 
 func (e *Engine) RunDaily(ctx context.Context) {
-	candidates, err := e.repo.GetEvictionCandidates(ctx)
+	candidates, err := e.repo.GetEvictionCandidates(ctx, e.node)
 	if err != nil {
 		slog.Error("eviction: get candidates", "err", err)
 		return
@@ -72,8 +75,39 @@ func (e *Engine) RunDaily(ctx context.Context) {
 		}
 	}
 
+	e.RunGC(ctx)
 	e.budgetPass(ctx, &evicted, &freed)
 	slog.Info("eviction: complete", "evicted", evicted, "freed_gb", freed/1e9)
+}
+
+func (e *Engine) RunGC(ctx context.Context) {
+	var deleted, freed int64
+	for {
+		orphans, err := e.repo.OrphanedBlobs(ctx, 500)
+		if err != nil {
+			slog.Error("eviction: orphaned blobs", "err", err)
+			break
+		}
+		if len(orphans) == 0 {
+			break
+		}
+		before := deleted
+		for _, b := range orphans {
+			if err := e.store.Delete(ctx, blob.StorageKey(b.ContentKey)); err != nil {
+				slog.Warn("gc: delete blob", "key", b.ContentKey, "err", err)
+				continue
+			}
+			e.repo.DeleteBlob(ctx, b.ContentKey)
+			deleted++
+			freed += b.Size
+		}
+		if deleted == before {
+			break
+		}
+	}
+	if deleted > 0 {
+		slog.Info("eviction: gc complete", "deleted_blobs", deleted, "freed_gb", freed/1e9)
+	}
 }
 
 func (e *Engine) ttlVerdict(c jobs.EvictionCandidate) string {
@@ -97,29 +131,14 @@ func (e *Engine) ttlVerdict(c jobs.EvictionCandidate) string {
 }
 
 func (e *Engine) budgetPass(ctx context.Context, evicted, freed *int64) {
-	total, _ := e.repo.GetTotalCachedSize(ctx)
+	total, _ := e.repo.GetTotalCachedSize(ctx, e.node)
 	if total <= e.policy.StorageCapBytes {
 		return
 	}
-	slog.Warn("eviction: over storage cap", "total_gb", total/1e9, "cap_gb", e.policy.StorageCapBytes/1e9)
+	slog.Warn("eviction: over storage cap", "node", e.node, "total_gb", total/1e9, "cap_gb", e.policy.StorageCapBytes/1e9)
 
-	candidates, _ := e.repo.GetEvictionCandidates(ctx)
-	var coldPrewarm, small, large []jobs.EvictionCandidate
-	for _, c := range candidates {
-		switch {
-		case c.IsPrewarm && c.AccessCount == 0:
-			coldPrewarm = append(coldPrewarm, c)
-		case c.FileSize > largeFileBytes:
-			large = append(large, c)
-		default:
-			small = append(small, c)
-		}
-	}
-	ordered := make([]jobs.EvictionCandidate, 0, len(coldPrewarm)+len(small)+len(large))
-	ordered = append(ordered, coldPrewarm...)
-	ordered = append(ordered, small...)
-	ordered = append(ordered, large...)
-	for _, c := range ordered {
+	candidates, _ := e.repo.GetEvictionCandidates(ctx, e.node)
+	for _, c := range orderForReclaim(candidates) {
 		if total <= e.policy.StorageCapBytes {
 			return
 		}
@@ -136,13 +155,36 @@ func (e *Engine) budgetPass(ctx context.Context, evicted, freed *int64) {
 	}
 }
 
+func orderForReclaim(candidates []jobs.EvictionCandidate) []jobs.EvictionCandidate {
+	var coldPrewarm, small, large []jobs.EvictionCandidate
+	for _, c := range candidates {
+		switch {
+		case c.IsPrewarm && c.AccessCount == 0:
+			coldPrewarm = append(coldPrewarm, c)
+		case c.FileSize > largeFileBytes:
+			large = append(large, c)
+		default:
+			small = append(small, c)
+		}
+	}
+	ordered := make([]jobs.EvictionCandidate, 0, len(candidates))
+	ordered = append(ordered, coldPrewarm...)
+	ordered = append(ordered, small...)
+	return append(ordered, large...)
+}
+
 func (e *Engine) evict(ctx context.Context, infoHash string) error {
+	siblings, _ := e.repo.ListByInfoHash(ctx, infoHash)
+	for _, sib := range siblings {
+		if sib.Status == jobs.StatusSeeding {
+			return errSeeding
+		}
+	}
 	if err := e.store.DeletePrefix(ctx, infoHash+"/"); err != nil {
 		slog.Warn("eviction: delete failed", "hash", infoHash, "err", err)
 		return err
 	}
 	e.purgeBlobs(ctx, infoHash)
-	siblings, _ := e.repo.ListByInfoHash(ctx, infoHash)
 	for _, sib := range siblings {
 		sib.Status = jobs.StatusEvicted
 		sib.Error = "content evicted from cache"
@@ -165,6 +207,8 @@ func (e *Engine) purgeBlobs(ctx context.Context, infoHash string) {
 		e.repo.DeleteBlob(ctx, ck)
 	}
 }
+
+var errSeeding = errors.New("skipped: sibling still seeding")
 
 func (e *Engine) StartSchedule(ctx context.Context, hour int) {
 	go func() {

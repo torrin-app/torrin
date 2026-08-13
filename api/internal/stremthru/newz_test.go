@@ -9,6 +9,7 @@ import (
 func TestNewzStatus(t *testing.T) {
 	cases := map[jobs.Status]string{
 		jobs.StatusComplete:    "downloaded",
+		jobs.StatusSeeding:     "downloaded",
 		jobs.StatusDownloading: "downloading",
 		jobs.StatusProcessing:  "downloading",
 		jobs.StatusPublishing:  "downloading",
@@ -17,8 +18,8 @@ func TestNewzStatus(t *testing.T) {
 		jobs.StatusQueued:      "queued",
 	}
 	for in, want := range cases {
-		if got := newzStatus(in); got != want {
-			t.Errorf("newzStatus(%s)=%q want %q", in, got, want)
+		if got := stStatus(in); got != want {
+			t.Errorf("stStatus(%s)=%q want %q", in, got, want)
 		}
 	}
 }

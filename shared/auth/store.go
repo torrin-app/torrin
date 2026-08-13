@@ -20,7 +20,7 @@ var ErrNotFound = errors.New("user not found")
 
 const userColumns = `id, email, api_key, plan_id, subscription_id, license_key, recurrence,
 	expires_at, paused_at, remaining_days, pause_count, last_paused_at, banned, ban_reason,
-	created_at, updated_at, system_indexer_enabled`
+	created_at, updated_at, seed_slot_packs, seed_slot_sub, system_indexer_enabled`
 
 type Store struct {
 	pool  *pgxpool.Pool
@@ -79,12 +79,30 @@ func (s *Store) UpdatePlan(ctx context.Context, userID, planID, subscriptionID, 
 	return nil
 }
 
+func (s *Store) SetSeedSlots(ctx context.Context, userID string, packs int, subID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET seed_slot_packs=$2, seed_slot_sub=$3, updated_at=$4 WHERE id=$1`,
+		userID, packs, subID, time.Now())
+	return err
+}
+
+func (s *Store) ClearSeedSlotsBySub(ctx context.Context, subID string) error {
+	if subID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET seed_slot_packs=0, seed_slot_sub='', updated_at=$2 WHERE seed_slot_sub=$1`,
+		subID, time.Now())
+	return err
+}
+
 func scanOne(row pgx.Row) (*User, error) {
 	var u User
 	var pausedAt, lastPausedAt *time.Time
 	err := row.Scan(&u.ID, &u.Email, &u.APIKey, &u.PlanID, &u.SubscriptionID, &u.LicenseKey,
 		&u.Recurrence, &u.ExpiresAt, &pausedAt, &u.RemainingDays, &u.PauseCount, &lastPausedAt,
-		&u.Banned, &u.BanReason, &u.CreatedAt, &u.UpdatedAt, &u.SystemIndexerEnabled)
+		&u.Banned, &u.BanReason, &u.CreatedAt, &u.UpdatedAt, &u.SeedSlotPacks, &u.SeedSlotSub,
+		&u.SystemIndexerEnabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

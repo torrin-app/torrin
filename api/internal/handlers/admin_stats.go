@@ -13,8 +13,9 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jobCounts, _ := s.JobsPG.JobStatusCounts(r.Context())
-	cachedSize, _ := s.JobsPG.GetTotalCachedSize(r.Context())
+	cachedSize, _ := s.JobsPG.GetTotalCachedSizeAll(r.Context())
 	budgetUsed, _ := s.JobsPG.BudgetUsed(r.Context())
+	nodeSummary, _ := s.JobsPG.NodeSummary(r.Context())
 
 	web.WriteJSON(w, 200, map[string]any{
 		"users": map[string]any{
@@ -29,6 +30,7 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 			"by_status":             jobCounts,
 			"cached_size":           cachedSize,
 			"cached_size_formatted": formatBytes(cachedSize),
+			"by_node":               nodeSummary,
 		},
 		"budget": map[string]any{
 			"used":      budgetUsed,

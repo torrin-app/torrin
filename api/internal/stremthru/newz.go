@@ -17,19 +17,6 @@ func (h *Handler) usenetOK(ctx context.Context, user *auth.User) bool {
 	return (err == nil && plans.CanBYOK(plan.ID)) || plan.SystemUsenet
 }
 
-func newzStatus(s jobs.Status) string {
-	switch s {
-	case jobs.StatusComplete:
-		return "downloaded"
-	case jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing:
-		return "downloading"
-	case jobs.StatusFailed:
-		return "failed"
-	default:
-		return "queued"
-	}
-}
-
 func (h *Handler) checkNewz(w http.ResponseWriter, r *http.Request, user *auth.User) {
 	var hashes []string
 	for _, p := range r.URL.Query()["hash"] {
@@ -86,7 +73,7 @@ func (h *Handler) listNewz(w http.ResponseWriter, r *http.Request, user *auth.Us
 		}
 		items = append(items, map[string]any{
 			"id": id, "hash": id, "name": j.Name, "size": j.FileSize,
-			"status": newzStatus(j.Status), "added_at": j.CreatedAt.Format(time.RFC3339),
+			"status": stStatus(j.Status), "added_at": j.CreatedAt.Format(time.RFC3339),
 		})
 	}
 	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "total_items": len(items)}})
@@ -110,7 +97,7 @@ func (h *Handler) getNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 	if name == "" {
 		name = job.Name
 	}
-	status := newzStatus(job.Status)
+	status := stStatus(job.Status)
 	if cached {
 		status = "downloaded"
 	}

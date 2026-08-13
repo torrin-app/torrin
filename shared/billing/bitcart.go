@@ -280,34 +280,18 @@ func (b *BitcartHandler) activate(ctx context.Context, inv *bitcartInvoice) {
 		return
 	}
 
-	user, err := b.users.GetByEmail(ctx, email)
-	if err != nil || user == nil {
-		if user, err = b.users.CreateUser(ctx, email); err != nil {
-			slog.Error("bitcart create user", "err", err)
-			return
-		}
+	user, created, err := getOrCreateUser(ctx, b.users, email)
+	if err != nil {
+		slog.Error("bitcart create user", "err", err)
+		return
+	}
+	if created {
 		slog.Info("new user created via bitcart", "email", email)
 	}
 
 	days := 0
 	fmt.Sscanf(inv.Metadata["days"], "%d", &days)
-	expiresAt := cryptoExpiry(period, days)
-	if user.ExpiresAt.After(time.Now()) && !user.IsPaused() && user.PlanID != "free" && period != "lifetime" {
-		if remaining := time.Until(user.ExpiresAt); remaining > 0 {
-			expiresAt = expiresAt.Add(remaining)
-		}
-	}
-
-	if err := b.users.UpdatePlan(ctx, user.ID, planID, "", inv.ID, period, expiresAt); err != nil {
-		slog.Error("bitcart update plan", "err", err)
-		return
-	}
-	cents, _ := plans.PriceCents(planID, period, days)
-	b.users.RecordProcessedSale(ctx, inv.ID, user.ID, cents, "USD")
-	if period == "monthly" || period == "yearly" {
-		b.users.CreditReferral(ctx, user.ID)
-	}
-	slog.Info("plan activated via bitcart", "email", email, "plan", planID, "period", period, "expires", expiresAt.Format("2006-01-02"))
+	applyCryptoPlan(ctx, b.users, user, email, inv.ID, planID, period, "bitcart", days)
 }
 
 func cryptoExpiry(period string, days int) time.Time {

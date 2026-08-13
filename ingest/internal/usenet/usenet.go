@@ -71,7 +71,11 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 			return fmt.Errorf("fetch nzb: %w", err)
 		}
 	}
-	return r.RunNZB(ctx, job, data)
+	if err := r.RunNZB(ctx, job, data); err != nil {
+		return err
+	}
+	r.users.ClearJobNZB(ctx, job.InfoHash)
+	return nil
 }
 
 func (r *Runner) recoverNZB(ctx context.Context, job *jobs.Job) ([]byte, error) {
@@ -83,13 +87,20 @@ func (r *Runner) recoverNZB(ctx context.Context, job *jobs.Job) ([]byte, error) 
 		}
 	}
 	if data == nil {
-		var ok bool
-		if data, ok = r.users.GetCairnNZB(ctx, job.InfoHash); !ok {
-			return nil, fmt.Errorf("nzb missing")
+		if b, ok := r.users.GetJobNZB(ctx, job.InfoHash); ok {
+			data = b
 		}
 	}
+	if data == nil {
+		if b, ok := r.users.GetCairnNZB(ctx, job.InfoHash); ok {
+			data = b
+		}
+	}
+	if data == nil {
+		return nil, fmt.Errorf("nzb missing")
+	}
 	if err := r.store.Put(ctx, key, bytes.NewReader(data), "application/x-nzb"); err != nil {
-		slog.Warn("cairn: repopulate nzb cache", "hash", job.InfoHash, "err", err)
+		slog.Warn("nzb: repopulate local cache", "hash", job.InfoHash, "err", err)
 	}
 	return data, nil
 }

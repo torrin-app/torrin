@@ -45,7 +45,7 @@ func jobToRDTorrentFull(j *jobs.Job, store *storage.Client) map[string]any {
 
 func buildLinks(j *jobs.Job) []string {
 	links := []string{}
-	if j.Status != jobs.StatusComplete {
+	if j.Status != jobs.StatusComplete && j.Status != jobs.StatusSeeding {
 		return links
 	}
 	for i, f := range j.Files {
@@ -69,7 +69,7 @@ func mapStatus(s jobs.Status) string {
 		return "downloading"
 	case jobs.StatusPublishing:
 		return "uploading"
-	case jobs.StatusComplete:
+	case jobs.StatusComplete, jobs.StatusSeeding:
 		return "downloaded"
 	case jobs.StatusFailed:
 		return "error"
@@ -80,7 +80,7 @@ func mapStatus(s jobs.Status) string {
 
 func progressPct(s jobs.Status) float64 {
 	switch s {
-	case jobs.StatusComplete:
+	case jobs.StatusComplete, jobs.StatusSeeding:
 		return 100
 	case jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing:
 		return 50

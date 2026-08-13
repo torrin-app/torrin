@@ -13,6 +13,11 @@ import (
 
 var fileDescType = []byte("PAR 2.0\x00FileDesc")
 
+// deobfuscateByPar2 renames obfuscated (random-named) files to their real names
+// using the 16k-MD5 hashes stored in the par2 set's File Description packets.
+// This is how NZBGet lets par2 recognise present files instead of declaring them
+// missing, it must run before repair(). Non-obfuscated / already-correct files
+// and no-par2 releases are left untouched.
 func deobfuscateByPar2(dir string) {
 	names := par2FileNames(dir)
 	if len(names) == 0 {
@@ -30,7 +35,7 @@ func deobfuscateByPar2(dir string) {
 		}
 		target := filepath.Join(dir, real)
 		if _, err := os.Stat(target); err == nil {
-			continue
+			continue // don't clobber an existing correctly-named file
 		}
 		if os.Rename(filepath.Join(dir, e.Name()), target) == nil {
 			renamed++
@@ -59,6 +64,8 @@ func par2FileNames(dir string) map[string]string {
 	return out
 }
 
+// parsePar2FileDescs walks par2 packets and records {md5-of-first-16k: real name}
+// from every File Description packet.
 func parsePar2FileDescs(data []byte, out map[string]string) {
 	for i := 0; i+64 <= len(data); {
 		if !bytes.Equal(data[i:i+8], par2Magic) {

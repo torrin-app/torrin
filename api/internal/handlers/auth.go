@@ -66,6 +66,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"paused": user.IsPaused(), "remaining_days": user.RemainingDays,
 		"pause_count": user.PauseCount, "max_pauses": 3,
 		"recurrence": user.Recurrence,
+		"seed_used":  s.seedUsage(r.Context(), user), "seed_cap": seedCap(plan, user),
+		"seed_packs": user.SeedSlotPacks, "seed_max_packs": 2,
+		"seeding_allowed": s.seedingAllowed(user),
 	})
 }
 

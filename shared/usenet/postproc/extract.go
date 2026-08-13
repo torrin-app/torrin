@@ -40,22 +40,10 @@ func tryExtract(dir string, passwords []string) (bool, error) {
 	return false, nil
 }
 
-func extractRAR(first, dir string, passwords []string) error {
-	pws := append([]string{""}, passwords...)
-	if _, err := exec.LookPath("unrar"); err == nil {
-		var lastErr error
-		for _, pw := range pws {
-			if err := unrarExtract(first, dir, pw); err == nil {
-				return nil
-			} else {
-				lastErr = err
-			}
-		}
-		slog.Warn("postproc: unrar failed, falling back to rardecode", "err", lastErr)
-	}
+func tryPasswords(passwords []string, extract func(pw string) error) error {
 	var lastErr error
-	for _, pw := range pws {
-		if err := extractWith(first, dir, pw); err == nil {
+	for _, pw := range append([]string{""}, passwords...) {
+		if err := extract(pw); err == nil {
 			return nil
 		} else {
 			lastErr = err
@@ -64,12 +52,29 @@ func extractRAR(first, dir string, passwords []string) error {
 	return lastErr
 }
 
-func firstZip(dir string) string {
-	if m, _ := filepath.Glob(filepath.Join(dir, "*.zip")); len(m) > 0 {
-		sort.Strings(m)
-		return m[0]
+func extractRAR(first, dir string, passwords []string) error {
+	if _, err := exec.LookPath("unrar"); err == nil {
+		if err := tryPasswords(passwords, func(pw string) error { return unrarExtract(first, dir, pw) }); err == nil {
+			return nil
+		} else {
+			slog.Warn("postproc: unrar failed, falling back to rardecode", "err", err)
+		}
+	}
+	return tryPasswords(passwords, func(pw string) error { return extractWith(first, dir, pw) })
+}
+
+func firstGlob(dir string, patterns ...string) string {
+	for _, pat := range patterns {
+		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
+			sort.Strings(m)
+			return m[0]
+		}
 	}
 	return ""
+}
+
+func firstZip(dir string) string {
+	return firstGlob(dir, "*.zip")
 }
 
 func unrarArgs(rarPath, dir, password string) []string {
@@ -127,10 +132,8 @@ func extractWith(rarPath, dir, password string) error {
 }
 
 func firstRARVolume(dir string) string {
-	for _, pat := range []string{"*.part01.rar", "*.part001.rar", "*.part1.rar"} {
-		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
-			return m[0]
-		}
+	if v := firstGlob(dir, "*.part01.rar", "*.part001.rar", "*.part1.rar"); v != "" {
+		return v
 	}
 	rars, _ := filepath.Glob(filepath.Join(dir, "*.rar"))
 	for _, r := range rars {
@@ -147,11 +150,8 @@ func firstRARVolume(dir string) string {
 var sevenZipMagic = []byte("7z\xbc\xaf\x27\x1c")
 
 func firstSevenZipVolume(dir string) string {
-	for _, pat := range []string{"*.7z.001", "*.7z"} {
-		if m, _ := filepath.Glob(filepath.Join(dir, pat)); len(m) > 0 {
-			sort.Strings(m)
-			return m[0]
-		}
+	if v := firstGlob(dir, "*.7z.001", "*.7z"); v != "" {
+		return v
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
@@ -179,18 +179,16 @@ func extract7z(first, dir string, passwords []string) error {
 	if bin == "" {
 		return failure.Wrap(failure.Unpack, "7z binary missing")
 	}
-	var lastErr error
-	for _, pw := range append([]string{""}, passwords...) {
+	return tryPasswords(passwords, func(pw string) error {
 		pflag := "-p"
 		if pw != "" {
 			pflag = "-p" + pw
 		}
 		cmd := exec.Command(bin, "e", "-y", "-aoa", "-ssc", pflag, "-o"+dir, first)
 		out, err := cmd.CombinedOutput()
-		if err == nil {
-			return nil
+		if err != nil {
+			return fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
 		}
-		lastErr = fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
-	}
-	return lastErr
+		return nil
+	})
 }

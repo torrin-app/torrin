@@ -8,6 +8,7 @@ import (
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/eviction"
@@ -18,7 +19,7 @@ import (
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
-func promoteQueued(ctx context.Context, repo jobs.Repository, users *auth.Store, b *bus.Bus, budget int64) {
+func promoteQueued(ctx context.Context, repo *jobs.Postgres, users *auth.Store, b *bus.Bus, budget int64) {
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
 	for range t.C {
@@ -34,12 +35,14 @@ func promoteQueued(ctx context.Context, repo jobs.Repository, users *auth.Store,
 				continue
 			}
 			job.Status = jobs.StatusPending
+			job.Node = cluster.TargetNode(ctx, repo, string(job.Source), job.MaxBytes)
 			if repo.Update(ctx, job) != nil {
 				continue
 			}
 			b.Publish(events.JobAssigned, events.Assigned{
 				JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
 				Source: string(job.Source), MaxBytes: job.MaxBytes,
+				Node: job.Node,
 			})
 		}
 	}
@@ -151,9 +154,12 @@ func prewarmRetry(ctx context.Context, repo *jobs.Postgres, b *bus.Bus, maxBytes
 			repo.StorePrewarmFallback(ctx, nj.ID, f.IMDBID, f.Name, rest)
 			repo.DeletePrewarmFallback(ctx, f.JobID)
 			repo.Delete(ctx, f.JobID)
+			nj.Node = cluster.TargetNode(ctx, repo, string(nj.Source), nj.MaxBytes)
+			repo.Update(ctx, nj)
 			b.Publish(events.JobAssigned, events.Assigned{
 				JobID: nj.ID, InfoHash: nj.InfoHash, Magnet: nj.Magnet,
 				Source: string(nj.Source), MaxBytes: nj.MaxBytes,
+				Node: nj.Node,
 			})
 			slog.Info("prewarm retry: advanced to next release", "imdb", f.IMDBID, "hash", next, "left", len(rest))
 		}
@@ -232,5 +238,5 @@ func startEviction(ctx context.Context, repo *jobs.Postgres, store *storage.Clie
 	if c := env.Int("EVICTION_CAP_BYTES", 0); c > 0 {
 		policy.StorageCapBytes = c
 	}
-	eviction.New(repo, store, policy).StartSchedule(ctx, int(env.Int("EVICTION_HOUR", 4)))
+	eviction.New(repo, store, policy, env.Get("NODE_ID", "")).StartSchedule(ctx, int(env.Int("EVICTION_HOUR", 4)))
 }

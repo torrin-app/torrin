@@ -22,7 +22,7 @@ import (
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
-	"github.com/torrin-app/torrin/shared/failure"
+	"github.com/torrin-app/torrin/shared/eviction"
 	hdclient "github.com/torrin-app/torrin/shared/hdencode"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -75,23 +75,34 @@ func main() {
 		fatal("storage key", err)
 	}
 	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher)
+	if node := env.Get("NODE_ID", ""); node != "" {
+		pol := eviction.DefaultPolicy
+		if c := env.Int("EVICTION_CAP_BYTES", 0); c > 0 {
+			pol.StorageCapBytes = c
+		}
+		eviction.New(repo, store, pol, node).StartSchedule(ctx, int(env.Int("EVICTION_HOUR", 4)))
+	}
 	sysRD, sysAD := os.Getenv("RD_API_KEY"), os.Getenv("AD_API_KEY")
 	providersFor := func(ctx context.Context, job *jobs.Job) []providers.Provider {
 		var list []providers.Provider
-		u, _ := users.GetByID(ctx, job.UserID)
-		byok := u != nil && plans.CanBYOK(u.PlanID)
+		byok := false
+		if u, _ := users.GetByID(ctx, job.UserID); u != nil {
+			byok = plans.CanBYOK(u.PlanID)
+		}
 		userRD, _ := users.GetRDKey(ctx, job.UserID)
-		if byok && userRD != "" {
-			list = append(list, providers.NewRealDebrid(userRD))
-		}
-		if k, _ := users.GetADKey(ctx, job.UserID); byok && k != "" {
-			list = append(list, providers.NewAllDebrid(k))
-		}
-		if k, _ := users.GetTBKey(ctx, job.UserID); byok && k != "" {
-			list = append(list, providers.NewTorBox(k))
-		}
-		if k, _ := users.GetPMKey(ctx, job.UserID); byok && k != "" {
-			list = append(list, providers.NewPremiumize(k))
+		if byok {
+			if userRD != "" {
+				list = append(list, providers.NewRealDebrid(userRD))
+			}
+			if k, _ := users.GetADKey(ctx, job.UserID); k != "" {
+				list = append(list, providers.NewAllDebrid(k))
+			}
+			if k, _ := users.GetTBKey(ctx, job.UserID); k != "" {
+				list = append(list, providers.NewTorBox(k))
+			}
+			if k, _ := users.GetPMKey(ctx, job.UserID); k != "" {
+				list = append(list, providers.NewPremiumize(k))
+			}
 		}
 		if sysRD != "" && sysRD != userRD {
 			list = append(list, providers.NewRealDebrid(sysRD))
@@ -105,13 +116,23 @@ func main() {
 	scratch := env.Get("SCRATCH_DIR", "/scratch")
 	debridRunner := debrid.NewRunner(providersFor, pub, repo, scratch, ban, dlConns, users.AddDebridUsage)
 
-	var torrentRunner *torrent.Runner
+	var torrentRunner, seedRunner *torrent.Runner
 	if qbURL := os.Getenv("QBIT_URL"); qbURL != "" {
 		qb := qbit.NewClient(qbURL, env.Get("QBIT_USER", "admin"), env.Get("QBIT_PASS", ""))
-		torrentRunner = torrent.NewRunner(qb, repo, pub, b, ban)
+		torrentRunner = torrent.NewRunner(qb, repo, pub, b, ban, store, env.Get("DOWNLOADS_DIR", "/downloads"), false, env.Get("NODE_ID", ""))
 		go torrentRunner.Run(ctx)
 		go torrent.StartTrackerRefresh(ctx, qb)
-		slog.Info("torrent engine enabled")
+
+		seedURL := env.Get("QBIT_SEED_URL", qbURL)
+		qbSeed := qb
+		if seedURL != qbURL {
+			qbSeed = qbit.NewClient(seedURL, env.Get("QBIT_SEED_USER", env.Get("QBIT_USER", "admin")), env.Get("QBIT_SEED_PASS", env.Get("QBIT_PASS", "")))
+		}
+		seedRunner = torrent.NewRunner(qbSeed, repo, pub, b, ban, store, env.Get("SEED_DOWNLOADS_DIR", env.Get("DOWNLOADS_DIR", "/downloads")), true, env.Get("NODE_ID", ""))
+		go configureSeedQbit(ctx, qbSeed)
+		go seedRunner.Run(ctx)
+		go seedRunner.WatchSeeds(ctx)
+		slog.Info("torrent engine enabled", "separate_seed_instance", seedURL != qbURL)
 	}
 
 	hosterRunner := hoster.NewRunner(func(ctx context.Context, j *jobs.Job) string {
@@ -149,8 +170,12 @@ func main() {
 	}()
 
 	cancels := newCancelRegistry()
+	myNode := env.Get("NODE_ID", "")
 	if _, err := bus.Subscribe(b, events.JobAssigned, func(a events.Assigned) {
-		go process(ctx, repo, debridRunner, torrentRunner, usenetRunner, hosterRunner, releaseRunner, ytdlpRunner, usenetFallback, b, ban, cancels, a)
+		if a.Node != myNode {
+			return
+		}
+		go process(ctx, repo, debridRunner, torrentRunner, seedRunner, usenetRunner, hosterRunner, releaseRunner, ytdlpRunner, usenetFallback, b, ban, cancels, a)
 	}); err != nil {
 		fatal("subscribe", err)
 	}
@@ -168,16 +193,17 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				reconcile(ctx, repo, pub, b, cancels)
+				reconcile(ctx, repo, pub, b, cancels, myNode)
 				if torrentRunner != nil {
 					torrentRunner.ReapOrphans(ctx)
+					seedRunner.ReapOrphans(ctx)
 				}
 				t.Reset(5 * time.Minute)
 			}
 		}
 	}()
 
-	go sweepScratch(ctx, repo, scratch)
+	go sweepScratch(ctx, repo, scratch, myNode)
 
 	slog.Info("ingest worker started")
 	service.RunHealth("ingest", "8083")
@@ -224,109 +250,21 @@ func (c *cancelRegistry) cancel(id string) {
 	}
 }
 
-func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, yr *ytdlp.Runner, uf *release.UsenetFallback, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, a events.Assigned) {
-	job, err := repo.Get(ctx, a.JobID)
-	if err != nil {
-		slog.Error("load job", "id", a.JobID, "err", err)
-		return
-	}
-
-	jobCtx, cancel := context.WithCancel(ctx)
-	if !cancels.trackIfAbsent(job.ID, cancel) {
-		cancel()
-		return
-	}
-	done := func() { cancels.untrack(job.ID); cancel() }
-
-	if job.Source == jobs.SourceUsenet {
-		job.Status = jobs.StatusDownloading
-		repo.Update(ctx, job)
-		ur.Run(jobCtx, job, done)
-		return
-	}
-	if job.Source == jobs.SourceYtdlp {
-		if yr == nil {
-			done()
-			fail(ctx, repo, b, job, failure.EngineDown)
+func configureSeedQbit(ctx context.Context, qb *qbit.Client) {
+	for i := 0; i < 30; i++ {
+		if qb.Login() == nil {
+			if err := qb.ConfigureForSeeding(); err != nil {
+				slog.Warn("seed qbit configure failed", "err", err)
+			}
 			return
 		}
-		job.Status = jobs.StatusDownloading
-		repo.Update(ctx, job)
-		yr.Run(jobCtx, job, done)
-		return
-	}
-	if job.Source == jobs.SourceHoster {
-		job.Status = jobs.StatusDownloading
-		repo.Update(ctx, job)
-		hr.Run(jobCtx, job, done)
-		return
-	}
-	if rel.Handles(job.Source) {
-		job.Status = jobs.StatusDownloading
-		repo.Update(ctx, job)
-		rel.Run(jobCtx, job, done)
-		return
-	}
-
-	defer done()
-	if tr != nil && !tr.Hold(job.InfoHash) {
-		return
-	}
-	job.Status = jobs.StatusDownloading
-	repo.Update(ctx, job)
-
-	if screen.Blocked(ctx, ban, job) {
-		if tr != nil {
-			tr.Release(job.InfoHash)
-		}
-		fail(ctx, repo, b, job, failure.Blocked)
-		return
-	}
-
-	handled, err := dr.Run(jobCtx, job)
-	if tr != nil {
-		tr.Release(job.InfoHash)
-	}
-
-	canQbit := tr != nil && job.Source == jobs.SourceTorrent && job.UserID != "prewarm"
-
-	debridMiss := !handled && !(err != nil && debrid.IsTerminal(err))
-	if uf != nil && debridMiss && job.Source == jobs.SourceTorrent && job.UserID != "prewarm" {
-		if ferr := uf.Try(jobCtx, job); ferr == nil {
+		select {
+		case <-ctx.Done():
 			return
-		} else {
-			slog.Info("usenet layer unavailable, continuing", "job", job.ID, "err", ferr)
+		case <-time.After(8 * time.Second):
 		}
 	}
-
-	switch {
-	case err != nil && debrid.IsTerminal(err):
-		fail(ctx, repo, b, job, err)
-	case err == nil && handled:
-		b.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
-	case canQbit:
-		if err != nil {
-			slog.Info("debrid unavailable, falling through to qbit", "job", job.ID, "err", err)
-		}
-		if e := tr.Start(job); e != nil {
-			fail(ctx, repo, b, job, failure.Wrap(failure.AddFailed, "add torrent: %v", e))
-		}
-	default:
-		f := error(failure.NoSources)
-		if err != nil {
-			f = failure.Wrap(failure.NoSources, "no provider: %v", err)
-		}
-		fail(ctx, repo, b, job, f)
-	}
-}
-
-func fail(ctx context.Context, repo jobs.Repository, b *bus.Bus, job *jobs.Job, err error) {
-	msg := failure.Message(err)
-	slog.Warn("job failed", "job", job.ID, "source", job.Source, "err", err)
-	job.Status = jobs.StatusFailed
-	job.Error = msg
-	repo.Update(ctx, job)
-	b.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: msg})
+	slog.Warn("seed qbit unreachable after retries, not configured for seeding")
 }
 
 func mustEnv(k string) string {

@@ -211,14 +211,7 @@ func (s *Server) connectStorage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	params := map[string]string{
-		"provider":          "Other",
-		"access_key_id":     req.AccessKey,
-		"secret_access_key": req.SecretKey,
-		"endpoint":          req.Endpoint,
-		"region":            req.Region,
-		"force_path_style":  "true",
-	}
+	params := s3Params(req.AccessKey, req.SecretKey, req.Endpoint, req.Region)
 	prefix := strings.TrimSpace(req.Prefix)
 	checkFs := ":"
 	if cryptPass == "" {

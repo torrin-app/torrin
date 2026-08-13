@@ -1,5 +1,7 @@
 package plans
 
+import "strings"
+
 type Plan struct {
 	ID              string      `json:"id"`
 	Name            string      `json:"name"`
@@ -10,6 +12,7 @@ type Plan struct {
 	MaxConcurrent   int         `json:"max_concurrent_jobs"`
 	MaxTorrentBytes int64       `json:"max_torrent_bytes"`
 	CachedStreams   int         `json:"cached_streams"`
+	SeedSlots       int         `json:"seed_slots"`
 	Priority        int         `json:"priority"`
 	Features        []string    `json:"features"`
 	Badge           string      `json:"badge,omitempty"`
@@ -49,11 +52,13 @@ var (
 		MaxConcurrent:   2,
 		MaxTorrentBytes: 100_000_000_000,
 		CachedStreams:   -1,
+		SeedSlots:       3,
 		Priority:        1,
 		Features: []string{
 			"2 concurrent downloads",
 			"100 GB max torrent",
 			"Hoster link support",
+			"Private-tracker seeding",
 			"BYOK Usenet",
 			"BYOK Real-Debrid",
 			"BYOK Premiumize",
@@ -78,12 +83,14 @@ var (
 		MaxConcurrent:   4,
 		MaxTorrentBytes: 250_000_000_000,
 		CachedStreams:   -1,
+		SeedSlots:       5,
 		Priority:        2,
 		SystemUsenet:    true,
 		Features: []string{
 			"4 concurrent downloads",
 			"250 GB max torrent",
 			"Hoster link support",
+			"Private-tracker seeding",
 			"Usenet (included)",
 			"BYOK Real-Debrid",
 			"BYOK Premiumize",
@@ -108,12 +115,14 @@ var (
 		MaxConcurrent:   8,
 		MaxTorrentBytes: 1_000_000_000_000,
 		CachedStreams:   -1,
+		SeedSlots:       10,
 		Priority:        3,
 		SystemUsenet:    true,
 		Features: []string{
 			"8 concurrent downloads",
 			"1 TB max torrent",
 			"Hoster link support",
+			"Private-tracker seeding",
 			"Usenet (included)",
 			"BYOK Real-Debrid",
 			"BYOK Premiumize",
@@ -135,6 +144,8 @@ var (
 		"pro":      Pro,
 	}
 )
+
+const SeedSlotProduct = "torrin-seed-slots"
 
 var ByGumroadProduct = map[string]string{
 	// Day plans
@@ -160,9 +171,9 @@ var ByGumroadProduct = map[string]string{
 
 func DaysFromProduct(permalink string) int {
 	switch {
-	case len(permalink) > 3 && permalink[len(permalink)-2:] == "7d":
+	case strings.HasSuffix(permalink, "7d"):
 		return 7
-	case len(permalink) > 4 && permalink[len(permalink)-3:] == "15d":
+	case strings.HasSuffix(permalink, "15d"):
 		return 15
 	}
 	return 0
@@ -172,9 +183,9 @@ func RecurrenceFromProduct(permalink string) string {
 	switch {
 	case DaysFromProduct(permalink) > 0:
 		return "days"
-	case len(permalink) > 7 && permalink[len(permalink)-8:] == "lifetime":
+	case strings.HasSuffix(permalink, "lifetime"):
 		return "lifetime"
-	case len(permalink) > 6 && permalink[len(permalink)-6:] == "yearly":
+	case strings.HasSuffix(permalink, "yearly"):
 		return "yearly"
 	default:
 		return "monthly"

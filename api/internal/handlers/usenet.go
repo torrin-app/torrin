@@ -172,7 +172,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		}
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: hash, Name: existing.Name, Source: jobs.SourceUsenet,
-			Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize,
+			Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
 		activeLink := linked.Status.Active()
 		if activeLink && !s.Slots.Acquire(r.Context(), user.ID, plan) {
@@ -205,6 +205,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		web.WriteError(w, 500, "failed to store nzb")
 		return
 	}
+	s.Users.SetJobNZB(r.Context(), hash, body)
 
 	status := jobs.StatusPending
 	if used, _ := s.Jobs.BudgetUsed(r.Context()); s.Budget-used < 1_000_000_000 {

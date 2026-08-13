@@ -29,7 +29,7 @@ func (h *Handler) getMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		stError(w, 404, "not found")
 		return
 	}
-	if job.Status == jobs.StatusComplete {
+	if job.Status == jobs.StatusComplete || job.Status == jobs.StatusSeeding {
 		h.Jobs.RecordView(r.Context(), job.InfoHash, user.ID)
 	}
 	stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), job)})
@@ -92,7 +92,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: infoHash, Name: existing.Name, Magnet: mag,
 			Source: source, Status: existing.Status, IMDBID: existing.IMDBID,
-			Files: existing.Files, FileSize: existing.FileSize,
+			Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
 		activeLink := existing.Status.Active()
 		if activeLink && !h.Slots.Acquire(r.Context(), user.ID, plan) {
@@ -144,6 +144,10 @@ func (h *Handler) deleteMagnet(w http.ResponseWriter, r *http.Request, user *aut
 	job, err := h.Jobs.Get(r.Context(), id)
 	if err != nil || job.UserID != user.ID {
 		stError(w, 404, "not found")
+		return
+	}
+	if job.Seed && job.Status == jobs.StatusSeeding {
+		stError(w, 409, "seeding until it meets its ratio/time target")
 		return
 	}
 	if job.Status == jobs.StatusComplete {

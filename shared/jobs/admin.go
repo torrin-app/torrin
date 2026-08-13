@@ -31,6 +31,7 @@ type AdminJob struct {
 	Name      string    `json:"name"`
 	Source    string    `json:"source"`
 	Status    string    `json:"status"`
+	Node      string    `json:"node"`
 	Error     string    `json:"error,omitempty"`
 	FileSize  int64     `json:"file_size"`
 	CreatedAt time.Time `json:"created_at"`
@@ -42,7 +43,7 @@ func (p *Postgres) AdminListJobs(ctx context.Context, status, q string, limit, o
 		limit = 50
 	}
 	query := `SELECT j.id, j.user_id, COALESCE(u.email,''), j.info_hash, j.name, j.source, j.status,
-			COALESCE(j.error,''), j.file_size, j.created_at, j.updated_at
+			COALESCE(j.node,''), COALESCE(j.error,''), j.file_size, j.created_at, j.updated_at
 		FROM jobs j LEFT JOIN users u ON u.id=j.user_id WHERE 1=1`
 	args := []any{}
 	i := 1
@@ -68,7 +69,7 @@ func (p *Postgres) AdminListJobs(ctx context.Context, status, q string, limit, o
 	for rows.Next() {
 		var j AdminJob
 		if rows.Scan(&j.ID, &j.UserID, &j.Email, &j.InfoHash, &j.Name, &j.Source, &j.Status,
-			&j.Error, &j.FileSize, &j.CreatedAt, &j.UpdatedAt) == nil {
+			&j.Node, &j.Error, &j.FileSize, &j.CreatedAt, &j.UpdatedAt) == nil {
 			out = append(out, j)
 		}
 	}

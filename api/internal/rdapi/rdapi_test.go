@@ -37,6 +37,7 @@ func TestMapStatus(t *testing.T) {
 	cases := map[jobs.Status]string{
 		jobs.StatusComplete: "downloaded", jobs.StatusDownloading: "downloading",
 		jobs.StatusProcessing: "downloading", jobs.StatusPublishing: "uploading",
+		jobs.StatusSeeding: "downloaded",
 		jobs.StatusFailed:  "error",
 		jobs.StatusPending: "magnet_conversion", jobs.StatusQueued: "queued",
 	}

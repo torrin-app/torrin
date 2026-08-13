@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/gabriel-vasile/mimetype"
@@ -107,9 +106,8 @@ func repair(dir string) {
 var par2Magic = []byte("PAR2\x00PKT")
 
 func findPar2(dir string) string {
-	if m, _ := filepath.Glob(filepath.Join(dir, "*.par2")); len(m) > 0 {
-		sort.Strings(m)
-		return m[0]
+	if v := firstGlob(dir, "*.par2"); v != "" {
+		return v
 	}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {

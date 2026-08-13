@@ -10,6 +10,7 @@ type Assigned struct {
 	Magnet   string `json:"magnet"`
 	Source   string `json:"source"`
 	MaxBytes int64  `json:"max_bytes"`
+	Node     string `json:"node,omitempty"`
 }
 
 type Progress struct {

@@ -12,7 +12,7 @@ func (r *Runner) ReapOrphans(ctx context.Context) {
 	if r.qb.Login() != nil {
 		return
 	}
-	torrents, err := r.qb.ListTorrents()
+	torrents, err := r.qb.ListTorrents(r.category)
 	if err != nil || len(torrents) == 0 {
 		return
 	}
@@ -33,9 +33,12 @@ func (r *Runner) ReapOrphans(ctx context.Context) {
 
 func (r *Runner) activeHashes(ctx context.Context) map[string]bool {
 	keep := map[string]bool{}
-	for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusQueued, jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing} {
+	for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusQueued, jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing, jobs.StatusSeeding} {
 		list, _ := r.repo.ListByStatus(ctx, st)
 		for _, j := range list {
+			if j.Node != r.node {
+				continue
+			}
 			if j.InfoHash != "" {
 				keep[strings.ToLower(j.InfoHash)] = true
 			}

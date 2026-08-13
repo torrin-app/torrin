@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
@@ -253,5 +254,26 @@ func TestPublishRejectsTinyFile(t *testing.T) {
 		[]File{{Name: "x.mkv", Path: path, Size: 4}})
 	if err == nil {
 		t.Fatal("expected tiny file to be rejected")
+	}
+}
+
+func TestCompleteOnlyTouchesOwnNode(t *testing.T) {
+	mine := &jobs.Job{ID: "jb", InfoHash: "h", Node: "box2", Status: jobs.StatusDownloading}
+	other := &jobs.Job{ID: "j1", InfoHash: "h", Node: "", Status: jobs.StatusDownloading}
+	repo := &memRepo{jobs: map[string]*jobs.Job{"jb": mine, "j1": other}}
+	p := New(repo, &fakeStore{puts: map[string]bool{}}, "box2", newFakeBlobs(), nil)
+
+	files := []manifest.File{{FileName: "m.mkv", FileSize: 2_000_000}}
+	if err := p.complete(context.Background(), "h", "Movie", files, 2_000_000); err != nil {
+		t.Fatal(err)
+	}
+	if mine.Status != jobs.StatusComplete {
+		t.Fatalf("own-node sibling status = %s, want complete", mine.Status)
+	}
+	if other.Status == jobs.StatusComplete {
+		t.Fatal("other-node sibling must not be marked complete")
+	}
+	if other.Node != "" {
+		t.Fatalf("other-node sibling node = %q, must stay empty", other.Node)
 	}
 }

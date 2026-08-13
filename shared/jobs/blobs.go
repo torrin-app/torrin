@@ -64,3 +64,23 @@ func (p *Postgres) DeleteBlob(ctx context.Context, contentKey string) error {
 	_, err := p.pool.Exec(ctx, `DELETE FROM blobs WHERE content_key=$1`, contentKey)
 	return err
 }
+
+func (p *Postgres) OrphanedBlobs(ctx context.Context, limit int) ([]Blob, error) {
+	rows, err := p.pool.Query(ctx,
+		`SELECT content_key, size FROM blobs b
+		 WHERE NOT EXISTS (SELECT 1 FROM blob_refs r WHERE r.content_key = b.content_key)
+		 LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Blob
+	for rows.Next() {
+		var b Blob
+		if err := rows.Scan(&b.ContentKey, &b.Size); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}

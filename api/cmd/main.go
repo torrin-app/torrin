@@ -62,9 +62,14 @@ func main() {
 
 	budget := env.Int("BUDGET_MAX_BYTES", 1_000_000_000_000)
 
-	var qb *qbit.Client
+	var qb, qbSeed *qbit.Client
 	if u := os.Getenv("QBIT_URL"); u != "" {
 		qb = qbit.NewClient(u, env.Get("QBIT_USER", "admin"), env.Get("QBIT_PASS", ""))
+		if su := env.Get("QBIT_SEED_URL", u); su != u {
+			qbSeed = qbit.NewClient(su, env.Get("QBIT_SEED_USER", env.Get("QBIT_USER", "admin")), env.Get("QBIT_SEED_PASS", env.Get("QBIT_PASS", "")))
+		} else {
+			qbSeed = qb
+		}
 	}
 
 	pwMaxBytes := env.Int("PREWARM_MAX_BYTES_GB", 25) * 1_000_000_000
@@ -92,17 +97,19 @@ func main() {
 		env.Get("DONATION_DISCORD_WEBHOOK", ""), users)
 	srv := handlers.New(handlers.Deps{
 		Jobs: jobsRepo, JobsPG: jobsRepo, Users: users, Store: store, Bus: b,
-		Slots: slots, Qbit: qb, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
+		Slots: slots, Qbit: qb, QbitSeed: qbSeed, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
 		RClone: rc, Bitcart: bitcart, Bachs: bachs, SignKey: []byte(env.Get("SIGNING_KEY", "")),
-		Internal:        env.Get("SIGNING_KEY", ""),
-		AdminKey:        env.Get("ADMIN_KEY", ""),
-		IndexerURL:      env.Get("USENET_INDEXER_URL", ""),
-		IndexerKey:      env.Get("USENET_INDEXER_KEY", ""),
-		TGBotUsername:   env.Get("TELEGRAM_BOT_USERNAME", ""),
-		ResellerKey:     env.Get("RESELLER_KEY", ""),
-		APIBase:         env.Get("API_PUBLIC_URL", ""),
-		WebBase:         env.Get("WEB_URL", ""),
-		PrewarmMaxBytes: pwMaxBytes, PrewarmMaxActive: pwMaxActive, PrewarmCapBytes: pwCapBytes,
+		SeedingEnabled:    env.Get("SEEDING_ENABLED", "") == "true",
+		SeedingAllowUsers: parseAllowUsers(env.Get("SEEDING_ALLOW_USERS", "")),
+		Internal:          env.Get("SIGNING_KEY", ""),
+		AdminKey:          env.Get("ADMIN_KEY", ""),
+		IndexerURL:        env.Get("USENET_INDEXER_URL", ""),
+		IndexerKey:        env.Get("USENET_INDEXER_KEY", ""),
+		TGBotUsername:     env.Get("TELEGRAM_BOT_USERNAME", ""),
+		ResellerKey:       env.Get("RESELLER_KEY", ""),
+		APIBase:           env.Get("API_PUBLIC_URL", ""),
+		WebBase:           env.Get("WEB_URL", ""),
+		PrewarmMaxBytes:   pwMaxBytes, PrewarmMaxActive: pwMaxActive, PrewarmCapBytes: pwCapBytes,
 	})
 
 	mux := http.NewServeMux()
@@ -158,6 +165,16 @@ func mustEnv(k string) string {
 		fatal("missing env "+k, nil)
 	}
 	return v
+}
+
+func parseAllowUsers(csv string) map[string]bool {
+	m := map[string]bool{}
+	for _, e := range strings.Split(csv, ",") {
+		if e = strings.ToLower(strings.TrimSpace(e)); e != "" {
+			m[e] = true
+		}
+	}
+	return m
 }
 
 func parseNodeBases(s string) map[string]string {

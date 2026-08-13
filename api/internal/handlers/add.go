@@ -20,19 +20,21 @@ func (s *Server) addJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(data) == 0 {
-		web.WriteError(w, 400, "paste a magnet, link or infohash, or upload a .nzb")
+		web.WriteError(w, 400, "paste a magnet, link or infohash, or upload a .torrent or .nzb")
 		return
 	}
 
 	user := middleware.GetUser(r)
 	plan := middleware.GetPlan(r)
 	switch detect.Detect(data, filename) {
+	case detect.Torrent:
+		s.ingestTorrent(w, r, user, plan, data)
 	case detect.NZB:
 		s.ingestNZB(w, r, user, plan, data, strings.TrimSuffix(filename, ".nzb"), true)
 	case detect.Magnet, detect.InfoHash, detect.URL:
 		s.ingestText(w, r, strings.TrimSpace(string(data)))
 	default:
-		web.WriteError(w, 400, "couldn't recognize this, paste a magnet, link or infohash, or upload a .nzb")
+		web.WriteError(w, 400, "couldn't recognize this, paste a magnet, link or infohash, or upload a .torrent or .nzb")
 	}
 }
 

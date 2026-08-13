@@ -81,6 +81,12 @@ func (r *Runner) finalize(ctx context.Context, job *jobs.Job, hash string, t *qb
 			r.fail(ctx, job, "publish failed: "+err.Error())
 			return
 		}
+		if job.Seed {
+			job.Status = jobs.StatusSeeding
+			r.repo.Update(ctx, job)
+			slog.Info("published, now seeding for ratio", "job", job.ID, "name", t.Name)
+			return
+		}
 		r.deleteAndVerify(hash, t)
 		r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
 	}()

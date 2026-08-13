@@ -13,6 +13,15 @@ import (
 
 const maxIndexers = 8
 
+func validIndexerURL(w http.ResponseWriter, raw string) (string, bool) {
+	url := normalizeIndexerURL(raw)
+	if indexer.ValidateURL(url) != nil {
+		web.WriteError(w, 400, "invalid indexer URL")
+		return "", false
+	}
+	return url, true
+}
+
 func (s *Server) testIndexer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL    string `json:"url"`
@@ -22,9 +31,8 @@ func (s *Server) testIndexer(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "url and api_key required")
 		return
 	}
-	url := normalizeIndexerURL(req.URL)
-	if indexer.ValidateURL(url) != nil {
-		web.WriteError(w, 400, "invalid indexer URL")
+	url, ok := validIndexerURL(w, req.URL)
+	if !ok {
 		return
 	}
 	if _, err := indexer.NewClient(url, req.APIKey).SearchQuery("test", "2000", 0, 5); err != nil {
@@ -58,9 +66,8 @@ func (s *Server) addIndexer(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "url and api_key required")
 		return
 	}
-	url := normalizeIndexerURL(req.URL)
-	if indexer.ValidateURL(url) != nil {
-		web.WriteError(w, 400, "invalid indexer URL")
+	url, ok := validIndexerURL(w, req.URL)
+	if !ok {
 		return
 	}
 	if n, _ := s.Users.CountIndexers(r.Context(), user.ID); n >= maxIndexers {
@@ -93,9 +100,8 @@ func (s *Server) editIndexer(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "url required")
 		return
 	}
-	url := normalizeIndexerURL(req.URL)
-	if indexer.ValidateURL(url) != nil {
-		web.WriteError(w, 400, "invalid indexer URL")
+	url, ok := validIndexerURL(w, req.URL)
+	if !ok {
 		return
 	}
 	if err := s.Users.UpdateIndexer(r.Context(), id, user.ID, req.Label, url, req.APIKey); err != nil {
@@ -161,9 +167,8 @@ func (s *Server) setIndexer(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "url and api_key required")
 		return
 	}
-	url := normalizeIndexerURL(req.URL)
-	if indexer.ValidateURL(url) != nil {
-		web.WriteError(w, 400, "invalid indexer URL")
+	url, ok := validIndexerURL(w, req.URL)
+	if !ok {
 		return
 	}
 	existing, _ := s.Users.ListIndexers(r.Context(), user.ID)

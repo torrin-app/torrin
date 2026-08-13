@@ -10,7 +10,7 @@ import (
 func (s *Server) adminCache(w http.ResponseWriter, r *http.Request) {
 	top, _ := s.JobsPG.CacheTopItems(r.Context(), 20)
 	candidates, _ := s.JobsPG.CacheEvictionCandidates(r.Context(), 20)
-	total, _ := s.JobsPG.GetTotalCachedSize(r.Context())
+	total, _ := s.JobsPG.GetTotalCachedSizeAll(r.Context())
 
 	web.WriteJSON(w, 200, map[string]any{
 		"top":                  top,
