@@ -96,6 +96,8 @@ services:
       NODE_STREAM_BASES: "${NODE_STREAM_BASES:-}" # cluster: "node1=http://a:8084,node2=http://b:8084"
       BUDGET_MAX_BYTES: "${BUDGET_MAX_BYTES:-1000000000000}" # 1 TB cap on in-flight downloads
       EVICTION_CAP_BYTES: "${EVICTION_CAP_BYTES:-300000000000}" # 300 GB cache soft cap
+      NODE2_ID: "${NODE2_ID:-}" # cluster: legacy single overflow node (superseded by CLUSTER_NODES)
+      CLUSTER_NODES: "${CLUSTER_NODES:-}" # cluster: ordered overflow nodes with caps, e.g. "node2:45TB,node3:50TB"
       EVICTION_HOUR: "${EVICTION_HOUR:-4}"
       GUMROAD_SECRET: "${GUMROAD_SECRET:-}"
       GUMROAD_SELLER_ID: "${GUMROAD_SELLER_ID:-}"
