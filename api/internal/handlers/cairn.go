@@ -45,18 +45,21 @@ func (s *Server) cairnCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _, archived := s.Users.GetCairnArchive(r.Context(), hash)
+	node := ""
 	if !archived {
-		if cached, _ := s.Store.Has(r.Context(), manifest.Path(hash)); !cached {
+		job, err := s.Jobs.GetByInfoHash(r.Context(), hash)
+		if err != nil || job == nil || job.Status != jobs.StatusComplete {
 			web.WriteError(w, 409, "file must finish downloading before it can be cairned")
 			return
 		}
+		node = job.Node
 	}
 	if err := s.Users.AddUserCairn(r.Context(), user.ID, hash); err != nil {
 		web.WriteError(w, 500, "failed to save cairn")
 		return
 	}
 	if !archived {
-		if err := s.Bus.Publish(events.CairnRequested, events.CairnRequest{InfoHash: hash}); err != nil {
+		if err := s.Bus.Publish(events.CairnRequested, events.CairnRequest{InfoHash: hash, Node: node}); err != nil {
 			web.WriteError(w, 500, "failed to queue cairn")
 			return
 		}

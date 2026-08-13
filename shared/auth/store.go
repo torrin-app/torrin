@@ -52,7 +52,8 @@ func (s *Store) GetByID(ctx context.Context, id string) (*User, error) {
 }
 
 func (s *Store) GetByAPIKey(ctx context.Context, apiKey string) (*User, error) {
-	return scanOne(s.pool.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE api_key=$1`, apiKey))
+	u, _, err := s.ResolveAPIKey(ctx, apiKey)
+	return u, err
 }
 
 func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {

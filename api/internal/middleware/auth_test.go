@@ -1,6 +1,11 @@
 package middleware
 
-import "testing"
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestLargeUpload(t *testing.T) {
 	for _, p := range []string{"/api/jobs/nzb", "/api/torrents/upload", "/api/add"} {
@@ -29,6 +34,31 @@ func TestExpiredFreeAllowed(t *testing.T) {
 	for _, p := range deny {
 		if expiredFreeAllowed(p) {
 			t.Errorf("%s should be blocked for expired free user", p)
+		}
+	}
+}
+
+func TestRequireLogin(t *testing.T) {
+	h := RequireLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) }))
+	cases := []struct {
+		name    string
+		set     bool
+		allowed bool
+		want    int
+	}{
+		{"login-allowed key passes", true, true, 200},
+		{"api-only key blocked", true, false, 403},
+		{"missing flag defaults to blocked", false, false, 403},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", "/api/me", nil)
+		if c.set {
+			req = req.WithContext(context.WithValue(req.Context(), loginAllowedKey, c.allowed))
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, rec.Code, c.want)
 		}
 	}
 }

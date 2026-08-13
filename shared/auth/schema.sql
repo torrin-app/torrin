@@ -23,6 +23,19 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_subid ON users(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_users_referral ON users(referral_code);
 
+CREATE TABLE IF NOT EXISTS api_keys (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    key           TEXT NOT NULL UNIQUE,
+    label         TEXT NOT NULL DEFAULT '',
+    login_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at  TIMESTAMPTZ,
+    revoked_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_apikeys_key ON api_keys(key);
+CREATE INDEX IF NOT EXISTS idx_apikeys_user ON api_keys(user_id);
+
 CREATE TABLE IF NOT EXISTS deleted_emails (
     email TEXT PRIMARY KEY
 );

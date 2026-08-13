@@ -35,4 +35,5 @@ type Deleted struct {
 
 type CairnRequest struct {
 	InfoHash string `json:"info_hash"`
+	Node     string `json:"node"`
 }

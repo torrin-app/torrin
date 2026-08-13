@@ -14,6 +14,7 @@ import (
 type contextKey string
 
 const UserContextKey contextKey = "user"
+const loginAllowedKey contextKey = "login_allowed"
 
 func expiredFreeAllowed(path string) bool {
 	return path == "/api/me" || path == "/api/plans" || path == "/api/stats" ||
@@ -36,7 +37,7 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 				return
 			}
 
-			user, err := store.GetByAPIKey(r.Context(), apiKey)
+			user, loginAllowed, err := store.ResolveAPIKey(r.Context(), apiKey)
 			if err != nil {
 				web.WriteError(w, 401, "invalid api key")
 				return
@@ -74,9 +75,25 @@ func Auth(store *auth.Store) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), UserContextKey, user)
+			ctx = context.WithValue(ctx, loginAllowedKey, loginAllowed)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func LoginAllowed(r *http.Request) bool {
+	v, _ := r.Context().Value(loginAllowedKey).(bool)
+	return v
+}
+
+func RequireLogin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !LoginAllowed(r) {
+			web.WriteError(w, 403, "this key is API-only and can't be used here, use a login-enabled key")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func GetUser(r *http.Request) *auth.User {

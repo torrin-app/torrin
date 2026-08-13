@@ -50,8 +50,12 @@ func main() {
 	}
 	cairnStore := service.CairnStore()
 	arch := cairn.NewArchiver(store, cairnStore, users, poster)
+	nodeID := env.Get("NODE_ID", "")
 
 	if _, err := bus.Subscribe(b, events.CairnRequested, func(req events.CairnRequest) {
+		if req.Node != nodeID {
+			return
+		}
 		go arch.Archive(context.Background(), req.InfoHash)
 	}); err != nil {
 		fatal("subscribe", err)
