@@ -88,7 +88,7 @@ func (r *Runner) finalize(ctx context.Context, job *jobs.Job, hash string, t *qb
 			return
 		}
 		r.deleteAndVerify(hash, t)
-		r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
+		r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 	}()
 }
 

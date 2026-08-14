@@ -25,6 +25,6 @@ func Complete(ctx context.Context, repo jobs.Repository, b *bus.Bus, pub *publis
 	if err := pub.Publish(ctx, job, files); err != nil {
 		return err
 	}
-	b.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
+	b.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 	return nil
 }

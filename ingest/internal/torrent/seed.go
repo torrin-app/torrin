@@ -64,5 +64,5 @@ func (r *Runner) completeSeed(ctx context.Context, job *jobs.Job, hash string, t
 	}
 	job.Status = jobs.StatusComplete
 	r.repo.Update(ctx, job)
-	r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
+	r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 }

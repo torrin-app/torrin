@@ -108,7 +108,7 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr, s
 	case err != nil && debrid.IsTerminal(err):
 		jobrun.Fail(ctx, repo, b, job, err)
 	case err == nil && handled:
-		b.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
+		b.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 	case canQbit:
 		if err != nil {
 			slog.Info("debrid unavailable, falling through to qbit", "job", job.ID, "err", err)

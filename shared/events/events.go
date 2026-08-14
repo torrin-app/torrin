@@ -22,6 +22,7 @@ type Progress struct {
 type Complete struct {
 	JobID    string `json:"job_id"`
 	InfoHash string `json:"info_hash"`
+	Node     string `json:"node"`
 }
 
 type Failed struct {

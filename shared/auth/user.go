@@ -22,6 +22,7 @@ type User struct {
 	SeedSlotPacks        int       `json:"seed_slot_packs"`
 	SeedSlotSub          string    `json:"-"`
 	SystemIndexerEnabled bool      `json:"system_indexer_enabled"`
+	TOTPEnabled          bool      `json:"totp_enabled"`
 }
 
 func (u *User) IsPaused() bool {

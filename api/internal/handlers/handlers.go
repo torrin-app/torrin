@@ -74,7 +74,8 @@ type Server struct {
 func New(d Deps) *Server { return &Server{d} }
 
 func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
-	loginMW := func(h http.Handler) http.Handler { return authMW(middleware.RequireLogin(h)) }
+	loginMW := func(h http.Handler) http.Handler { return authMW(middleware.RequireSession(s.SignKey)(h)) }
+	loginKeyMW := func(h http.Handler) http.Handler { return authMW(middleware.RequireLogin(h)) }
 	mux.HandleFunc("POST /api/auth/register", s.register)
 	mux.HandleFunc("GET /r/{code}", s.referralRedirect)
 	mux.HandleFunc("GET /api/partner/report", s.partnerReport)
@@ -88,6 +89,10 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.Handle("GET /api/keys", loginMW(http.HandlerFunc(s.listKeys)))
 	mux.Handle("POST /api/keys", loginMW(http.HandlerFunc(s.createKey)))
 	mux.Handle("DELETE /api/keys/{id}", loginMW(http.HandlerFunc(s.revokeKey)))
+	mux.Handle("POST /api/auth/2fa/enroll", loginMW(http.HandlerFunc(s.mfaEnroll)))
+	mux.Handle("POST /api/auth/2fa/confirm", loginMW(http.HandlerFunc(s.mfaConfirm)))
+	mux.Handle("POST /api/auth/2fa/disable", loginMW(http.HandlerFunc(s.mfaDisable)))
+	mux.Handle("POST /api/auth/2fa/verify", loginKeyMW(http.HandlerFunc(s.mfaVerify)))
 	mux.Handle("POST /api/billing/crypto/checkout", loginMW(http.HandlerFunc(s.cryptoCheckout)))
 	mux.Handle("POST /api/billing/bachs/checkout", loginMW(http.HandlerFunc(s.bachsCheckout)))
 	s.registerAdminRoutes(mux)

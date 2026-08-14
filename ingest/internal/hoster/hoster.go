@@ -93,7 +93,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	if err := r.pub.Publish(ctx, job, []publish.File{{Name: filepath.Base(name), Path: path, Size: sz}}); err != nil {
 		return fmt.Errorf("publish: %w", err)
 	}
-	r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
+	r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 	slog.Info("hoster complete", "job", job.ID, "name", name)
 	return nil
 }

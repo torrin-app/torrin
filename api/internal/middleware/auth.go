@@ -96,6 +96,25 @@ func RequireLogin(next http.Handler) http.Handler {
 	})
 }
 
+func RequireSession(signKey []byte) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := GetUser(r)
+			if u == nil || !LoginAllowed(r) {
+				web.WriteError(w, 403, "this key is API-only and can't be used here, use a login-enabled key")
+				return
+			}
+			if u.TOTPEnabled {
+				if uid, ok := auth.VerifySession(signKey, r.Header.Get("X-Torrin-Session")); !ok || uid != u.ID {
+					web.WriteJSON(w, 401, map[string]any{"error": "two-factor code required", "mfa_required": true})
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func GetUser(r *http.Request) *auth.User {
 	u, _ := r.Context().Value(UserContextKey).(*auth.User)
 	return u

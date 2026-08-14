@@ -237,6 +237,16 @@ CREATE TABLE IF NOT EXISTS telegram_link_codes (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS seed_slot_packs INT NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS seed_slot_sub TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS system_indexer_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret  TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE TABLE IF NOT EXISTS mfa_backup_codes (
+    id        TEXT PRIMARY KEY,
+    user_id   TEXT NOT NULL,
+    code_hash TEXT NOT NULL,
+    used_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_mfa_backup_user ON mfa_backup_codes(user_id);
 
 CREATE TABLE IF NOT EXISTS cairn_archives (
     info_hash  TEXT PRIMARY KEY,

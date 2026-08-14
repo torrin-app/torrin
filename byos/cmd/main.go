@@ -25,6 +25,7 @@ type deps struct {
 	src    *storage.Client
 	rc     *rclonerc.Client
 	cipher *crypto.Stream
+	nodeID string
 }
 
 func main() {
@@ -53,6 +54,7 @@ func main() {
 		users:  users,
 		src:    storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
 		cipher: cipher,
+		nodeID: env.Get("NODE_ID", ""),
 	}
 	d.rc = connectRclone(ctx)
 
@@ -63,11 +65,15 @@ func main() {
 	defer b.Close()
 
 	if _, err := bus.Subscribe(b, events.JobComplete, func(c events.Complete) {
+		if c.Node != d.nodeID {
+			return
+		}
 		d.enqueueHash(ctx, c.InfoHash)
 	}); err != nil {
 		fatal("subscribe", err)
 	}
 	go d.runQueue(ctx)
+	go d.reconcile(ctx)
 	go d.runStorageEviction(ctx, int(env.Int("BYOS_EVICT_HOUR", 5)))
 
 	slog.Info("byos worker started")
@@ -93,16 +99,31 @@ func connectRclone(ctx context.Context) *rclonerc.Client {
 func (d *deps) enqueueHash(ctx context.Context, infoHash string) {
 	sibs, _ := d.repo.ListByInfoHash(ctx, infoHash)
 	for _, job := range sibs {
-		if job.Status != jobs.StatusComplete || job.UserID == "" || job.UserID == "system" {
-			continue
-		}
-		if d.repo.HasBYOSObject(ctx, job.ID) {
-			continue
-		}
-		if creds, err := d.users.GetStorageCreds(ctx, job.UserID); err == nil && creds != nil && creds.Enabled {
-			d.repo.EnqueueBYOS(ctx, job.ID, job.UserID)
-		}
+		d.enqueueJob(ctx, job)
 	}
+}
+
+func (d *deps) enqueueJob(ctx context.Context, job *jobs.Job) {
+	if job.Node != d.nodeID || job.Status != jobs.StatusComplete || job.UserID == "" || job.UserID == "system" {
+		return
+	}
+	if d.repo.HasBYOSObject(ctx, job.ID) {
+		return
+	}
+	if creds, err := d.users.GetStorageCreds(ctx, job.UserID); err == nil && creds != nil && creds.Enabled {
+		d.repo.EnqueueBYOS(ctx, job.ID, job.UserID)
+	}
+}
+
+func (d *deps) reconcile(ctx context.Context) {
+	all, err := d.repo.ListByStatus(ctx, jobs.StatusComplete)
+	if err != nil {
+		return
+	}
+	for _, job := range all {
+		d.enqueueJob(ctx, job)
+	}
+	slog.Info("byos: reconcile done", "node", d.nodeID, "scanned", len(all))
 }
 
 func (d *deps) runQueue(ctx context.Context) {
@@ -121,10 +142,32 @@ func (d *deps) runQueue(ctx context.Context) {
 	}
 }
 
+type queueAction int
+
+const (
+	actionMirror queueAction = iota
+	actionSkip
+	actionDelete
+)
+
+func queueActionFor(job *jobs.Job, nodeID string, mirrored bool) queueAction {
+	if job == nil || job.Status != jobs.StatusComplete || mirrored {
+		return actionDelete
+	}
+	if job.Node != nodeID {
+		return actionSkip
+	}
+	return actionMirror
+}
+
 func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
-	job, err := d.repo.Get(ctx, it.JobID)
-	if err != nil || job == nil || job.Status != jobs.StatusComplete || d.repo.HasBYOSObject(ctx, job.ID) {
+	job, _ := d.repo.Get(ctx, it.JobID)
+	mirrored := job != nil && d.repo.HasBYOSObject(ctx, job.ID)
+	switch queueActionFor(job, d.nodeID, mirrored) {
+	case actionDelete:
 		d.repo.DeleteBYOSQueue(ctx, it.JobID)
+		return
+	case actionSkip:
 		return
 	}
 	creds, err := d.users.GetStorageCreds(ctx, job.UserID)

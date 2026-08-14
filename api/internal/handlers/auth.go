@@ -69,6 +69,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"seed_used":  s.seedUsage(r.Context(), user), "seed_cap": seedCap(plan, user),
 		"seed_packs": user.SeedSlotPacks, "seed_max_packs": 2,
 		"seeding_allowed": s.seedingAllowed(user),
+		"totp_enabled":    user.TOTPEnabled,
 	})
 }
 
