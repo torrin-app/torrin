@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/crypto"
@@ -36,14 +37,18 @@ func openDecrypted(ctx context.Context, src Source, cipher *crypto.Stream, key s
 	return pr, nil
 }
 
-func Mirror(ctx context.Context, src Source, cipher *crypto.Stream, job *jobs.Job, creds *auth.StorageCreds) error {
-	dst := storage.NewClient(creds.Endpoint, creds.Region, creds.AccessKey, creds.SecretKey, creds.Bucket, "", "")
+type uploadFn func(ctx context.Context, i int, f jobs.File, body io.Reader) error
+
+func mirrorFiles(ctx context.Context, src Source, cipher *crypto.Stream, job *jobs.Job, stall time.Duration, up uploadFn) error {
 	for i, f := range job.Files {
 		body, err := openDecrypted(ctx, src, cipher, manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name), f.Enc)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", f.Name, err)
 		}
-		err = dst.StreamUpload(ctx, creds.Prefix+manifest.Key(job.InfoHash, i, f.Name), body, video.ContentType(f.Name))
+		pr := newProgressReader(body)
+		uctx, stop := guardStall(ctx, pr, stall)
+		err = up(uctx, i, f, pr)
+		stop()
 		body.Close()
 		if err != nil {
 			return fmt.Errorf("upload %s: %w", f.Name, err)
@@ -52,22 +57,20 @@ func Mirror(ctx context.Context, src Source, cipher *crypto.Stream, job *jobs.Jo
 	return nil
 }
 
-func MirrorRclone(ctx context.Context, rc *rclonerc.Client, src Source, cipher *crypto.Stream, job *jobs.Job, creds *auth.StorageCreds) error {
+func Mirror(ctx context.Context, src Source, cipher *crypto.Stream, job *jobs.Job, creds *auth.StorageCreds, stall time.Duration) error {
+	dst := storage.NewClient(creds.Endpoint, creds.Region, creds.AccessKey, creds.SecretKey, creds.Bucket, "", "")
+	return mirrorFiles(ctx, src, cipher, job, stall, func(uctx context.Context, i int, f jobs.File, body io.Reader) error {
+		return dst.StreamUpload(uctx, creds.Prefix+manifest.Key(job.InfoHash, i, f.Name), body, video.ContentType(f.Name))
+	})
+}
+
+func MirrorRclone(ctx context.Context, rc *rclonerc.Client, src Source, cipher *crypto.Stream, job *jobs.Job, creds *auth.StorageCreds, stall time.Duration) error {
 	remote, err := auth.EnsureRemote(ctx, rc, job.UserID, creds)
 	if err != nil {
 		return fmt.Errorf("create remote: %w", err)
 	}
-	for i, f := range job.Files {
-		body, err := openDecrypted(ctx, src, cipher, manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name), f.Enc)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", f.Name, err)
-		}
+	return mirrorFiles(ctx, src, cipher, job, stall, func(uctx context.Context, i int, f jobs.File, body io.Reader) error {
 		dst := creds.Prefix + manifest.Key(job.InfoHash, i, f.Name)
-		err = rc.UploadFile(ctx, remote+":", path.Dir(dst), path.Base(dst), body)
-		body.Close()
-		if err != nil {
-			return fmt.Errorf("upload %s: %w", f.Name, err)
-		}
-	}
-	return nil
+		return rc.UploadFile(uctx, remote+":", path.Dir(dst), path.Base(dst), body)
+	})
 }

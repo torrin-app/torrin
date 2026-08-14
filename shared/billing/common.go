@@ -9,12 +9,27 @@ import (
 	"github.com/torrin-app/torrin/shared/plans"
 )
 
-func getOrCreateUser(ctx context.Context, users *auth.Store, email string) (*auth.User, bool, error) {
+type userLookup interface {
+	GetByEmail(ctx context.Context, email string) (*auth.User, error)
+	GetBySubscription(ctx context.Context, subID string) (*auth.User, error)
+	CreateUser(ctx context.Context, email string, referralCode ...string) (*auth.User, error)
+}
+
+func getOrCreateUser(ctx context.Context, users userLookup, email string) (*auth.User, bool, error) {
 	if u, err := users.GetByEmail(ctx, email); err == nil && u != nil {
 		return u, false, nil
 	}
 	u, err := users.CreateUser(ctx, email)
 	return u, err == nil, err
+}
+
+func resolveSaleUser(ctx context.Context, users userLookup, email, subID string) (*auth.User, bool, error) {
+	if subID != "" {
+		if u, err := users.GetBySubscription(ctx, subID); err == nil && u != nil {
+			return u, false, nil
+		}
+	}
+	return getOrCreateUser(ctx, users, email)
 }
 
 func applyCryptoPlan(ctx context.Context, users *auth.Store, user *auth.User, email, eventID, planID, period, via string, days int) {

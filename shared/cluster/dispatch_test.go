@@ -91,8 +91,11 @@ func TestTargetNode(t *testing.T) {
 	if got := TargetNode(ctx, mapSizer{"": 950}, "ytdlp", 100); got != "box2" {
 		t.Fatalf("ytdlp is portable, full -> box2, got %q", got)
 	}
-	if got := TargetNode(ctx, mapSizer{"": 950}, "hdencode", 100); got != "" {
-		t.Fatalf("hdencode must pin to box1, got %q", got)
+	if got := TargetNode(ctx, mapSizer{"": 950}, "scenerls", 100); got != "box2" {
+		t.Fatalf("scenerls is portable, full -> box2, got %q", got)
+	}
+	if got := TargetNode(ctx, mapSizer{"": 950}, "hdencode", 100); got != "box2" {
+		t.Fatalf("hdencode is portable, full -> box2, got %q", got)
 	}
 
 	t.Setenv("CLUSTER_NODES", "")

@@ -87,7 +87,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	}
 	parts, err := resolver.Resolve(ctx, job.Magnet, job.IMDBID, job.Name)
 	if err != nil {
-		return fmt.Errorf("resolve: %w", err)
+		return failure.Newf("resolve_failed", "%s", err)
 	}
 	if len(parts) == 0 {
 		return failure.Wrap(failure.NoSources, "no usable links found")

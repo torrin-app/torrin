@@ -14,18 +14,23 @@ import (
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/service"
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
 type deps struct {
-	repo   *jobs.Postgres
-	users  *auth.Store
-	src    *storage.Client
-	rc     *rclonerc.Client
-	cipher *crypto.Stream
-	nodeID string
+	repo          *jobs.Postgres
+	users         *auth.Store
+	src           *storage.Client
+	rc            *rclonerc.Client
+	cipher        *crypto.Stream
+	nodeID        string
+	parallel      int
+	perUser       int
+	mirrorTimeout time.Duration
+	stallTimeout  time.Duration
 }
 
 func main() {
@@ -50,11 +55,18 @@ func main() {
 		cipher = c
 	}
 	d := &deps{
-		repo:   repo,
-		users:  users,
-		src:    storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
-		cipher: cipher,
-		nodeID: env.Get("NODE_ID", ""),
+		repo:          repo,
+		users:         users,
+		src:           storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
+		cipher:        cipher,
+		nodeID:        env.Get("NODE_ID", ""),
+		parallel:      int(env.Int("BYOS_PARALLEL", 3)),
+		perUser:       int(env.Int("BYOS_PER_USER", 2)),
+		mirrorTimeout: time.Duration(env.Int("BYOS_MIRROR_TIMEOUT_MIN", 120)) * time.Minute,
+		stallTimeout:  time.Duration(env.Int("BYOS_STALL_MIN", 10)) * time.Minute,
+	}
+	if d.parallel < 1 {
+		d.parallel = 1
 	}
 	d.rc = connectRclone(ctx)
 
@@ -111,6 +123,9 @@ func (d *deps) enqueueJob(ctx context.Context, job *jobs.Job) {
 		return
 	}
 	if creds, err := d.users.GetStorageCreds(ctx, job.UserID); err == nil && creds != nil && creds.Enabled {
+		if !d.blobPresent(ctx, job) {
+			return
+		}
 		d.repo.EnqueueBYOS(ctx, job.ID, job.UserID)
 	}
 }
@@ -127,6 +142,7 @@ func (d *deps) reconcile(ctx context.Context) {
 }
 
 func (d *deps) runQueue(ctx context.Context) {
+	pool := newDispatcher(d.parallel, d.perUser)
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
 	for {
@@ -135,9 +151,10 @@ func (d *deps) runQueue(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		items, _ := d.repo.ListBYOSQueue(ctx)
+		items, _ := d.repo.ListBYOSQueue(ctx, d.nodeID)
 		for _, it := range items {
-			d.processItem(ctx, it)
+			it := it
+			pool.submit(it.JobID, it.UserID, func() { d.processItem(ctx, it) })
 		}
 	}
 }
@@ -176,14 +193,17 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 		return
 	}
 
+	rcl := creds.IsRclone()
+	if rcl && d.rc == nil {
+		return
+	}
+	mctx, cancel := context.WithTimeout(ctx, d.mirrorTimeout)
+	defer cancel()
 	var mErr error
-	if creds.IsRclone() {
-		if d.rc == nil {
-			return
-		}
-		mErr = mirror.MirrorRclone(ctx, d.rc, d.src, d.cipher, job, creds)
+	if rcl {
+		mErr = mirror.MirrorRclone(mctx, d.rc, d.src, d.cipher, job, creds, d.stallTimeout)
 	} else {
-		mErr = mirror.Mirror(ctx, d.src, d.cipher, job, creds)
+		mErr = mirror.Mirror(mctx, d.src, d.cipher, job, creds, d.stallTimeout)
 	}
 	switch {
 	case mErr == nil:
@@ -193,6 +213,9 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 	case rcAuth(mErr):
 		slog.Warn("byos: storage auth rejected, disabling until reconnect", "job", job.ID, "user", job.UserID, "err", mErr)
 		d.users.DisableStorage(ctx, job.UserID, "your storage rejected the connection (401/403); reconnect it in settings")
+		d.repo.DeleteBYOSQueue(ctx, it.JobID)
+	case errors.Is(mErr, storage.ErrNotFound):
+		slog.Warn("byos: source blob evicted before mirror, dropping", "job", job.ID, "err", mErr)
 		d.repo.DeleteBYOSQueue(ctx, it.JobID)
 	case rcPermanent(mErr):
 		slog.Warn("byos: permanent mirror failure, dropping", "job", job.ID, "err", mErr)
@@ -205,6 +228,15 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 			slog.Warn("byos: mirror failed, will retry", "job", job.ID, "attempt", n, "err", mErr)
 		}
 	}
+}
+
+func (d *deps) blobPresent(ctx context.Context, job *jobs.Job) bool {
+	if len(job.Files) == 0 {
+		return true
+	}
+	f := job.Files[0]
+	ok, err := d.src.Has(ctx, manifest.ResolveKey(job.InfoHash, 0, f.Key, f.Name))
+	return err != nil || ok
 }
 
 func rcPermanent(err error) bool {

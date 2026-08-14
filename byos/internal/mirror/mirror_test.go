@@ -3,10 +3,13 @@ package mirror
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"testing"
 
+	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/crypto"
+	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
@@ -14,6 +17,21 @@ type fakeSource struct{ data []byte }
 
 func (f fakeSource) Get(_ context.Context, _, _ string) (*storage.Object, error) {
 	return &storage.Object{Body: io.NopCloser(bytes.NewReader(f.data)), Size: int64(len(f.data))}, nil
+}
+
+type errSource struct{ err error }
+
+func (e errSource) Get(_ context.Context, _, _ string) (*storage.Object, error) {
+	return nil, e.err
+}
+
+func TestMirrorPropagatesNotFound(t *testing.T) {
+	job := &jobs.Job{InfoHash: "h", Files: []jobs.File{{Name: "a.mkv"}}}
+	creds := &auth.StorageCreds{Backend: "s3", Bucket: "b"}
+	err := Mirror(context.Background(), errSource{storage.ErrNotFound}, nil, job, creds, 0)
+	if !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("evicted source must surface as ErrNotFound in the chain, got %v", err)
+	}
 }
 
 func TestOpenDecryptedPlain(t *testing.T) {

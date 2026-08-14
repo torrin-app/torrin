@@ -3,8 +3,11 @@ package hdencode
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +70,21 @@ func TestResolveNoSolver(t *testing.T) {
 	_, err := NewClient("").Resolve(context.Background(), "https://hdencode.org/some-movie-2026-1080p-grp-9-gb/", "", "Movie")
 	if err == nil {
 		t.Fatal("expected error when solver not configured")
+	}
+}
+
+func TestStripURL(t *testing.T) {
+	inner := context.DeadlineExceeded
+	ue := &url.Error{Op: "Post", URL: "http://gluetun:8090/resolve", Err: inner}
+	got := stripURL(ue)
+	if got != inner {
+		t.Fatalf("stripURL should unwrap to the underlying error, got %v", got)
+	}
+	if strings.Contains(got.Error(), "gluetun") || strings.Contains(got.Error(), "http") {
+		t.Fatalf("stripped error must not leak the internal solver URL: %q", got.Error())
+	}
+	plain := errors.New("boom")
+	if stripURL(plain) != plain {
+		t.Fatal("non-url errors must pass through unchanged")
 	}
 }

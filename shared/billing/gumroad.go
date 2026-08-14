@@ -104,7 +104,7 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 		return
 	}
 
-	user, created, err := getOrCreateUser(ctx, g.userStore, email)
+	user, created, err := resolveSaleUser(ctx, g.userStore, email, v.Get("subscription_id"))
 	if err != nil {
 		slog.Error("create user", "err", err)
 		return

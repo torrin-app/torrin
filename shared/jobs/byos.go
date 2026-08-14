@@ -16,8 +16,12 @@ func (p *Postgres) EnqueueBYOS(ctx context.Context, jobID, userID string) error 
 	return err
 }
 
-func (p *Postgres) ListBYOSQueue(ctx context.Context) ([]BYOSQueueItem, error) {
-	rows, err := p.pool.Query(ctx, `SELECT job_id, user_id FROM byos_queue ORDER BY created_at ASC`)
+func (p *Postgres) ListBYOSQueue(ctx context.Context, nodeID string) ([]BYOSQueueItem, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT q.job_id, q.user_id FROM byos_queue q
+		LEFT JOIN jobs j ON j.id = q.job_id
+		WHERE COALESCE(j.node, '') = $1
+		ORDER BY q.created_at ASC`, nodeID)
 	if err != nil {
 		return nil, err
 	}

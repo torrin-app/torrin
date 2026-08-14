@@ -60,6 +60,10 @@ func (s *Store) GetByEmail(ctx context.Context, email string) (*User, error) {
 	return scanOne(s.pool.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE email=$1`, email))
 }
 
+func (s *Store) GetBySubscription(ctx context.Context, subID string) (*User, error) {
+	return scanOne(s.pool.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE subscription_id=$1 ORDER BY updated_at DESC LIMIT 1`, subID))
+}
+
 func (s *Store) CountUsers(ctx context.Context) int {
 	var n int
 	s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM users`).Scan(&n)

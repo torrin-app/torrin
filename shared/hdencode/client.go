@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -102,6 +103,14 @@ func (c *Client) Resolve(ctx context.Context, postURL, _, want string) ([][]stri
 	return release.BestArchive(doc, want), nil
 }
 
+func stripURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return ue.Err
+	}
+	return err
+}
+
 func (c *Client) solve(ctx context.Context, postURL string) (*goquery.Document, error) {
 	body, _ := json.Marshal(map[string]string{"url": postURL})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.solverURL+"/resolve", bytes.NewReader(body))
@@ -111,7 +120,7 @@ func (c *Client) solve(ctx context.Context, postURL string) (*goquery.Document, 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.solveHTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("hdencode solver: %w", err)
+		return nil, fmt.Errorf("hdencode reveal: %w", stripURL(err))
 	}
 	defer resp.Body.Close()
 	var out struct {
