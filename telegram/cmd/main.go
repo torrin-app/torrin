@@ -14,6 +14,7 @@ import (
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/safety"
 	"github.com/torrin-app/torrin/shared/service"
+	"github.com/torrin-app/torrin/shared/sources"
 	"github.com/torrin-app/torrin/telegram/internal/bot"
 )
 
@@ -36,6 +37,10 @@ func main() {
 		fatal("jobs db", err)
 	}
 	store := service.StoreFromEnv()
+	overflow := map[string]sources.Store{}
+	for id, c := range service.OverflowStores() {
+		overflow[id] = c
+	}
 	safety.Refresh(ctx, users.GetBlocklist, time.Hour)
 
 	nats, err := bus.Connect(mustEnv("NATS_URL"))
@@ -48,7 +53,9 @@ func main() {
 	b := &bot.Bot{
 		AppID: appID, APIHash: mustEnv("TELEGRAM_API_HASH"), BotToken: token,
 		TmpDir: env.Get("TELEGRAM_TMP_PATH", "/scratch/telegram"),
+		Node:   env.Get("NODE_ID", ""),
 		Store:  store, Repo: repo, Bus: nats,
+		Overflow: overflow, Sizer: repo,
 		Resolve: func(id int64) (string, bool) { return users.TelegramUserID(ctx, id) },
 		Link:    func(code string, id int64) (string, bool) { return users.RedeemTelegramLinkCode(ctx, code, id) },
 		Plan: func(uid string) (int64, int) {

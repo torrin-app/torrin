@@ -121,9 +121,11 @@ func (s *Server) userHasBYOS(ctx context.Context, userID string) bool {
 }
 
 func (s *Server) streamURL(r *http.Request, infoHash, key, userID string, byos, enc bool) string {
-	u := s.store.SignURL(key, 24*time.Hour)
+	var u string
 	if byos {
 		u = s.store.SignURLNodeUser("", key, userID, 24*time.Hour) + "&byos=1"
+	} else {
+		u = s.store.SignURLNode(s.jobs.NodeForInfoHash(r.Context(), infoHash), key, 24*time.Hour)
 	}
 	u += manifest.StreamQuery(infoHash, key, enc)
 	return georoute.URL(r, u)

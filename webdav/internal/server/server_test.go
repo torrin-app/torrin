@@ -64,10 +64,13 @@ func (f *fakeRepo) RecordView(_ context.Context, hash, _ string) (bool, error) {
 	return true, nil
 }
 
-type fakeSigner struct{ last string }
+type fakeSigner struct {
+	last     string
+	lastNode string
+}
 
-func (s *fakeSigner) SignURL(p string, _ time.Duration) string {
-	s.last = p
+func (s *fakeSigner) SignURLNode(node, p string, _ time.Duration) string {
+	s.last, s.lastNode = p, node
 	return "https://beam/" + p
 }
 
@@ -173,6 +176,23 @@ func TestGetFileRedirects(t *testing.T) {
 	}
 }
 
+func TestGetFileSignsWithNode(t *testing.T) {
+	hash := strings.Repeat("b", 40)
+	j := &jobs.Job{Name: "Box2 Movie", InfoHash: hash, Node: "box2", Status: jobs.StatusComplete, UpdatedAt: time.Unix(1700000000, 0),
+		Files: []jobs.File{{Index: 0, Name: "movie.mkv", Size: 100, Key: "blobs/cafe"}}}
+	sig := &fakeSigner{}
+	s := &Server{jobs: &fakeRepo{}, store: sig}
+	r := httptest.NewRequest(http.MethodGet, "/Box2%20Movie/movie.mkv", nil)
+	w := httptest.NewRecorder()
+	s.get(w, r, "u1", buildTree([]*jobs.Job{j}))
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("code %d, want 307", w.Code)
+	}
+	if sig.lastNode != "box2" {
+		t.Fatalf("redirect must be signed for the content's node, got node=%q", sig.lastNode)
+	}
+}
+
 func TestGetEncryptedBlobRedirect(t *testing.T) {
 	hash := strings.Repeat("a", 40)
 	j := &jobs.Job{Name: "Enc Movie", InfoHash: hash, Status: jobs.StatusComplete, UpdatedAt: time.Unix(1700000000, 0),
@@ -225,5 +245,28 @@ func TestUnauthorized(t *testing.T) {
 	(&Server{}).serve(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	if w.Code != 401 || w.Header().Get("WWW-Authenticate") == "" {
 		t.Errorf("expected 401 challenge, got %d", w.Code)
+	}
+}
+
+func TestBuildTreeSanitizesSlashNames(t *testing.T) {
+	j := &jobs.Job{Name: "Zadok - 08/08/2026", InfoHash: strings.Repeat("c", 40), Status: jobs.StatusComplete,
+		UpdatedAt: time.Unix(1700000000, 0),
+		Files:     []jobs.File{{Index: 0, Name: "clip.mkv", Size: 10, Key: "blobs/x"}}}
+	root := buildTree([]*jobs.Job{j})
+	if len(root.children) != 1 {
+		t.Fatalf("want 1 folder, got %d", len(root.children))
+	}
+	folder := root.children[0]
+	if strings.Contains(folder.name, "/") {
+		t.Fatalf("folder name must not contain a path separator: %q", folder.name)
+	}
+	// x/net/webdav's PROPFIND walk re-Stats each child by path; a slash in the
+	// name used to break that round-trip and 500 the whole listing.
+	fs := davFS{root: root}
+	if _, err := fs.Stat(context.Background(), "/"+folder.name); err != nil {
+		t.Fatalf("sanitized folder must resolve by path: %v", err)
+	}
+	if _, err := fs.Stat(context.Background(), "/"+folder.name+"/"+folder.children[0].name); err != nil {
+		t.Fatalf("child file must resolve by path: %v", err)
 	}
 }

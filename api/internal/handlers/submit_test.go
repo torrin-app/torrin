@@ -82,6 +82,7 @@ func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)             { retu
 func (f *fakeRepo) Update(context.Context, *jobs.Job) error                      { return nil }
 func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error)               { return f.toGet, nil }
 func (f *fakeRepo) ListByInfoHash(context.Context, string) ([]*jobs.Job, error)  { return nil, nil }
+func (f *fakeRepo) NodeForInfoHash(context.Context, string) string               { return "" }
 func (f *fakeRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error) { return nil, nil }
 func (f *fakeRepo) ListByUserBefore(context.Context, string, time.Time, string, int) ([]*jobs.Job, error) {
 	return nil, nil

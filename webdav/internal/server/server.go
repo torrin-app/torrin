@@ -17,7 +17,7 @@ import (
 const davAllow = "OPTIONS, GET, HEAD, PROPFIND, PROPPATCH, LOCK, UNLOCK"
 
 type urlSigner interface {
-	SignURL(path string, expiry time.Duration) string
+	SignURLNode(node, path string, expiry time.Duration) string
 }
 
 type Server struct {
@@ -79,10 +79,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 type statusWriter struct {
 	http.ResponseWriter
 	status int
+	wrote  bool
 }
 
 func (sw *statusWriter) WriteHeader(code int) {
-	sw.status = code
+	if sw.wrote {
+		return
+	}
+	sw.wrote, sw.status = true, code
 	sw.ResponseWriter.WriteHeader(code)
 }
 

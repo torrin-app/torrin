@@ -1,8 +1,12 @@
 package bot
 
 import (
+	"context"
+	"io"
 	"testing"
 	"time"
+
+	"github.com/torrin-app/torrin/shared/sources"
 )
 
 func TestDedupe(t *testing.T) {
@@ -44,18 +48,47 @@ func TestDocCacheKey(t *testing.T) {
 	}
 }
 
-func TestUserLimiter(t *testing.T) {
-	l := newUserLimiter()
-	first := l.tryAcquire("u", 2)
-	second := l.tryAcquire("u", 2)
-	if !first || !second {
-		t.Fatal("should allow 2")
+type fakeStore struct{ id string }
+
+func (fakeStore) Has(context.Context, string) (bool, error)                     { return false, nil }
+func (fakeStore) StreamUpload(context.Context, string, io.Reader, string) error { return nil }
+func (fakeStore) Put(context.Context, string, io.Reader, string) error          { return nil }
+
+func TestPickStore(t *testing.T) {
+	home := fakeStore{"box1"}
+	box2 := fakeStore{"box2"}
+	overflow := map[string]sources.Store{"box2": box2}
+
+	// target == home node -> primary store, home node
+	if s, n := pickStore("", "", home, overflow); s != sources.Store(home) || n != "" {
+		t.Fatalf("home node should use primary, got %v %q", s, n)
 	}
-	if l.tryAcquire("u", 2) {
-		t.Error("3rd should be denied")
+	// target is an overflow node with a store -> that store, that node
+	if s, n := pickStore("box2", "", home, overflow); s != sources.Store(box2) || n != "box2" {
+		t.Fatalf("box2 should route to box2 store, got %v %q", s, n)
 	}
-	l.release("u")
-	if !l.tryAcquire("u", 2) {
-		t.Error("should allow after release")
+	// target node with no store configured -> fall back to primary/home
+	if s, n := pickStore("box3", "", home, overflow); s != sources.Store(home) || n != "" {
+		t.Fatalf("unknown node must fall back to primary, got %v %q", s, n)
+	}
+}
+
+func TestProgressWriter(t *testing.T) {
+	var lastCur, lastTot int64
+	calls := 0
+	pw := &progressWriter{w: io.Discard, total: 100, report: func(cur, tot int64) {
+		lastCur, lastTot = cur, tot
+		calls++
+	}}
+	n, err := pw.Write(make([]byte, 40))
+	if err != nil || n != 40 {
+		t.Fatalf("write: n=%d err=%v", n, err)
+	}
+	pw.Write(make([]byte, 60))
+	if lastCur != 100 || lastTot != 100 {
+		t.Fatalf("cumulative bytes wrong: cur=%d tot=%d", lastCur, lastTot)
+	}
+	if calls != 2 {
+		t.Fatalf("expected a report per write, got %d", calls)
 	}
 }

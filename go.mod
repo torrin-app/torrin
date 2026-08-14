@@ -27,6 +27,7 @@ require (
 	github.com/petar-dambovaliev/aho-corasick v0.0.0-20250424160509-463d218d4745
 	github.com/pquerna/otp v1.5.0
 	github.com/sony/gobreaker/v2 v2.4.0
+	github.com/subosito/gozaru v0.0.0-20190625071150-416082cce636
 	github.com/torrin-app/torrent-name-parser v0.5.3
 	golang.org/x/crypto v0.53.0
 	golang.org/x/net v0.56.0

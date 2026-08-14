@@ -30,7 +30,8 @@ func Assign(ctx context.Context, pub Publisher, sizer Sizer, repo jobs.Repositor
 func portable(source string) bool {
 	switch source {
 	case string(jobs.SourceTorrent), string(jobs.SourceUsenet), string(jobs.SourceHoster),
-		string(jobs.SourceYtdlp), string(jobs.SourceScenerls), string(jobs.SourceHDEncode):
+		string(jobs.SourceYtdlp), string(jobs.SourceScenerls), string(jobs.SourceHDEncode),
+		string(jobs.SourceTelegram):
 		return true
 	default:
 		return false

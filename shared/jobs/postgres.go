@@ -123,6 +123,17 @@ func (p *Postgres) ListByInfoHash(ctx context.Context, infoHash string) ([]*Job,
 	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE info_hash=$1`, infoHash)
 }
 
+func (p *Postgres) NodeForInfoHash(ctx context.Context, infoHash string) string {
+	if p == nil {
+		return ""
+	}
+	var node string
+	p.pool.QueryRow(ctx,
+		`SELECT COALESCE(node,'') FROM jobs WHERE info_hash=$1 AND status='complete' ORDER BY updated_at DESC LIMIT 1`,
+		infoHash).Scan(&node)
+	return node
+}
+
 func (p *Postgres) ListByUser(ctx context.Context, userID string, limit int) ([]*Job, error) {
 	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE user_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2`, userID, limit)
 }

@@ -14,6 +14,7 @@ type Repository interface {
 	Get(ctx context.Context, id string) (*Job, error)
 	GetByInfoHash(ctx context.Context, infoHash string) (*Job, error)
 	ListByInfoHash(ctx context.Context, infoHash string) ([]*Job, error)
+	NodeForInfoHash(ctx context.Context, infoHash string) string
 	ListByUser(ctx context.Context, userID string, limit int) ([]*Job, error)
 	ListByUserBefore(ctx context.Context, userID string, before time.Time, beforeID string, limit int) ([]*Job, error)
 	ListByStatus(ctx context.Context, status Status) ([]*Job, error)

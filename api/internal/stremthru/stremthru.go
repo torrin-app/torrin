@@ -154,10 +154,11 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) (string, []m
 	if fs == nil {
 		return "", nil, false
 	}
+	node := h.Jobs.NodeForInfoHash(ctx, infoHash)
 	out := make([]map[string]any, len(fs))
 	for i, f := range fs {
 		key := manifest.ResolveKey(infoHash, i, f.Key, f.Name)
-		link := h.Store.SignURL(key, 24*time.Hour) + manifest.StreamQuery(infoHash, key, f.Enc)
+		link := h.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, key, f.Enc)
 		out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
 	}
 	return name, out, true

@@ -54,6 +54,7 @@ func (m *memRepo) Get(_ context.Context, id string) (*jobs.Job, error) {
 	return m.jobs[id], nil
 }
 func (m *memRepo) GetByInfoHash(_ context.Context, h string) (*jobs.Job, error) { return nil, nil }
+func (m *memRepo) NodeForInfoHash(_ context.Context, h string) string           { return "" }
 func (m *memRepo) ListByInfoHash(_ context.Context, h string) ([]*jobs.Job, error) {
 	var out []*jobs.Job
 	for _, j := range m.jobs {

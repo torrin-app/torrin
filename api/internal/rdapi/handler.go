@@ -216,11 +216,12 @@ func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *a
 	r.ParseForm()
 	link := r.FormValue("link")
 	raw := strings.TrimPrefix(link, "torrin://")
-	key, suffix := raw, ""
+	key, suffix, ih := raw, "", ""
 	if i := strings.IndexByte(raw, '?'); i >= 0 {
 		key = raw[:i]
 		if q, err := url.ParseQuery(raw[i+1:]); err == nil {
-			suffix = manifest.StreamQuery(q.Get("ih"), "blobs/", q.Get("enc") == "1")
+			ih = q.Get("ih")
+			suffix = manifest.StreamQuery(ih, "blobs/", q.Get("enc") == "1")
 		}
 	}
 	if link == "" || !isValidKey(key) {
@@ -229,7 +230,7 @@ func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *a
 	}
 	parts := strings.Split(key, "/")
 	filename := parts[len(parts)-1]
-	download := h.Store.SignURL(key, 24*time.Hour)
+	download := h.Store.SignURLNode(h.Jobs.NodeForInfoHash(r.Context(), ih), key, 24*time.Hour)
 	if creds, err := h.Users.GetStorageCreds(r.Context(), user.ID); err == nil && creds != nil && creds.Enabled && creds.IsRclone() {
 		download = h.Store.SignURLNodeUser("", key, user.ID, 24*time.Hour) + "&byos=1"
 	}

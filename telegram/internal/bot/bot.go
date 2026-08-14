@@ -21,11 +21,11 @@ import (
 	"github.com/celestix/gotgproto/functions"
 	"github.com/celestix/gotgproto/sessionMaker"
 
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/safety"
 	"github.com/torrin-app/torrin/shared/sources"
-	"github.com/torrin-app/torrin/shared/storage"
 )
 
 type Publisher interface {
@@ -37,10 +37,13 @@ type Bot struct {
 	APIHash  string
 	BotToken string
 	TmpDir   string
+	Node     string
 
-	Store *storage.Client
-	Repo  jobs.Repository
-	Bus   Publisher
+	Store    sources.Store
+	Overflow map[string]sources.Store
+	Sizer    cluster.Sizer
+	Repo     jobs.Repository
+	Bus      Publisher
 
 	Resolve func(tgUserID int64) (userID string, ok bool)
 	Link    func(code string, tgUserID int64) (userID string, ok bool)
@@ -48,7 +51,6 @@ type Bot struct {
 	Paid    func(userID string) bool
 	Ban     func(userID, reason string)
 
-	lim   *userLimiter
 	dedup *dedupe
 }
 
@@ -91,7 +93,6 @@ func (b *Bot) Run(ctx context.Context) error {
 	if err := os.MkdirAll(b.TmpDir, 0o755); err != nil {
 		return fmt.Errorf("telegram: create tmp dir %s: %w", b.TmpDir, err)
 	}
-	b.lim = newUserLimiter()
 	b.dedup = newDedupe(2 * time.Minute)
 	client, err := gotgproto.NewClient(
 		b.AppID, b.APIHash,
@@ -183,7 +184,7 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		_, _ = ctx.Reply(u, ext.ReplyTextString(fmt.Sprintf("❌ That file is ~%dGB, over your plan's %dGB limit.", doc.Size/1e9, maxBytes/1e9)), nil)
 		return nil
 	}
-	if !b.lim.tryAcquire(userID, maxConc) {
+	if n, _ := b.Repo.ActiveCount(context.Background(), userID); n >= maxConc {
 		_, _ = ctx.Reply(u, ext.ReplyTextString(fmt.Sprintf("⏳ You've got %d download(s) running already, wait, then resend.", maxConc)), nil)
 		return nil
 	}
@@ -195,7 +196,6 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 	name = filepath.Base(name)
 
 	if v := safety.Screen(name); v.Blocked {
-		b.lim.release(userID)
 		if v.Ban && b.Ban != nil {
 			b.Ban(userID, v.Reason)
 		}
@@ -205,14 +205,35 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 	}
 
 	cacheKey := docCacheKey(doc.ID)
+	node := b.Node
+	if b.Sizer != nil {
+		node = cluster.TargetNode(context.Background(), b.Sizer, string(jobs.SourceTelegram), doc.Size)
+	}
+	store, node := pickStore(node, b.Node, b.Store, b.Overflow)
+	job := &jobs.Job{
+		UserID: userID, InfoHash: cacheKey, Name: name, Source: jobs.SourceTelegram, Node: node,
+		Status: jobs.StatusDownloading, FileSize: doc.Size,
+	}
+	if err := b.Repo.Create(context.Background(), job); err != nil {
+		slog.Error("telegram: create job", "err", err)
+		_, _ = ctx.Reply(u, ext.ReplyTextString("❌ Couldn't start that, try again."), nil)
+		return nil
+	}
 	_, _ = ctx.Reply(u, ext.ReplyTextString("⏳ Downloading "+name+" ..."), nil)
 
 	media := u.EffectiveMessage.Media
 	go func() {
-		defer b.lim.release(userID)
 		tmp := filepath.Join(b.TmpDir, cacheKey+"_"+name)
-		if _, err := ctx.DownloadMedia(media, ext.DownloadOutputPath(tmp), nil); err != nil {
+		out, err := os.Create(tmp)
+		if err == nil {
+			pw := &progressWriter{w: out, total: doc.Size, report: jobs.ProgressReporter(context.Background(), b.Repo, job.ID)}
+			_, err = ctx.DownloadMedia(media, ext.DownloadOutputStream{Writer: pw}, nil)
+			out.Close()
+		}
+		if err != nil {
+			os.Remove(tmp)
 			slog.Warn("telegram: download failed", "name", name, "err", err)
+			b.failJob(job, "download failed")
 			_, _ = ctx.Reply(u, ext.ReplyTextString("❌ Download failed."), nil)
 			return
 		}
@@ -222,14 +243,14 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 			Name: name, Size: doc.Size, CacheKey: cacheKey, Source: jobs.SourceTelegram,
 			Open: func(context.Context) (io.ReadCloser, error) { return os.Open(tmp) },
 		}
-		job, err := sources.Ingest(context.Background(), b.Store, b.Repo, f, userID)
-		if err != nil {
+		if err := sources.Ingest(context.Background(), store, b.Repo, f, job); err != nil {
 			slog.Error("telegram: ingest failed", "name", name, "err", err)
+			b.failJob(job, "caching failed")
 			_, _ = ctx.Reply(u, ext.ReplyTextString("❌ Caching failed."), nil)
 			return
 		}
 		if b.Bus != nil {
-			b.Bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash})
+			b.Bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 		}
 		slog.Info("telegram: cached", "user", userID, "name", name, "job", job.ID)
 		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Done, "+name+" is in your Torrin library. Play it in Stremio."), nil)
@@ -237,38 +258,36 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 	return nil
 }
 
+type progressWriter struct {
+	w       io.Writer
+	total   int64
+	written int64
+	report  func(current, total int64)
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	p.written += int64(n)
+	p.report(p.written, p.total)
+	return n, err
+}
+
+func (b *Bot) failJob(job *jobs.Job, reason string) {
+	job.Status = jobs.StatusFailed
+	job.Error = reason
+	b.Repo.Update(context.Background(), job)
+}
+
+func pickStore(node, home string, primary sources.Store, overflow map[string]sources.Store) (sources.Store, string) {
+	if node != home {
+		if s := overflow[node]; s != nil {
+			return s, node
+		}
+	}
+	return primary, home
+}
+
 func docCacheKey(docID int64) string {
 	sum := sha1.Sum([]byte("tg:" + strconv.FormatInt(docID, 10)))
 	return hex.EncodeToString(sum[:])
-}
-
-type userLimiter struct {
-	mu     sync.Mutex
-	active map[string]int
-}
-
-func newUserLimiter() *userLimiter { return &userLimiter{active: map[string]int{}} }
-
-func (l *userLimiter) tryAcquire(userID string, max int) bool {
-	if max < 1 {
-		max = 1
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.active[userID] >= max {
-		return false
-	}
-	l.active[userID]++
-	return true
-}
-
-func (l *userLimiter) release(userID string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.active[userID] > 0 {
-		l.active[userID]--
-		if l.active[userID] == 0 {
-			delete(l.active, userID)
-		}
-	}
 }

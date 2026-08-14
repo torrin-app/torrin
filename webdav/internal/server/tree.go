@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/subosito/gozaru"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 )
@@ -18,6 +19,7 @@ type node struct {
 	etag     string
 	key      string
 	hash     string
+	node     string
 	enc      bool
 	children []*node
 	index    map[string]*node
@@ -66,6 +68,7 @@ func buildTree(list []*jobs.Job) *node {
 				mod:  j.UpdatedAt,
 				key:  manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name),
 				hash: j.InfoHash,
+				node: j.Node,
 				enc:  f.Enc,
 				etag: `"` + j.InfoHash + "-" + strconv.Itoa(i) + "-" + strconv.FormatInt(f.Size, 10) + `"`,
 			})
@@ -76,6 +79,7 @@ func buildTree(list []*jobs.Job) *node {
 }
 
 func unique(taken map[string]bool, name, salt string) string {
+	name = gozaru.Sanitize(name)
 	if !taken[name] {
 		taken[name] = true
 		return name

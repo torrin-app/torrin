@@ -94,6 +94,9 @@ func TestTargetNode(t *testing.T) {
 	if got := TargetNode(ctx, mapSizer{"": 950}, "scenerls", 100); got != "box2" {
 		t.Fatalf("scenerls is portable, full -> box2, got %q", got)
 	}
+	if got := TargetNode(ctx, mapSizer{"": 950}, "telegram", 100); got != "box2" {
+		t.Fatalf("telegram is portable, full -> box2, got %q", got)
+	}
 	if got := TargetNode(ctx, mapSizer{"": 950}, "hdencode", 100); got != "box2" {
 		t.Fatalf("hdencode is portable, full -> box2, got %q", got)
 	}
