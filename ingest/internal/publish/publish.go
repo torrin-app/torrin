@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/blob"
@@ -16,6 +17,7 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/mediainfo"
+	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/video"
 )
@@ -48,10 +50,11 @@ type Publisher struct {
 	node   string
 	blobs  BlobIndex
 	cipher *crypto.Stream
+	caches []*rclonerc.Client
 }
 
-func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher *crypto.Stream) *Publisher {
-	return &Publisher{repo: repo, store: store, node: node, blobs: blobs, cipher: cipher}
+func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher *crypto.Stream, caches []*rclonerc.Client) *Publisher {
+	return &Publisher{repo: repo, store: store, node: node, blobs: blobs, cipher: cipher, caches: caches}
 }
 
 func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) error {
@@ -67,16 +70,18 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 
 	var mfFiles []manifest.File
 	var total int64
+	wroteBlob := false
 	for i, f := range files {
 		ck, err := blob.ContentKey(f.Path, f.Size)
 		if err != nil {
 			return err
 		}
 		key := blob.StorageKey(ck)
-		crc, enc, err := p.store2blob(ctx, job.InfoHash, i, key, ck, f)
+		crc, enc, wrote, err := p.store2blob(ctx, job.InfoHash, i, key, ck, f)
 		if err != nil {
 			return err
 		}
+		wroteBlob = wroteBlob || wrote
 		var mi *mediainfo.Info
 		if video.IsVideo(f.Name) {
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -113,10 +118,32 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 		return err
 	}
 
-	return p.complete(ctx, job.InfoHash, name, mfFiles, total)
+	if wroteBlob {
+		p.refreshCaches(ctx)
+	}
+	if err := p.complete(ctx, job.InfoHash, name, mfFiles, total); err != nil {
+		return err
+	}
+	return nil
 }
 
-func (p *Publisher) store2blob(ctx context.Context, infoHash string, idx int, key, ck string, f File) (uint32, bool, error) {
+func (p *Publisher) refreshCaches(ctx context.Context) {
+	var wg sync.WaitGroup
+	for _, c := range p.caches {
+		wg.Add(1)
+		go func(c *rclonerc.Client) {
+			defer wg.Done()
+			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			if err := c.VFSRefresh(rctx, "blobs"); err != nil {
+				slog.Warn("publish: cache refresh failed", "err", err)
+			}
+		}(c)
+	}
+	wg.Wait()
+}
+
+func (p *Publisher) store2blob(ctx context.Context, infoHash string, idx int, key, ck string, f File) (uint32, bool, bool, error) {
 	var crc uint32
 	enc := false
 	reuse := false
@@ -128,21 +155,21 @@ func (p *Publisher) store2blob(ctx context.Context, infoHash string, idx int, ke
 	if reuse {
 		c, err := crcFile(f.Path)
 		if err != nil {
-			return 0, false, err
+			return 0, false, false, err
 		}
 		crc = c
 	} else {
 		enc = p.cipher != nil
 		c, err := p.uploadBlob(ctx, key, f.Path, enc)
 		if err != nil {
-			return 0, false, err
+			return 0, false, false, err
 		}
 		crc = c
 	}
 	if err := p.blobs.AddBlobRef(ctx, infoHash, idx, ck, f.Size, enc); err != nil {
-		return 0, false, err
+		return 0, false, false, err
 	}
-	return crc, enc, nil
+	return crc, enc, !reuse, nil
 }
 
 func (p *Publisher) uploadBlob(ctx context.Context, key, path string, enc bool) (uint32, error) {

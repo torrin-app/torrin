@@ -176,6 +176,16 @@ func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool
 				}
 			}
 		})
+		// Tier 6: the user's Offcloud cache, checked directly.
+		run(func() {
+			if k, _ := h.Users.GetOCKey(ctx, user.ID); k != "" {
+				for hash, ok := range providers.OffcloudCached(ctx, k, hashes) {
+					if ok {
+						setStatus(hash, "acceleratable")
+					}
+				}
+			}
+		})
 	}
 
 	wg.Wait()

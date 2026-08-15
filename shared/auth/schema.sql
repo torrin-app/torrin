@@ -108,6 +108,11 @@ CREATE TABLE IF NOT EXISTS tb_credentials (
     api_key    TEXT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS oc_credentials (
+    user_id    TEXT PRIMARY KEY,
+    api_key    TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS storage_credentials (
     user_id     TEXT PRIMARY KEY,

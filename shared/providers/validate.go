@@ -109,3 +109,18 @@ func ValidateAD(ctx context.Context, key string) error {
 		return errBadKey
 	})
 }
+
+func ValidateOC(ctx context.Context, key string) error {
+	return validateProvider(ctx, ocBase+"/api/account/info", key, http.DefaultClient, func(status int, body []byte) error {
+		var r struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(body, &r) == nil && r.Error != "" {
+			return fmt.Errorf("%s: %s", "Offcloud", r.Error)
+		}
+		if status < 400 {
+			return nil
+		}
+		return errBadKey
+	})
+}

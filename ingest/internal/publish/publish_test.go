@@ -97,7 +97,7 @@ func (b *fakeBlobs) AddBlobRef(_ context.Context, infoHash string, idx int, ck s
 }
 
 func newPub(repo jobs.Repository, store Store) *Publisher {
-	return New(repo, store, "", newFakeBlobs(), nil)
+	return New(repo, store, "", newFakeBlobs(), nil, nil)
 }
 
 func blobPut(puts map[string]bool) bool {
@@ -157,7 +157,7 @@ func TestPublishDedupCrossInfohash(t *testing.T) {
 
 	store := &fakeStore{puts: map[string]bool{}}
 	blobs := newFakeBlobs()
-	pub := New(&memRepo{jobs: map[string]*jobs.Job{}}, store, "", blobs, nil)
+	pub := New(&memRepo{jobs: map[string]*jobs.Job{}}, store, "", blobs, nil, nil)
 
 	j1 := &jobs.Job{ID: "j1", InfoHash: "packA", Name: "A"}
 	if err := pub.Publish(context.Background(), j1, []File{{Name: "a.mkv", Path: p1, Size: int64(len(content))}}); err != nil {
@@ -262,7 +262,7 @@ func TestCompleteOnlyTouchesOwnNode(t *testing.T) {
 	mine := &jobs.Job{ID: "jb", InfoHash: "h", Node: "box2", Status: jobs.StatusDownloading}
 	other := &jobs.Job{ID: "j1", InfoHash: "h", Node: "", Status: jobs.StatusDownloading}
 	repo := &memRepo{jobs: map[string]*jobs.Job{"jb": mine, "j1": other}}
-	p := New(repo, &fakeStore{puts: map[string]bool{}}, "box2", newFakeBlobs(), nil)
+	p := New(repo, &fakeStore{puts: map[string]bool{}}, "box2", newFakeBlobs(), nil, nil)
 
 	files := []manifest.File{{FileName: "m.mkv", FileSize: 2_000_000}}
 	if err := p.complete(context.Background(), "h", "Movie", files, 2_000_000); err != nil {

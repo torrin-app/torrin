@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/torrent"
 	"github.com/torrin-app/torrin/ingest/internal/usenet"
 	"github.com/torrin-app/torrin/ingest/internal/ytdlp"
+
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/crypto"
@@ -28,6 +30,7 @@ import (
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/qbit"
+	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/safety"
 	"github.com/torrin-app/torrin/shared/scenerls"
 	"github.com/torrin-app/torrin/shared/service"
@@ -74,7 +77,13 @@ func main() {
 	if err != nil {
 		fatal("storage key", err)
 	}
-	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher)
+	var caches []*rclonerc.Client
+	for _, u := range strings.Split(env.Get("CACHE_RC_URLS", ""), ",") {
+		if u = strings.TrimSpace(u); u != "" {
+			caches = append(caches, rclonerc.New(u))
+		}
+	}
+	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher, caches)
 	if node := env.Get("NODE_ID", ""); node != "" {
 		pol := eviction.DefaultPolicy
 		if c := env.Int("EVICTION_CAP_BYTES", 0); c > 0 {
@@ -102,6 +111,9 @@ func main() {
 			}
 			if k, _ := users.GetPMKey(ctx, job.UserID); k != "" {
 				list = append(list, providers.NewPremiumize(k))
+			}
+			if k, _ := users.GetOCKey(ctx, job.UserID); k != "" {
+				list = append(list, providers.NewOffcloud(k))
 			}
 		}
 		if sysRD != "" && sysRD != userRD {

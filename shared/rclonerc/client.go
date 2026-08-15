@@ -78,6 +78,11 @@ func (c *Client) call(ctx context.Context, method string, in map[string]any) (ma
 	return out, nil
 }
 
+func (c *Client) VFSRefresh(ctx context.Context, dir string) error {
+	_, err := c.call(ctx, "vfs/refresh", map[string]any{"dir": dir})
+	return err
+}
+
 func (c *Client) Noop(ctx context.Context) error {
 	_, err := c.call(ctx, "rc/noop", map[string]any{})
 	return err
