@@ -22,9 +22,11 @@ func (s *Server) registerLibraryRoutes(mux *http.ServeMux, authMW func(http.Hand
 	mux.Handle("GET /api/rd/library", authMW(http.HandlerFunc(s.rdLibrary)))
 	mux.Handle("GET /api/alldebrid/library", authMW(http.HandlerFunc(s.adLibrary)))
 	mux.Handle("GET /api/torbox/library", authMW(http.HandlerFunc(s.tbLibrary)))
+	mux.Handle("GET /api/offcloud/library", authMW(http.HandlerFunc(s.ocLibrary)))
 	mux.Handle("POST /api/rd/import", authMW(http.HandlerFunc(s.importHashes)))
 	mux.Handle("POST /api/alldebrid/import", authMW(http.HandlerFunc(s.importHashes)))
 	mux.Handle("POST /api/torbox/import", authMW(http.HandlerFunc(s.importHashes)))
+	mux.Handle("POST /api/offcloud/import", authMW(http.HandlerFunc(s.importHashes)))
 }
 
 type libraryItem struct {
@@ -48,6 +50,11 @@ func (s *Server) adLibrary(w http.ResponseWriter, r *http.Request) {
 func (s *Server) tbLibrary(w http.ResponseWriter, r *http.Request) {
 	key, _ := s.Users.GetTBKey(r.Context(), middleware.GetUser(r).ID)
 	s.library(w, r, key, providers.TBLibrary)
+}
+
+func (s *Server) ocLibrary(w http.ResponseWriter, r *http.Request) {
+	key, _ := s.Users.GetOCKey(r.Context(), middleware.GetUser(r).ID)
+	s.library(w, r, key, providers.OffcloudLibrary)
 }
 
 func (s *Server) library(w http.ResponseWriter, r *http.Request, key string, list func(context.Context, string) ([]providers.LibraryItem, error)) {

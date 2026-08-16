@@ -53,6 +53,31 @@ func TestOffcloudFetch(t *testing.T) {
 	}
 }
 
+func TestOffcloudLibrary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/cloud/history" {
+			t.Errorf("bad path %s", r.URL.Path)
+		}
+		w.Write([]byte(`[
+			{"fileName":"Movie","status":"downloaded","originalLink":"f409d526a1863b60eefae8d015be889866afa7aa.torrent"},
+			{"fileName":"Still going","status":"created","originalLink":"aabbccddeeff00112233445566778899aabbccdd.torrent"},
+			{"fileName":"A hoster file","status":"downloaded","originalLink":"https://example.com/file.mkv"}
+		]`))
+	}))
+	defer srv.Close()
+	old := ocBase
+	ocBase = srv.URL
+	defer func() { ocBase = old }()
+
+	items, err := OffcloudLibrary(context.Background(), "k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Hash != "f409d526a1863b60eefae8d015be889866afa7aa" {
+		t.Fatalf("want 1 downloaded magnet item, got %+v", items)
+	}
+}
+
 func TestValidateOCBadKey(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(401)

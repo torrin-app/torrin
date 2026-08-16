@@ -18,7 +18,7 @@ type AdminStats struct {
 
 var credTables = map[string]string{
 	"rd": "rd_credentials", "ad": "ad_credentials", "pm": "pm_credentials",
-	"tb": "tb_credentials", "usenet": "usenet_credentials",
+	"tb": "tb_credentials", "oc": "oc_credentials", "usenet": "usenet_credentials",
 	"indexers": "usenet_indexers", "rss": "rss_feeds",
 }
 
@@ -78,6 +78,7 @@ type AdminUser struct {
 	HasADKey      bool      `json:"has_ad_key"`
 	HasPMKey      bool      `json:"has_pm_key"`
 	HasTBKey      bool      `json:"has_tb_key"`
+	HasOCKey      bool      `json:"has_oc_key"`
 }
 
 func (s *Store) AdminListUsers(ctx context.Context, q, plan string, limit, offset int) ([]AdminUser, error) {
@@ -91,7 +92,8 @@ func (s *Store) AdminListUsers(ctx context.Context, q, plan string, limit, offse
 			EXISTS(SELECT 1 FROM rd_credentials WHERE user_id=u.id),
 			EXISTS(SELECT 1 FROM ad_credentials WHERE user_id=u.id),
 			EXISTS(SELECT 1 FROM pm_credentials WHERE user_id=u.id),
-			EXISTS(SELECT 1 FROM tb_credentials WHERE user_id=u.id)
+			EXISTS(SELECT 1 FROM tb_credentials WHERE user_id=u.id),
+			EXISTS(SELECT 1 FROM oc_credentials WHERE user_id=u.id)
 		FROM users u WHERE 1=1`
 	args := []any{}
 	i := 1
@@ -117,7 +119,7 @@ func (s *Store) AdminListUsers(ctx context.Context, q, plan string, limit, offse
 	for rows.Next() {
 		var u AdminUser
 		if rows.Scan(&u.ID, &u.Email, &u.PlanID, &u.ExpiresAt, &u.CreatedAt, &u.Banned,
-			&u.ActiveSlots, &u.ReferralCount, &u.HasRDKey, &u.HasADKey, &u.HasPMKey, &u.HasTBKey) == nil {
+			&u.ActiveSlots, &u.ReferralCount, &u.HasRDKey, &u.HasADKey, &u.HasPMKey, &u.HasTBKey, &u.HasOCKey) == nil {
 			out = append(out, u)
 		}
 	}

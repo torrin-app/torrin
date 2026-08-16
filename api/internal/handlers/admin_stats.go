@@ -40,6 +40,7 @@ func (s *Server) adminStats(w http.ResponseWriter, r *http.Request) {
 		"ad_keys_count":         stats.CredCounts["ad"],
 		"pm_keys_count":         stats.CredCounts["pm"],
 		"tb_keys_count":         stats.CredCounts["tb"],
+		"oc_keys_count":         stats.CredCounts["oc"],
 		"usenet_creds_count":    stats.CredCounts["usenet"],
 		"usenet_indexers_count": stats.CredCounts["indexers"],
 		"rss_feeds_count":       stats.CredCounts["rss"],

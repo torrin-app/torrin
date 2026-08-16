@@ -193,6 +193,10 @@ func main() {
 	}
 	if _, err := bus.Subscribe(b, events.JobDeleted, func(d events.Deleted) {
 		cancels.cancel(d.JobID)
+		if d.Source == string(jobs.SourceTorrent) && d.Node == myNode && d.InfoHash != "" && torrentRunner != nil {
+			torrentRunner.Remove(d.InfoHash)
+			seedRunner.Remove(d.InfoHash)
+		}
 	}); err != nil {
 		fatal("subscribe deleted", err)
 	}

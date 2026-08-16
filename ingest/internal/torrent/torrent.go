@@ -50,6 +50,14 @@ func (r *Runner) Hold(infoHash string) bool {
 
 func (r *Runner) Release(infoHash string) { r.inflight.Delete(infoHash) }
 
+func (r *Runner) Remove(infoHash string) {
+	if r.qb.Login() != nil {
+		return
+	}
+	r.inflight.Delete(infoHash)
+	r.qb.Delete(infoHash)
+}
+
 func (r *Runner) Start(job *jobs.Job) error {
 	if err := r.qb.Login(); err != nil {
 		return err

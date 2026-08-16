@@ -297,7 +297,7 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 
 	s.Jobs.Delete(r.Context(), job.ID)
 	if job.Status.Active() {
-		s.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID})
+		s.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node})
 	}
 	if job.Source == jobs.SourceUsenet && s.Users != nil {
 		s.Users.TombstoneUsenet(r.Context(), user.ID, job.InfoHash, time.Now().Add(usenetDeleteTombstone))

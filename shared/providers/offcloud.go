@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/breaker"
+	"github.com/torrin-app/torrin/shared/magnet"
 )
 
 var (
@@ -87,8 +88,36 @@ func OffcloudCached(ctx context.Context, key string, hashes []string) map[string
 	return out
 }
 
-func (o *offcloud) add(ctx context.Context, magnet string) (string, string, error) {
-	body, err := o.post(ctx, "/api/cloud", map[string]any{"url": magnet})
+func OffcloudLibrary(ctx context.Context, key string) ([]LibraryItem, error) {
+	o := newOffcloud(key)
+	body, err := o.get(ctx, "/api/cloud/history")
+	if err != nil {
+		return nil, err
+	}
+	var items []struct {
+		FileName     string `json:"fileName"`
+		Status       string `json:"status"`
+		OriginalLink string `json:"originalLink"`
+	}
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
+	}
+	var out []LibraryItem
+	for _, it := range items {
+		if it.Status != "downloaded" {
+			continue
+		}
+		hash := strings.ToLower(strings.TrimSuffix(filepath.Base(it.OriginalLink), ".torrent"))
+		if !magnet.Valid(hash) {
+			continue
+		}
+		out = append(out, LibraryItem{Hash: hash, Filename: it.FileName})
+	}
+	return out, nil
+}
+
+func (o *offcloud) add(ctx context.Context, mag string) (string, string, error) {
+	body, err := o.post(ctx, "/api/cloud", map[string]any{"url": mag})
 	if err != nil {
 		return "", "", err
 	}

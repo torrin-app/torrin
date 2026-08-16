@@ -31,7 +31,10 @@ type Failed struct {
 }
 
 type Deleted struct {
-	JobID string `json:"job_id"`
+	JobID    string `json:"job_id"`
+	InfoHash string `json:"info_hash,omitempty"`
+	Source   string `json:"source,omitempty"`
+	Node     string `json:"node,omitempty"`
 }
 
 type CairnRequest struct {
