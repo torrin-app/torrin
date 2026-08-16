@@ -15,6 +15,7 @@ services:
       SCRAPE_SCENERLS: "true"
       TORRIN_LOCAL_ENABLED: "true"
       TORRIN_LOCAL_URL: "http://api:8080"
+      TORRIN_STREAM_RELAYS: "${TORRIN_STREAM_RELAYS:-}"
       TORRIN_LOCAL_SECRET: "${SIGNING_KEY}"
       TORRIN_PREWARM: "true"
       TORRIN_PREWARM_URL: "http://api:8080"

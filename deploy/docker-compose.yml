@@ -1,10 +1,4 @@
-# Go services run as images pulled from GHCR (built by CI, never on this box).
-# Deploy: docker compose -f deploy/docker-compose.yml pull && up -d.
-# TORRIN_TAG picks the version (default latest; set edge for newest main, or v6.0.0).
-# GHCR_REPO overrides the registry path. (build.sh stays only for local dev → ko.local.)
-#
-# The x- keys are ignored by compose; *aliases pull them in.
-x-s3: &s3 # shared object-store + signing config
+x-s3: &s3
   S3_ENDPOINT: "${S3_ENDPOINT:-http://garage:3900}"
   S3_ACCESS_KEY: "${S3_ACCESS_KEY:-GKdeadbeefdeadbeefdeadbeef}"
   S3_SECRET_KEY: "${S3_SECRET_KEY:-deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef}"
@@ -15,11 +9,11 @@ x-s3: &s3 # shared object-store + signing config
 
 x-db: &db "postgres://torrin:torrin@postgres:5432/torrin?sslmode=disable"
 x-nats: &nats "nats://nats:4222"
-x-public-url: &public-url "${PUBLIC_URL:-http://localhost:8084}" # where the stream service is reachable
+x-public-url: &public-url "${PUBLIC_URL:-http://localhost:8084}"
 x-qbit: &qbit-url "${QBIT_URL:-http://qbittorrent:8080}"
 
-x-restart: &restart unless-stopped # auto-restart on crash + host reboot
-x-needs-db: &needs-db # wait for postgres ready (not just started) + nats up
+x-restart: &restart unless-stopped
+x-needs-db: &needs-db
   postgres: { condition: service_healthy }
   nats: { condition: service_started }
 x-needs-pg: &needs-pg
@@ -28,11 +22,12 @@ x-needs-pg: &needs-pg
 services:
   postgres:
     image: postgres:17
+    command: ["-c", "max_connections=200"]
     environment: { POSTGRES_USER: torrin, POSTGRES_PASSWORD: torrin, POSTGRES_DB: torrin }
     ports: ["127.0.0.1:5432:5432"]
     volumes: [pgdata:/var/lib/postgresql/data]
     restart: *restart
-    healthcheck: # dependents wait on this — kills the initdb cold-start race
+    healthcheck:
       test: ["CMD-SHELL", "pg_isready -U torrin"]
       interval: 3s
       timeout: 3s
@@ -44,9 +39,6 @@ services:
     ports: ["127.0.0.1:4222:4222"]
     restart: *restart
 
-  # qBittorrent download engine. qbit-init.sh seeds a default config on first run so
-  # torrin reaches qbit password-free over the docker network (no temp-password dance).
-  # Add your LAN to QBIT_WEBUI_WHITELIST to also open the WebUI from your own machine.
   qbittorrent:
     image: lscr.io/linuxserver/qbittorrent:latest
     environment:
@@ -62,8 +54,6 @@ services:
     ports: ["127.0.0.1:8088:8080"]
     restart: *restart
 
-  # rclone serve s3 over the filesystem store (name kept for DNS compat).
-  # --etag-hash none: else it re-hashes whole files per request and stalls.
   garage:
     image: rclone/rclone
     user: "0:0"
@@ -77,6 +67,8 @@ services:
       - "${S3_ACCESS_KEY},${S3_SECRET_KEY}"
       - --etag-hash
       - none
+      - --dir-cache-time
+      - 1s
     volumes:
       - /mnt/cache/store:/data/torrin
     ports: ["127.0.0.1:3900:3900"]
@@ -93,32 +85,36 @@ services:
       DATABASE_URL: *db
       NATS_URL: *nats
       PUBLIC_URL: *public-url
-      NODE_STREAM_BASES: "${NODE_STREAM_BASES:-}" # cluster: "node1=http://a:8084,node2=http://b:8084"
-      BUDGET_MAX_BYTES: "${BUDGET_MAX_BYTES:-1000000000000}" # 1 TB cap on in-flight downloads
-      EVICTION_CAP_BYTES: "${EVICTION_CAP_BYTES:-300000000000}" # 300 GB cache soft cap
-      NODE2_ID: "${NODE2_ID:-}" # cluster: legacy single overflow node (superseded by CLUSTER_NODES)
-      CLUSTER_NODES: "${CLUSTER_NODES:-}" # cluster: ordered overflow nodes with caps, e.g. "node2:45TB,node3:50TB"
+      NODE_STREAM_BASES: "${NODE_STREAM_BASES:-}"
+      TORRIN_STREAM_RELAYS: "${TORRIN_STREAM_RELAYS:-}"
+      BUDGET_MAX_BYTES: "${BUDGET_MAX_BYTES:-1000000000000}"
+      EVICTION_CAP_BYTES: "${EVICTION_CAP_BYTES:-300000000000}"
+      NODE2_ID: "${NODE2_ID:-}"
+      CLUSTER_NODES: "${CLUSTER_NODES:-}"
       EVICTION_HOUR: "${EVICTION_HOUR:-4}"
+      PREWARM_MAX_ACTIVE: "${PREWARM_MAX_ACTIVE:-3}"
+      PREWARM_MAX_BYTES_GB: "${PREWARM_MAX_BYTES_GB:-25}"
+      PREWARM_CACHE_CAP_GB: "${PREWARM_CACHE_CAP_GB:-150}"
       GUMROAD_SECRET: "${GUMROAD_SECRET:-}"
       GUMROAD_SELLER_ID: "${GUMROAD_SELLER_ID:-}"
-      RATE_LIMIT_RPS: "${RATE_LIMIT_RPS:-30}" # per-key req/s; 0 disables
+      RATE_LIMIT_RPS: "${RATE_LIMIT_RPS:-30}"
       RATE_LIMIT_BURST: "${RATE_LIMIT_BURST:-60}"
-      TORRIN_SEARCH_KEY: "${TORRIN_SEARCH_KEY:-}" # exempt from rate limit (comet's high-volume search calls)
+      TORRIN_SEARCH_KEY: "${TORRIN_SEARCH_KEY:-}"
       QBIT_URL: *qbit-url
       QBIT_USER: "${QBIT_USER:-admin}"
       QBIT_PASS: "${QBIT_PASS:-adminadmin}"
-      RD_API_KEY: "${RD_API_KEY:-}" # system RD key — StremThru live cache check
-      AD_API_KEY: "${AD_API_KEY:-}" # system AD key — StremThru live cache check
-      TORRENTCLAW_API_KEY: "${TORRENTCLAW_API_KEY:-}" # non-jamming live debrid cache check
-      USENET_INDEXER_URL: "${USENET_INDEXER_URL:-}" # operator Newznab indexer (Spotweb/NZBHydra2), BYOI fallback
+      RD_API_KEY: "${RD_API_KEY:-}"
+      AD_API_KEY: "${AD_API_KEY:-}"
+      TORRENTCLAW_API_KEY: "${TORRENTCLAW_API_KEY:-}"
+      USENET_INDEXER_URL: "${USENET_INDEXER_URL:-}"
       USENET_INDEXER_KEY: "${USENET_INDEXER_KEY:-}"
-      TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}" # for the account-link deeplink
-      EMAIL_API_KEY: "${EMAIL_API_KEY:-}" # usesendi/Brevo key; empty = no welcome emails
+      TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
+      EMAIL_API_KEY: "${EMAIL_API_KEY:-}"
       EMAIL_FROM: "${EMAIL_FROM:-torrin <hi@torrin.app>}"
-      RESELLER_KEY: "${RESELLER_KEY:-}" # shared secret for the reseller mint/list API
-      RCLONE_RC_URL: "${RCLONE_RC_URL:-http://rclone:5572}" # proxies rclone-backed BYOS streams
-      API_PUBLIC_URL: "${API_PUBLIC_URL:-}" # api's externally-reachable base (BYOS OAuth redirect_uri)
-      WEB_URL: "${WEB_URL:-}" # web app base (post-OAuth redirect)
+      RESELLER_KEY: "${RESELLER_KEY:-}"
+      RCLONE_RC_URL: "${RCLONE_RC_URL:-http://rclone:5572}"
+      API_PUBLIC_URL: "${API_PUBLIC_URL:-}"
+      WEB_URL: "${WEB_URL:-}"
       BITCART_API_URL: "${BITCART_API_URL:-}"
       BITCART_CHECKOUT_URL: "${BITCART_CHECKOUT_URL:-}"
       BITCART_STORE_ID: "${BITCART_STORE_ID:-}"
@@ -128,7 +124,6 @@ services:
       BACHS_PRODUCT_ID: "${BACHS_PRODUCT_ID:-}"
       DONATION_DISCORD_WEBHOOK: "${DONATION_DISCORD_WEBHOOK:-}"
       ADMIN_KEY: "${ADMIN_KEY:-}"
-      # BYOS cloud OAuth apps (operator-registered; empty = that provider disabled)
       DROPBOX_CLIENT_ID: "${DROPBOX_CLIENT_ID:-}"
       DROPBOX_CLIENT_SECRET: "${DROPBOX_CLIENT_SECRET:-}"
       ONEDRIVE_CLIENT_ID: "${ONEDRIVE_CLIENT_ID:-}"
@@ -155,14 +150,15 @@ services:
 
   ingest:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/ingest:${TORRIN_TAG:-latest}"
-    user: "0:0" # writes to /scratch + reads the shared qbit downloads
-    dns_opt: ["single-request-reopen"] # split A/AAAA source ports so usenet DNS lookups survive load
+    user: "0:0"
+    dns_opt: ["single-request-reopen"]
     environment:
       <<: *s3
       PORT: "8083"
       DATABASE_URL: *db
       NATS_URL: *nats
-      NODE_ID: "${NODE_ID:-}" # cluster: this box's id, stamped on jobs it publishes (empty = single-box)
+      NODE_ID: "${NODE_ID:-}"
+      CACHE_RC_URLS: "${CACHE_RC_URLS:-}"
       SCRATCH_DIR: "/scratch"
       CAIRN_S3_ENDPOINT: "${CAIRN_S3_ENDPOINT:-}"
       CAIRN_S3_ACCESS_KEY: "${CAIRN_S3_ACCESS_KEY:-}"
@@ -174,35 +170,34 @@ services:
       QBIT_URL: *qbit-url
       QBIT_USER: "${QBIT_USER:-admin}"
       QBIT_PASS: "${QBIT_PASS:-adminadmin}"
-      # operator usenet account (fallback when a user hasn't set their own); empty = disabled
       USENET_HOST: "${USENET_HOST:-}"
       USENET_PORT: "${USENET_PORT:-563}"
       USENET_USER: "${USENET_USER:-}"
       USENET_PASS: "${USENET_PASS:-}"
       USENET_SSL: "${USENET_SSL:-true}"
       USENET_MAXCONNS: "${USENET_MAXCONNS:-20}"
-      # web-download source (yt-dlp); proxy routes only yt-dlp egress, empty = direct
+      USENET_INDEXER_URL: "${USENET_INDEXER_URL:-}"
+      USENET_INDEXER_KEY: "${USENET_INDEXER_KEY:-}"
       YTDLP_PROXY: "${YTDLP_PROXY:-}"
-      # hdencode reveal solver (Camoufox); set by the vpn overlay to the in-netns service, empty = disabled
       HDENCODE_SOLVER_URL: "${HDENCODE_SOLVER_URL:-}"
     volumes:
       - /mnt/cache/ingest-scratch:/scratch
-      - /mnt/cache/qbit:/downloads # shared with qbittorrent so ingest reads completed files
+      - /mnt/cache/qbit:/downloads
     depends_on:
       <<: *needs-db
       qbittorrent: { condition: service_started }
     restart: *restart
 
-  cairn: # posts cached files to usenet (Cairn archive); isolated so api/ingest deploys don't interrupt uploads
+  cairn:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/cairn:${TORRIN_TAG:-latest}"
     user: "0:0"
-    dns_opt: ["single-request-reopen"] # split A/AAAA source ports so usenet DNS lookups survive load
+    dns_opt: ["single-request-reopen"]
     environment:
       <<: *s3
       PORT: "8087"
       DATABASE_URL: *db
       NATS_URL: *nats
-      USENET_POST_HOST: "${USENET_POST_HOST:-}" # usenet posting server; empty = cairn disabled
+      USENET_POST_HOST: "${USENET_POST_HOST:-}"
       USENET_POST_PORT: "${USENET_POST_PORT:-563}"
       USENET_POST_USER: "${USENET_POST_USER:-}"
       USENET_POST_PASS: "${USENET_POST_PASS:-}"
@@ -224,13 +219,13 @@ services:
       CORS_ORIGIN: "${CORS_ORIGIN:-*}"
       API_URL: "${API_URL:-http://api:8080}"
       DATABASE_URL: *db
-      RCLONE_RC_URL: "${RCLONE_RC_URL:-http://rclone:5572}" # serves rclone-backed BYOS streams
+      RCLONE_RC_URL: "${RCLONE_RC_URL:-http://rclone:5572}"
     restart: *restart
     ports: ["8084:8084"]
 
   stremio:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/stremio:${TORRIN_TAG:-latest}"
-    environment: { <<: *s3, PORT: "7000", DATABASE_URL: *db, PUBLIC_URL: *public-url }
+    environment: { <<: *s3, PORT: "7000", TORRIN_STREAM_RELAYS: "${TORRIN_STREAM_RELAYS:-}", DATABASE_URL: *db, PUBLIC_URL: *public-url }
     ports: ["7000:7000"]
     depends_on: *needs-pg
     restart: *restart
@@ -242,9 +237,9 @@ services:
     depends_on: *needs-pg
     restart: *restart
 
-  # forked rclone (torrin-app/rclone) — NOT upstream; see deploy/Dockerfile.rclone
   rclone:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/rclone:${TORRIN_TAG:-latest}"
+    dns_opt: ["single-request-reopen"]
     ports: ["127.0.0.1:5572:5572"]
     volumes: [rclone_config:/data]
     restart: *restart
@@ -265,23 +260,22 @@ services:
 
   telegram:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/telegram:${TORRIN_TAG:-latest}"
-    user: "0:0" # downloads media to /scratch
+    user: "0:0"
     environment:
       <<: *s3
       PORT: "8086"
       DATABASE_URL: *db
-      NATS_URL: *nats # publish JobComplete so BYOS mirrors Telegram-ingested files
+      NATS_URL: *nats
       PUBLIC_URL: *public-url
       SCRATCH_DIR: "/scratch"
       TELEGRAM_TMP_PATH: "/scratch/telegram"
-      # from my.telegram.org + @BotFather; empty TELEGRAM_BOT_TOKEN = bot disabled (health stub only)
       TELEGRAM_API_ID: "${TELEGRAM_API_ID:-}"
       TELEGRAM_API_HASH: "${TELEGRAM_API_HASH:-}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_BOT_USERNAME: "${TELEGRAM_BOT_USERNAME:-}"
     volumes:
       - /mnt/cache/telegram-scratch:/scratch
-    depends_on: *needs-db # postgres + nats (bus: publishes JobComplete)
+    depends_on: *needs-db
     restart: *restart
 
 volumes:

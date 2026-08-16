@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 CONF=/config/qBittorrent/qBittorrent.conf
-[ -f "$CONF" ] && exit 0
+[ -f "$CONF" ] && grep -q "AuthSubnetWhitelistEnabled=true" "$CONF" && exit 0
 
 WHITELIST="${QBIT_WEBUI_WHITELIST:-172.16.0.0/12}"
 PORT="${QBIT_TORRENT_PORT:-6881}"

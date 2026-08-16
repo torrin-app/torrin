@@ -4,6 +4,7 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN}"
+      TUNNEL_TRANSPORT_PROTOCOL: "http2"
     restart: unless-stopped
 
   web:
