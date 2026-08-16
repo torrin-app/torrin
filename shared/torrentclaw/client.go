@@ -3,109 +3,42 @@ package torrentclaw
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strings"
-	"sync"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/useragent"
 )
 
 const (
 	checkCacheURL = "https://torrentclaw.com/api/v1/debrid/check-cache"
-	cacheTTL      = 30 * time.Minute
 	userAgent     = useragent.Default
 )
-
-type cacheEntry struct {
-	cached bool
-	exp    time.Time
-}
 
 type Client struct {
 	apiKey     string
 	httpClient *http.Client
-
-	mu    sync.Mutex
-	cache map[string]cacheEntry
+	cache      *availcache.Cache
 }
 
 func New(apiKey string) *Client {
-	c := &Client{
-		apiKey:     apiKey,
-		httpClient: &http.Client{Timeout: 12 * time.Second},
-		cache:      make(map[string]cacheEntry),
-	}
-	go c.sweep()
-	return c
+	return &Client{apiKey: apiKey, httpClient: &http.Client{Timeout: 12 * time.Second}}
 }
 
-func (c *Client) sweep() {
-	t := time.NewTicker(10 * time.Minute)
-	defer t.Stop()
-	for range t.C {
-		now := time.Now()
-		c.mu.Lock()
-		for k, e := range c.cache {
-			if now.After(e.exp) {
-				delete(c.cache, k)
-			}
-		}
-		c.mu.Unlock()
-	}
-}
-
-func keyPrefix(provider, debridKey string) string {
-	sum := sha256.Sum256([]byte(provider + "\x00" + debridKey))
-	return provider + ":" + hex.EncodeToString(sum[:6]) + ":"
-}
+func (c *Client) SetCache(cache *availcache.Cache) { c.cache = cache }
 
 func (c *Client) CheckCache(ctx context.Context, provider, debridKey string, hashes []string) map[string]bool {
 	if c.apiKey == "" || debridKey == "" || len(hashes) == 0 {
 		return nil
 	}
-
-	prefix := keyPrefix(provider, debridKey)
-	result := make(map[string]bool)
-	var miss []string
-	now := time.Now()
-
-	c.mu.Lock()
-	for _, h := range hashes {
-		lh := strings.ToLower(h)
-		if e, ok := c.cache[prefix+lh]; ok && now.Before(e.exp) {
-			result[lh] = e.cached
-		} else {
-			miss = append(miss, lh)
-		}
+	if c.cache == nil {
+		return c.query(ctx, provider, debridKey, hashes)
 	}
-	c.mu.Unlock()
-
-	if len(miss) == 0 {
-		return result
-	}
-
-	fresh := c.query(ctx, provider, debridKey, miss)
-	if fresh == nil {
-		if len(result) == 0 {
-			return nil
-		}
-		return result
-	}
-
-	exp := now.Add(cacheTTL)
-	c.mu.Lock()
-	for h, cached := range fresh {
-		lh := strings.ToLower(h)
-		c.cache[prefix+lh] = cacheEntry{cached: cached, exp: exp}
-		result[lh] = cached
-	}
-	c.mu.Unlock()
-	return result
+	return c.cache.CheckCached(ctx, availcache.Prefix(provider, debridKey), hashes, func(ctx context.Context, miss []string) map[string]bool {
+		return c.query(ctx, provider, debridKey, miss)
+	})
 }
 
 func (c *Client) query(ctx context.Context, provider, debridKey string, hashes []string) map[string]bool {

@@ -13,6 +13,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/rdapi"
 	"github.com/torrin-app/torrin/api/internal/stremthru"
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/billing"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/email"
@@ -115,9 +116,16 @@ func main() {
 	mux := http.NewServeMux()
 	srv.Register(mux, middleware.Auth(users))
 
+	avail := availcache.New(30 * time.Minute)
+	if err := avail.SetDB(ctx, jobsRepo.Pool()); err != nil {
+		slog.Warn("avail cache db init failed, using memory only", "err", err)
+	}
+	providers.SetAvailCache(avail)
+
 	var tc *torrentclaw.Client
 	if k := env.Get("TORRENTCLAW_API_KEY", ""); k != "" {
 		tc = torrentclaw.New(k)
+		tc.SetCache(avail)
 	}
 	stremthru.New(stremthru.Deps{
 		Users: users, Jobs: jobsRepo, Store: store, Slots: slots, Bus: b,

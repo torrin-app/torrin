@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/api/internal/middleware"
+	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
@@ -68,6 +71,11 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 			byos = true
 		}
 	}
+	if byos {
+		if cached, _ := s.Store.Has(r.Context(), manifest.Path(job.InfoHash)); cached {
+			byos = false
+		}
+	}
 	out := make([]jobs.Stream, len(job.Files))
 	for i, f := range job.Files {
 		key := manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name)
@@ -81,6 +89,33 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return out
+}
+
+func (s *Server) serveFromBYOS(w http.ResponseWriter, r *http.Request, infoHash, magnet string, source jobs.Source) bool {
+	if s.Users == nil || s.JobsPG == nil {
+		return false
+	}
+	user := middleware.GetUser(r)
+	obj, ok := s.JobsPG.GetBYOSObjectByUserHash(r.Context(), user.ID, infoHash)
+	if !ok {
+		return false
+	}
+	var total int64
+	for _, f := range obj.Files {
+		total += f.Size
+	}
+	job := &jobs.Job{
+		UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: obj.Name,
+		Source: source, Status: jobs.StatusComplete, Files: obj.Files, FileSize: total,
+	}
+	if err := s.Jobs.Create(r.Context(), job); err != nil {
+		web.WriteError(w, 500, "could not restore from your storage")
+		return true
+	}
+	s.Bus.Publish(events.ByosRehydrate, events.RehydrateBYOS{JobID: job.ID, UserID: user.ID, InfoHash: infoHash, Node: job.Node})
+	job.StreamURLs = s.signStreams(job, r)
+	web.WriteJSON(w, 200, job)
+	return true
 }
 
 func (s *Server) buildCachedJob(ctx context.Context, infoHash, magnet, userID string, source jobs.Source) (*jobs.Job, error) {

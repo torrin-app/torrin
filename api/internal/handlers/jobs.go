@@ -135,6 +135,11 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		}
 	}
 
+	// 2c. In the user's storage but evicted from cache → serve from BYOS, re-warm the cache in the background.
+	if s.serveFromBYOS(w, r, infoHash, magnet, source) {
+		return
+	}
+
 	// 3. New download, slot limit.
 	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
 		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))

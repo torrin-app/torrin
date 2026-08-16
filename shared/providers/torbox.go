@@ -191,26 +191,27 @@ func TBLibrary(ctx context.Context, tbKey string) ([]LibraryItem, error) {
 }
 
 func TorBoxCached(ctx context.Context, tbKey string, hashes []string) map[string]bool {
-	t := newTorbox(tbKey)
-	u := checkcachedURL(strings.Join(hashes, ","))
-	body, err := t.get(ctx, u)
-	if err != nil {
-		return nil
-	}
-	var resp struct {
-		Success bool         `json:"success"`
-		Data    []tbListItem `json:"data"`
-	}
-	if json.Unmarshal(body, &resp) != nil {
-		return nil
-	}
-	out := make(map[string]bool, len(resp.Data))
-	for _, d := range resp.Data {
-		if d.Hash != "" {
-			out[strings.ToLower(d.Hash)] = true
+	return cachedCheck(ctx, "torbox", tbKey, hashes, func(ctx context.Context, hs []string) map[string]bool {
+		t := newTorbox(tbKey)
+		body, err := t.get(ctx, checkcachedURL(strings.Join(hs, ",")))
+		if err != nil {
+			return nil
 		}
-	}
-	return out
+		var resp struct {
+			Success bool         `json:"success"`
+			Data    []tbListItem `json:"data"`
+		}
+		if json.Unmarshal(body, &resp) != nil {
+			return nil
+		}
+		out := make(map[string]bool, len(resp.Data))
+		for _, d := range resp.Data {
+			if d.Hash != "" {
+				out[strings.ToLower(d.Hash)] = true
+			}
+		}
+		return out
+	})
 }
 
 func checkcachedURL(hash string) string {

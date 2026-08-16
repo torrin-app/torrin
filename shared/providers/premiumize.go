@@ -54,29 +54,31 @@ func (p *premiumize) Fetch(ctx context.Context, magnet, infoHash string) (*Resul
 }
 
 func PremiumizeCached(ctx context.Context, pmKey string, hashes []string) map[string]bool {
-	p := newPremiumize(pmKey)
-	form := url.Values{}
-	for _, h := range hashes {
-		form.Add("items[]", "magnet:?xt=urn:btih:"+h)
-	}
-	body, err := p.post(ctx, "/api/cache/check", form)
-	if err != nil {
-		return nil
-	}
-	var resp struct {
-		Status   string `json:"status"`
-		Response []bool `json:"response"`
-	}
-	if json.Unmarshal(body, &resp) != nil || resp.Status != "success" {
-		return nil
-	}
-	out := make(map[string]bool, len(hashes))
-	for i, h := range hashes {
-		if i < len(resp.Response) {
-			out[strings.ToLower(h)] = resp.Response[i]
+	return cachedCheck(ctx, "premiumize", pmKey, hashes, func(ctx context.Context, hs []string) map[string]bool {
+		p := newPremiumize(pmKey)
+		form := url.Values{}
+		for _, h := range hs {
+			form.Add("items[]", "magnet:?xt=urn:btih:"+h)
 		}
-	}
-	return out
+		body, err := p.post(ctx, "/api/cache/check", form)
+		if err != nil {
+			return nil
+		}
+		var resp struct {
+			Status   string `json:"status"`
+			Response []bool `json:"response"`
+		}
+		if json.Unmarshal(body, &resp) != nil || resp.Status != "success" {
+			return nil
+		}
+		out := make(map[string]bool, len(hs))
+		for i, h := range hs {
+			if i < len(resp.Response) {
+				out[strings.ToLower(h)] = resp.Response[i]
+			}
+		}
+		return out
+	})
 }
 
 func (p *premiumize) cached(ctx context.Context, magnet string) (bool, error) {

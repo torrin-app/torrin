@@ -84,6 +84,11 @@ func main() {
 	}); err != nil {
 		fatal("subscribe", err)
 	}
+	if _, err := bus.Subscribe(b, events.ByosRehydrate, func(e events.RehydrateBYOS) {
+		go d.rehydrate(ctx, e)
+	}); err != nil {
+		fatal("subscribe rehydrate", err)
+	}
 	go d.runQueue(ctx)
 	go d.reconcile(ctx)
 	go d.runStorageEviction(ctx, int(env.Int("BYOS_EVICT_HOUR", 5)))

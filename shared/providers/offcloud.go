@@ -64,28 +64,30 @@ func (o *offcloud) Fetch(ctx context.Context, magnet, infoHash string) (*Result,
 }
 
 func OffcloudCached(ctx context.Context, key string, hashes []string) map[string]bool {
-	o := newOffcloud(key)
-	urls := make([]string, len(hashes))
-	for i, h := range hashes {
-		urls[i] = "magnet:?xt=urn:btih:" + h
-	}
-	body, err := o.post(ctx, "/api/cache/info", map[string]any{"urls": urls})
-	if err != nil {
-		return nil
-	}
-	var resp []struct {
-		Cached bool `json:"cached"`
-	}
-	if json.Unmarshal(body, &resp) != nil {
-		return nil
-	}
-	out := make(map[string]bool, len(hashes))
-	for i, h := range hashes {
-		if i < len(resp) {
-			out[strings.ToLower(h)] = resp[i].Cached
+	return cachedCheck(ctx, "offcloud", key, hashes, func(ctx context.Context, hs []string) map[string]bool {
+		o := newOffcloud(key)
+		urls := make([]string, len(hs))
+		for i, h := range hs {
+			urls[i] = "magnet:?xt=urn:btih:" + h
 		}
-	}
-	return out
+		body, err := o.post(ctx, "/api/cache/info", map[string]any{"urls": urls})
+		if err != nil {
+			return nil
+		}
+		var resp []struct {
+			Cached bool `json:"cached"`
+		}
+		if json.Unmarshal(body, &resp) != nil {
+			return nil
+		}
+		out := make(map[string]bool, len(hs))
+		for i, h := range hs {
+			if i < len(resp) {
+				out[strings.ToLower(h)] = resp[i].Cached
+			}
+		}
+		return out
+	})
 }
 
 func OffcloudLibrary(ctx context.Context, key string) ([]LibraryItem, error) {

@@ -10,6 +10,7 @@ const (
 	JobDeleted    = "jobs.deleted"
 
 	CairnRequested = "cairn.requested"
+	ByosRehydrate  = "byos.rehydrate"
 
 	NodeHeartbeat = "nodes.heartbeat"
 )

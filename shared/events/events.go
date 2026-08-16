@@ -30,6 +30,13 @@ type Failed struct {
 	Reason string `json:"reason"`
 }
 
+type RehydrateBYOS struct {
+	JobID    string `json:"job_id"`
+	UserID   string `json:"user_id"`
+	InfoHash string `json:"info_hash"`
+	Node     string `json:"node,omitempty"`
+}
+
 type Deleted struct {
 	JobID    string `json:"job_id"`
 	InfoHash string `json:"info_hash,omitempty"`
