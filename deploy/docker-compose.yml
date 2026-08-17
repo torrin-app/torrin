@@ -244,6 +244,13 @@ services:
     volumes: [rclone_config:/data]
     restart: *restart
 
+  byos-rc-tunnel:
+    image: alpine/socat
+    restart: unless-stopped
+    depends_on: [rclone]
+    ports: ["10.9.0.2:5572:5572"]
+    command: TCP-LISTEN:5572,fork,reuseaddr TCP:rclone:5572
+
   byos:
     image: "${GHCR_REPO:-ghcr.io/torrin-app/torrin}/byos:${TORRIN_TAG:-latest}"
     user: "0:0"
