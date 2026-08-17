@@ -20,6 +20,10 @@ type Info struct {
 	Subtitles   []SubTrack   `json:"subtitles,omitempty"`
 }
 
+func Playable(info *Info) bool {
+	return info != nil && info.Width > 0 && info.Height > 0
+}
+
 type AudioTrack struct {
 	Codec    string `json:"codec,omitempty"`
 	Channels int    `json:"channels,omitempty"`

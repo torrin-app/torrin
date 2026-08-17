@@ -18,6 +18,10 @@ import (
 
 var validPeriods = map[string]bool{"monthly": true, "yearly": true, "lifetime": true, "days": true}
 
+func dayCodeRetired(period string) bool {
+	return !plans.DayPlansEnabled && period == "days"
+}
+
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 func secretEqual(a, b string) bool {
@@ -146,6 +150,10 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "this code is no longer valid")
 		return
 	}
+	if dayCodeRetired(rc.Period) {
+		web.WriteError(w, 422, "day passes are no longer offered")
+		return
+	}
 	claimed, err := s.Users.MarkResellerCodeRedeemed(r.Context(), code, user.ID)
 	if err != nil {
 		web.WriteError(w, 500, "could not redeem")
@@ -186,6 +194,10 @@ func (s *Server) mintCodes(w http.ResponseWriter, r *http.Request) {
 	}
 	if !validPeriods[req.Period] {
 		web.WriteError(w, 400, "period must be one of: monthly, yearly, lifetime, days")
+		return
+	}
+	if dayCodeRetired(req.Period) {
+		web.WriteError(w, 422, "day passes are retired and can no longer be minted")
 		return
 	}
 	if req.Period == "days" && req.Days <= 0 {

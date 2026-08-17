@@ -122,15 +122,19 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 		if _, _, mf := h.manifestMeta(ctx, j.InfoHash); mf != nil {
 			files = mf
 		}
-		out := make([]map[string]any, len(files))
-		for i, f := range files {
-			key := manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name)
-			link := h.Store.SignURLNode(j.Node, key, 24*time.Hour) + manifest.StreamQuery(j.InfoHash, key, f.Enc)
-			out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
-		}
-		m["files"] = out
+		m["files"] = h.buildFileEntries(j.InfoHash, j.Node, files)
 	}
 	return m
+}
+
+func (h *Handler) buildFileEntries(hash, node string, files []jobs.File) []map[string]any {
+	out := make([]map[string]any, len(files))
+	for i, f := range files {
+		key := manifest.ResolveKey(hash, i, f.Key, f.Name)
+		link := h.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(hash, key, f.Enc)
+		out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
+	}
+	return out
 }
 
 func fileEntry(index int, name string, size int64, link string, mi *mediainfo.Info) map[string]any {
@@ -154,14 +158,7 @@ func (h *Handler) cachedFiles(ctx context.Context, infoHash string) (string, []m
 	if fs == nil {
 		return "", nil, false
 	}
-	node := h.Jobs.NodeForInfoHash(ctx, infoHash)
-	out := make([]map[string]any, len(fs))
-	for i, f := range fs {
-		key := manifest.ResolveKey(infoHash, i, f.Key, f.Name)
-		link := h.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, key, f.Enc)
-		out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
-	}
-	return name, out, true
+	return name, h.buildFileEntries(infoHash, h.Jobs.NodeForInfoHash(ctx, infoHash), fs), true
 }
 
 func stStatus(s jobs.Status) string {

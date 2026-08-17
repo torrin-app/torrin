@@ -14,6 +14,11 @@ import (
 	"github.com/torrin-app/torrin/shared/storage"
 )
 
+func TestMain(m *testing.M) {
+	VerifyVideo = false // these tests publish synthetic byte files, not real videos
+	os.Exit(m.Run())
+}
+
 type fakeStore struct {
 	puts map[string]bool
 	data map[string][]byte

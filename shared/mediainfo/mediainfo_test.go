@@ -97,3 +97,18 @@ func TestResolutionWidthAware(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayable(t *testing.T) {
+	if Playable(nil) {
+		t.Error("nil probe is not playable")
+	}
+	if Playable(&Info{}) {
+		t.Error("no video dimensions is not playable (truncated/corrupt)")
+	}
+	if Playable(&Info{Width: 1920}) {
+		t.Error("width without height is not playable")
+	}
+	if !Playable(&Info{Width: 1920, Height: 1080}) {
+		t.Error("a real video with dimensions should be playable")
+	}
+}

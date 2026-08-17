@@ -6,7 +6,26 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/plans"
 )
+
+func TestDayCodeRetired(t *testing.T) {
+	defer func() { plans.DayPlansEnabled = true }()
+
+	plans.DayPlansEnabled = true
+	if dayCodeRetired("days") {
+		t.Error("enabled: day codes must be allowed")
+	}
+	plans.DayPlansEnabled = false
+	if !dayCodeRetired("days") {
+		t.Error("disabled: day codes must be blocked")
+	}
+	for _, p := range []string{"monthly", "yearly", "lifetime"} {
+		if dayCodeRetired(p) {
+			t.Errorf("%s must never be blocked", p)
+		}
+	}
+}
 
 func TestRedeemExpiry(t *testing.T) {
 	fresh := &auth.User{PlanID: "free"}

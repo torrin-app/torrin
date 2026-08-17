@@ -123,6 +123,20 @@ func (p *Postgres) ListByInfoHash(ctx context.Context, infoHash string) ([]*Job,
 	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE info_hash=$1`, infoHash)
 }
 
+func (p *Postgres) CachedByHashes(ctx context.Context, hashes []string) (map[string]*Job, error) {
+	rows, err := p.query(ctx, `SELECT DISTINCT ON (info_hash) `+cols+` FROM jobs
+		WHERE info_hash = ANY($1) AND status IN ('complete','seeding')
+		ORDER BY info_hash, created_at DESC`, hashes)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]*Job, len(rows))
+	for _, j := range rows {
+		m[j.InfoHash] = j
+	}
+	return m, nil
+}
+
 func (p *Postgres) NodeForInfoHash(ctx context.Context, infoHash string) string {
 	if p == nil {
 		return ""

@@ -100,6 +100,25 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		mu.Unlock()
 	})
 
+	// Tier 1.5: complete on another node (per-box cache) — the local store can't see it,
+	// so one batched lookup in the shared jobs DB; links route to the job's node.
+	if still := uncached(); len(still) > 0 {
+		if byHash, _ := h.Jobs.CachedByHashes(ctx, still); byHash != nil {
+			mu.Lock()
+			for hash, job := range byHash {
+				if len(job.Files) == 0 {
+					continue
+				}
+				name := job.Name
+				if name == "" {
+					name, _ = items[idxOf[hash]]["name"].(string)
+				}
+				items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(hash, job.Node, job.Files)}
+			}
+			mu.Unlock()
+		}
+	}
+
 	// Tier 1b: known release links (hdencode/scene-rls) are fetchable via AD + unrar.
 	// Tier 2: system AD library (torrin's own shared pool), fast DB lookup.
 	fanOut(uncached(), func(hash string) {

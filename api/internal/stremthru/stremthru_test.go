@@ -46,6 +46,20 @@ func packJob() *jobs.Job {
 	}
 }
 
+func TestBuildFileEntries(t *testing.T) {
+	h := &Handler{Deps: Deps{Store: fakeStore{}}}
+	out := h.buildFileEntries("abc", "box2", packJob().Files)
+	if len(out) != 2 {
+		t.Fatalf("got %d entries, want 2", len(out))
+	}
+	if out[0]["size"] != int64(100) || out[1]["size"] != int64(200) {
+		t.Errorf("sizes wrong: %v %v", out[0]["size"], out[1]["size"])
+	}
+	if link, _ := out[1]["link"].(string); !strings.HasPrefix(link, "sign://") {
+		t.Errorf("entry missing node-signed link: %v", out[1])
+	}
+}
+
 func TestExtractHash(t *testing.T) {
 	h := "0123456789abcdef0123456789abcdef01234567"
 	if got := extractHash("magnet:?xt=urn:btih:" + h + "&dn=x"); got != h {

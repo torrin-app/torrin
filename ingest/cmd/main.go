@@ -83,6 +83,7 @@ func main() {
 			caches = append(caches, rclonerc.New(u))
 		}
 	}
+	publish.VerifyVideo = env.Get("INGEST_VERIFY_VIDEO", "true") != "false"
 	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher, caches)
 	if node := env.Get("NODE_ID", ""); node != "" {
 		pol := eviction.DefaultPolicy

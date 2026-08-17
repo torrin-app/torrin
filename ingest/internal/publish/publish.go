@@ -26,6 +26,8 @@ const minVideoFileSize = 1_000_000
 
 var uploadStallTimeout = 2 * time.Minute
 
+var VerifyVideo = true
+
 type File struct {
 	Name string
 	Path string
@@ -87,7 +89,10 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			info, err := mediainfo.Probe(pctx, f.Path)
 			cancel()
-			if err != nil {
+			if err != nil || !mediainfo.Playable(info) {
+				if VerifyVideo {
+					return failure.Newf("incomplete", "file %q is not a playable video, likely a partial or corrupt download", f.Name)
+				}
 				slog.Warn("mediainfo probe failed", "file", f.Name, "err", err)
 			} else {
 				mi = info
