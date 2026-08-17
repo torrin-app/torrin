@@ -93,6 +93,16 @@ func (g *GumroadHandler) handleSale(ctx context.Context, v url.Values) {
 		return
 	}
 
+	if permalink == plans.TopupProduct {
+		user, _, err := resolveSaleUser(ctx, g.userStore, email, v.Get("subscription_id"))
+		if err != nil {
+			slog.Error("gumroad topup user", "err", err)
+			return
+		}
+		creditWallet(ctx, g.userStore, user.ID, v.Get("price"), "topup:gumroad", saleID)
+		return
+	}
+
 	planID, ok := plans.ByGumroadProduct[permalink]
 	if !ok {
 		slog.Warn("unknown gumroad product, rejecting", "permalink", permalink)

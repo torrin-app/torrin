@@ -32,6 +32,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("POST /api/admin/users/{id}/plan", a(http.HandlerFunc(s.adminSetPlan)))
 	mux.Handle("POST /api/admin/users/{id}/ban", a(http.HandlerFunc(s.adminBanUser)))
 	mux.Handle("POST /api/admin/users/{id}/unban", a(http.HandlerFunc(s.adminUnbanUser)))
+	mux.Handle("GET /api/admin/users/{id}/wallet", a(http.HandlerFunc(s.adminWalletGet)))
+	mux.Handle("POST /api/admin/users/{id}/wallet", a(http.HandlerFunc(s.adminWalletAdjust)))
 	mux.Handle("GET /api/admin/audit/{id}", a(http.HandlerFunc(s.adminAudit)))
 	mux.Handle("GET /api/admin/jobs", a(http.HandlerFunc(s.adminJobs)))
 	mux.Handle("DELETE /api/admin/jobs/{id}", a(http.HandlerFunc(s.adminDeleteJob)))

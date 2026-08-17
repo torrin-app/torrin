@@ -74,5 +74,5 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) plans(w http.ResponseWriter, _ *http.Request) {
-	web.WriteJSON(w, 200, plans.All)
+	web.WriteJSON(w, 200, plans.Listed())
 }

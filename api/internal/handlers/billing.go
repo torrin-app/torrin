@@ -7,6 +7,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/plans"
 )
 
 type checkoutReq struct {
@@ -28,6 +29,10 @@ func checkoutRequest(w http.ResponseWriter, r *http.Request) (*auth.User, checko
 	}
 	if !validPeriods[req.Period] {
 		web.WriteError(w, 400, "invalid period")
+		return nil, checkoutReq{}, false
+	}
+	if !plans.DayPlansEnabled && (req.Period == "days" || req.Days > 0) {
+		web.WriteError(w, 422, "day passes are no longer offered")
 		return nil, checkoutReq{}, false
 	}
 	return user, req, true

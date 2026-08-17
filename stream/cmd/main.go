@@ -7,6 +7,7 @@ import (
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
+	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/service"
 	"github.com/torrin-app/torrin/stream/internal/server"
@@ -26,11 +27,13 @@ func main() {
 	srv := server.New(store, env.Get("CORS_ORIGIN", "*"), env.Get("API_URL", ""), cipher)
 
 	if dsn, rcURL := env.Get("DATABASE_URL", ""), env.Get("RCLONE_RC_URL", ""); dsn != "" && rcURL != "" {
-		if users, err := auth.NewPostgres(context.Background(), dsn); err == nil {
-			srv.SetBYOS(users, rclonerc.New(rcURL), rcURL)
+		users, uErr := auth.NewPostgres(context.Background(), dsn)
+		jobsRepo, jErr := jobs.NewPostgres(context.Background(), dsn)
+		if uErr == nil && jErr == nil {
+			srv.SetBYOS(users, jobsRepo, rclonerc.New(rcURL), rcURL)
 			slog.Info("stream serving bring-your-own-storage via rclone", "url", rcURL)
 		} else {
-			slog.Warn("stream: byos disabled, db unavailable", "err", err)
+			slog.Warn("stream: byos disabled, db unavailable", "users_err", uErr, "jobs_err", jErr)
 		}
 	}
 

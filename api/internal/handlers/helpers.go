@@ -82,6 +82,7 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 		var u string
 		if byos {
 			u = s.Store.SignURLNodeUser(job.Node, key, job.UserID, 24*time.Hour) + "&byos=1"
+			u += "&bk=" + url.QueryEscape(manifest.Key(job.InfoHash, i, f.Name))
 		} else {
 			u = s.Store.SignURLNode(job.Node, key, 24*time.Hour)
 		}

@@ -19,6 +19,7 @@ import (
 	"github.com/torrin-app/torrin/shared/email"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/qbit"
 	"github.com/torrin-app/torrin/shared/rclonerc"
@@ -47,6 +48,8 @@ func main() {
 	if err := users.SetCredsKey(env.Get("CREDS_KEY", "")); err != nil {
 		fatal("creds key", err)
 	}
+
+	plans.DayPlansEnabled = env.Get("DAY_PLANS_ENABLED", "true") != "false"
 
 	store := storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), env.Get("PUBLIC_URL", ""), mustEnv("SIGNING_KEY"))
 	if err := store.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
@@ -146,6 +149,7 @@ func main() {
 	}
 
 	safety.Refresh(ctx, users.GetBlocklist, time.Hour)
+	go walletRenewLoop(ctx, users)
 	go promoteQueued(ctx, jobsRepo, users, b, budget)
 	go prewarmRetry(ctx, jobsRepo, b, pwMaxBytes, pwMaxActive)
 	go srv.RunRSSWorker(ctx)

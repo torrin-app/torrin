@@ -146,6 +146,7 @@ var (
 )
 
 const SeedSlotProduct = "torrin-seed-slots"
+const TopupProduct = "torrin-topup"
 
 var ByGumroadProduct = map[string]string{
 	// Day plans
@@ -195,6 +196,20 @@ func RecurrenceFromProduct(permalink string) string {
 func Get(id string) (Plan, bool) {
 	p, ok := All[id]
 	return p, ok
+}
+
+var DayPlansEnabled = true
+
+func Listed() map[string]Plan {
+	if DayPlansEnabled {
+		return All
+	}
+	out := make(map[string]Plan, len(All))
+	for id, p := range All {
+		p.DayPrices = nil
+		out[id] = p
+	}
+	return out
 }
 
 func CanBYOK(planID string) bool {

@@ -47,3 +47,19 @@ func TestAdminAuth(t *testing.T) {
 		t.Errorf("right key: got %d, want 200", got)
 	}
 }
+
+func TestAdminWalletRoutesRequireAuth(t *testing.T) {
+	s := &Server{Deps{AdminKey: "secret"}}
+	mux := http.NewServeMux()
+	s.registerAdminRoutes(mux)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/admin/users/u1/wallet"},
+		{"POST", "/api/admin/users/u1/wallet"},
+	} {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
+		if rec.Code != 401 {
+			t.Errorf("%s %s without key = %d, want 401", c.method, c.path, rec.Code)
+		}
+	}
+}

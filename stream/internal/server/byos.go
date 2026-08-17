@@ -10,18 +10,25 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/rclonerc"
 )
 
+type byosJobs interface {
+	GetByInfoHash(ctx context.Context, infoHash string) (*jobs.Job, error)
+}
+
 type byosBackend struct {
 	users     *auth.Store
+	jobs      byosJobs
 	rc        *rclonerc.Client
 	rcloneURL string
 	hc        *http.Client
 }
 
-func (s *Server) SetBYOS(users *auth.Store, rc *rclonerc.Client, rcloneURL string) {
-	s.byos = &byosBackend{users: users, rc: rc, rcloneURL: strings.TrimRight(rcloneURL, "/"), hc: &http.Client{}}
+func (s *Server) SetBYOS(users *auth.Store, jobsRepo byosJobs, rc *rclonerc.Client, rcloneURL string) {
+	s.byos = &byosBackend{users: users, jobs: jobsRepo, rc: rc, rcloneURL: strings.TrimRight(rcloneURL, "/"), hc: &http.Client{}}
 }
 
 func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID string) bool {
@@ -33,6 +40,13 @@ func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID s
 	if err != nil || creds == nil || !creds.Enabled || !creds.IsRclone() {
 		return false
 	}
+	storeKey := r.URL.Query().Get("bk")
+	if storeKey == "" {
+		storeKey = b.resolveStoreKey(r.Context(), r.URL.Query().Get("ih"), key)
+	}
+	if storeKey == "" {
+		return false
+	}
 	rctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	remote, err := auth.EnsureRemote(rctx, b.rc, userID, creds)
 	cancel()
@@ -41,7 +55,7 @@ func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID s
 		return false
 	}
 
-	upstream := b.rcloneURL + "/[" + remote + ":]/" + escapeRclonePath(creds.Prefix+key)
+	upstream := b.rcloneURL + "/[" + remote + ":]/" + escapeRclonePath(creds.Prefix+storeKey)
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, upstream, nil)
 	if err != nil {
 		return false
@@ -73,6 +87,25 @@ func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID s
 		streamCopy(w, resp.Body)
 	}
 	return true
+}
+
+func (b *byosBackend) resolveStoreKey(ctx context.Context, ih, key string) string {
+	if !strings.HasPrefix(key, "blobs/") {
+		return key
+	}
+	if b.jobs == nil || len(ih) != 40 {
+		return ""
+	}
+	job, err := b.jobs.GetByInfoHash(ctx, ih)
+	if err != nil || job == nil {
+		return ""
+	}
+	for i, f := range job.Files {
+		if manifest.ResolveKey(ih, i, f.Key, f.Name) == key {
+			return manifest.Key(ih, i, f.Name)
+		}
+	}
+	return ""
 }
 
 func escapeRclonePath(p string) string {

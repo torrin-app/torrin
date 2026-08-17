@@ -54,21 +54,27 @@ func (b *BitcartHandler) CreateInvoice(ctx context.Context, email, planID, perio
 	if !ok || cents <= 0 {
 		return "", fmt.Errorf("no price for plan %q period %q days %d", planID, period, days)
 	}
+	return b.createInvoice(ctx, email, cents, map[string]string{
+		"email": email, "plan": planID, "period": period, "days": fmt.Sprintf("%d", days),
+	})
+}
 
+func (b *BitcartHandler) CreateTopupInvoice(ctx context.Context, email string, cents int) (string, error) {
+	return b.createInvoice(ctx, email, cents, map[string]string{
+		"email": email, "type": "topup", "credits": fmt.Sprintf("%d", cents),
+	})
+}
+
+func (b *BitcartHandler) createInvoice(ctx context.Context, email string, cents int, meta map[string]string) (string, error) {
 	payload := map[string]any{
 		"price":            float64(cents) / 100,
 		"store_id":         b.storeID,
 		"currency":         "USD",
 		"buyer_email":      email,
-		"order_id":         fmt.Sprintf("torrin:%s:%s", email, planID),
+		"order_id":         fmt.Sprintf("torrin:%s:%d", email, time.Now().UnixNano()),
 		"notification_url": b.apiBase + "/webhooks/bitcart",
 		"redirect_url":     b.webBase + "/?paid=1",
-		"metadata": map[string]string{
-			"email":  email,
-			"plan":   planID,
-			"period": period,
-			"days":   fmt.Sprintf("%d", days),
-		},
+		"metadata":         meta,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -265,10 +271,27 @@ func (b *BitcartHandler) fetchInvoice(ctx context.Context, id string) (*bitcartI
 
 func (b *BitcartHandler) activate(ctx context.Context, inv *bitcartInvoice) {
 	email := inv.Metadata["email"]
+	if email == "" {
+		slog.Error("bitcart invoice missing email", "id", inv.ID)
+		return
+	}
+	user, created, err := getOrCreateUser(ctx, b.users, email)
+	if err != nil {
+		slog.Error("bitcart create user", "err", err)
+		return
+	}
+	if created {
+		slog.Info("new user created via bitcart", "email", email)
+	}
+
+	if inv.Metadata["type"] == "topup" {
+		creditWallet(ctx, b.users, user.ID, inv.Metadata["credits"], "topup:crypto", inv.ID)
+		return
+	}
+
 	planID := inv.Metadata["plan"]
-	period := inv.Metadata["period"]
-	if email == "" || planID == "" {
-		slog.Error("bitcart invoice missing metadata", "id", inv.ID)
+	if planID == "" {
+		slog.Error("bitcart invoice missing plan", "id", inv.ID)
 		return
 	}
 	if _, ok := plans.Get(planID); !ok {
@@ -279,19 +302,9 @@ func (b *BitcartHandler) activate(ctx context.Context, inv *bitcartInvoice) {
 		slog.Info("bitcart duplicate ipn, skipping", "id", inv.ID)
 		return
 	}
-
-	user, created, err := getOrCreateUser(ctx, b.users, email)
-	if err != nil {
-		slog.Error("bitcart create user", "err", err)
-		return
-	}
-	if created {
-		slog.Info("new user created via bitcart", "email", email)
-	}
-
 	days := 0
 	fmt.Sscanf(inv.Metadata["days"], "%d", &days)
-	applyCryptoPlan(ctx, b.users, user, email, inv.ID, planID, period, "bitcart", days)
+	applyCryptoPlan(ctx, b.users, user, email, inv.ID, planID, inv.Metadata["period"], "bitcart", days)
 }
 
 func cryptoExpiry(period string, days int) time.Time {

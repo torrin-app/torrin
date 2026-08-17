@@ -58,7 +58,18 @@ func (b *BachsHandler) CreateCheckout(ctx context.Context, email, planID, period
 	if !ok || cents <= 0 {
 		return "", fmt.Errorf("no price for plan %q period %q days %d", planID, period, days)
 	}
+	return b.createSession(ctx, email, cents, map[string]string{
+		"email": email, "plan": planID, "period": period, "days": strconv.Itoa(days),
+	})
+}
 
+func (b *BachsHandler) CreateTopup(ctx context.Context, email string, cents int) (string, error) {
+	return b.createSession(ctx, email, cents, map[string]string{
+		"email": email, "type": "topup", "credits": strconv.Itoa(cents),
+	})
+}
+
+func (b *BachsHandler) createSession(ctx context.Context, email string, cents int, meta map[string]string) (string, error) {
 	payload := map[string]any{
 		"customer": map[string]string{"email": email, "name": email},
 		"product_cart": []map[string]any{{
@@ -67,12 +78,7 @@ func (b *BachsHandler) CreateCheckout(ctx context.Context, email, planID, period
 			"amount":     fmt.Sprintf("%.2f", float64(cents)/100),
 		}},
 		"return_url": b.webBase + "/?paid=1",
-		"metadata": map[string]string{
-			"email":  email,
-			"plan":   planID,
-			"period": period,
-			"days":   strconv.Itoa(days),
-		},
+		"metadata":   meta,
 	}
 	body, _ := json.Marshal(payload)
 
@@ -206,10 +212,27 @@ func (b *BachsHandler) verify(rawBody []byte, timestampHeader, signatureHeader s
 
 func (b *BachsHandler) activate(ctx context.Context, eventID string, meta map[string]string) {
 	email := meta["email"]
+	if email == "" {
+		slog.Error("bachs event missing email", "id", eventID)
+		return
+	}
+	user, created, err := getOrCreateUser(ctx, b.users, email)
+	if err != nil {
+		slog.Error("bachs create user", "err", err)
+		return
+	}
+	if created {
+		slog.Info("new user created via bachs", "email", email)
+	}
+
+	if meta["type"] == "topup" {
+		creditWallet(ctx, b.users, user.ID, meta["credits"], "topup:bachs", eventID)
+		return
+	}
+
 	planID := meta["plan"]
-	period := meta["period"]
-	if email == "" || planID == "" {
-		slog.Error("bachs event missing metadata", "id", eventID)
+	if planID == "" {
+		slog.Error("bachs event missing plan", "id", eventID)
 		return
 	}
 	if _, ok := plans.Get(planID); !ok {
@@ -220,17 +243,7 @@ func (b *BachsHandler) activate(ctx context.Context, eventID string, meta map[st
 		slog.Info("bachs duplicate event, skipping", "id", eventID)
 		return
 	}
-
-	user, created, err := getOrCreateUser(ctx, b.users, email)
-	if err != nil {
-		slog.Error("bachs create user", "err", err)
-		return
-	}
-	if created {
-		slog.Info("new user created via bachs", "email", email)
-	}
-
 	days := 0
 	fmt.Sscanf(meta["days"], "%d", &days)
-	applyCryptoPlan(ctx, b.users, user, email, eventID, planID, period, "bachs", days)
+	applyCryptoPlan(ctx, b.users, user, email, eventID, planID, meta["period"], "bachs", days)
 }

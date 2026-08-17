@@ -290,3 +290,20 @@ CREATE TABLE IF NOT EXISTS usenet_tombstones (
     until     TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (user_id, info_hash)
 );
+
+CREATE TABLE IF NOT EXISTS wallets (
+    user_id      TEXT PRIMARY KEY,
+    balance_cents BIGINT NOT NULL DEFAULT 0,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS wallet_ledger (
+    id            BIGSERIAL PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    delta_cents   BIGINT NOT NULL,
+    reason        TEXT NOT NULL,
+    ref           TEXT NOT NULL UNIQUE,
+    balance_after BIGINT NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_ledger_user ON wallet_ledger(user_id, created_at DESC);

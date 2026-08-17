@@ -2,6 +2,25 @@ package plans
 
 import "testing"
 
+func TestListedStripsDayPricesWhenRetired(t *testing.T) {
+	defer func() { DayPlansEnabled = true }()
+
+	DayPlansEnabled = false
+	for id, p := range Listed() {
+		if p.DayPrices != nil {
+			t.Errorf("%s: day prices should be nil when retired", id)
+		}
+	}
+	if All["starter"].DayPrices == nil {
+		t.Error("Listed must not mutate All")
+	}
+
+	DayPlansEnabled = true
+	if len(Listed()["starter"].DayPrices) == 0 {
+		t.Error("day prices should be present when enabled")
+	}
+}
+
 func TestIndexerPolicy(t *testing.T) {
 	cases := []struct {
 		name                string
