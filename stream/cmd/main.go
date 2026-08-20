@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/crypto"
@@ -19,6 +20,15 @@ func main() {
 		store.SetRcloneCache(u)
 		slog.Info("stream reading through rclone cache", "url", u)
 	}
+	if nd := env.Get("RCLONE_CACHE_NODE_DIRS", ""); nd != "" {
+		dirs := map[string]string{}
+		for _, pair := range strings.Split(nd, ",") {
+			k, v, _ := strings.Cut(pair, "=")
+			dirs[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+		store.SetRcloneCacheNodeDirs(dirs)
+		slog.Info("stream per-node cache routing", "dirs", dirs)
+	}
 
 	cipher, err := crypto.NewStream(env.Get("STORAGE_KEY", ""))
 	if err != nil {
@@ -31,6 +41,7 @@ func main() {
 		jobsRepo, jErr := jobs.NewPostgres(context.Background(), dsn)
 		if uErr == nil && jErr == nil {
 			srv.SetBYOS(users, jobsRepo, rclonerc.New(rcURL), rcURL)
+			srv.SetNodeResolver(jobsRepo.NodeForInfoHash)
 			slog.Info("stream serving bring-your-own-storage via rclone", "url", rcURL)
 		} else {
 			slog.Warn("stream: byos disabled, db unavailable", "users_err", uErr, "jobs_err", jErr)

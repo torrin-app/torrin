@@ -51,7 +51,7 @@ func (p *Postgres) GetUserWrapped(ctx context.Context, userID string) (*UserWrap
 	p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE user_id=$1`, userID).Scan(&w.TotalDownloads)
 	p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status='complete'`, userID).Scan(&w.TotalCached)
 	p.pool.QueryRow(ctx, `SELECT COALESCE(SUM(access_count),0) FROM jobs WHERE user_id=$1`, userID).Scan(&w.TotalStreams)
-	p.pool.QueryRow(ctx, `SELECT COALESCE(SUM(file_size),0) FROM jobs WHERE user_id=$1 AND status='complete'`, userID).Scan(&w.TotalBytes)
+	w.TotalBytes, _ = p.CachedSizeByUser(ctx, userID)
 	p.pool.QueryRow(ctx, `SELECT COALESCE(MAX(file_size),0) FROM jobs WHERE user_id=$1 AND status='complete'`, userID).Scan(&w.BiggestFile)
 	p.pool.QueryRow(ctx, `SELECT COUNT(DISTINCT created_at::date) FROM jobs WHERE user_id=$1`, userID).Scan(&w.ActiveDays)
 
@@ -61,8 +61,8 @@ func (p *Postgres) GetUserWrapped(ctx context.Context, userID string) (*UserWrap
 		ORDER BY access_count DESC LIMIT 5`, userID)
 	p.bySource(ctx, w.BySource, `SELECT COALESCE(NULLIF(source,''),'torrent'), COUNT(*) FROM jobs WHERE user_id=$1 GROUP BY source`, userID)
 
-	rows, _ := p.pool.Query(ctx, `SELECT DISTINCT created_at::date d FROM jobs WHERE user_id=$1 ORDER BY d DESC`, userID)
-	if rows != nil {
+	rows, err := p.pool.Query(ctx, `SELECT DISTINCT created_at::date d FROM jobs WHERE user_id=$1 ORDER BY d DESC`, userID)
+	if err == nil {
 		defer rows.Close()
 		var days []time.Time
 		for rows.Next() {

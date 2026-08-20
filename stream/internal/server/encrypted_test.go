@@ -20,8 +20,17 @@ type encStorage struct{ enc []byte }
 
 func (e *encStorage) Verify(string, int64, string, string) bool        { return true }
 func (e *encStorage) GetBytes(context.Context, string) ([]byte, error) { return nil, nil }
+func (e *encStorage) GetBytesNode(context.Context, string, string) ([]byte, error) {
+	return nil, nil
+}
 func (e *encStorage) Head(context.Context, string) (*storage.Object, error) {
 	return &storage.Object{Size: int64(len(e.enc)), ContentType: "video/x-matroska"}, nil
+}
+func (e *encStorage) HeadNode(ctx context.Context, _, key string) (*storage.Object, error) {
+	return e.Head(ctx, key)
+}
+func (e *encStorage) GetNode(ctx context.Context, _, key, rng string) (*storage.Object, error) {
+	return e.Get(ctx, key, rng)
 }
 func (e *encStorage) Get(_ context.Context, _, rng string) (*storage.Object, error) {
 	if rng == "" {

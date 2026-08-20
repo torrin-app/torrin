@@ -150,7 +150,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		return
 	}
 
-	if cached, _ := s.Store.Has(r.Context(), manifest.Path(hash)); cached {
+	if manifest.Playable(r.Context(), s.Store, hash) {
 		job, err := s.buildCachedJob(r.Context(), hash, "", user.ID, jobs.SourceUsenet)
 		if err != nil {
 			web.WriteError(w, 500, "could not read from cache")

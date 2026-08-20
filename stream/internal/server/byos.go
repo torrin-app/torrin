@@ -13,6 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/rclonerc"
+	"github.com/torrin-app/torrin/shared/storage"
 )
 
 type byosJobs interface {
@@ -28,7 +29,7 @@ type byosBackend struct {
 }
 
 func (s *Server) SetBYOS(users *auth.Store, jobsRepo byosJobs, rc *rclonerc.Client, rcloneURL string) {
-	s.byos = &byosBackend{users: users, jobs: jobsRepo, rc: rc, rcloneURL: strings.TrimRight(rcloneURL, "/"), hc: &http.Client{}}
+	s.byos = &byosBackend{users: users, jobs: jobsRepo, rc: rc, rcloneURL: strings.TrimRight(rcloneURL, "/"), hc: storage.StreamHTTPClient()}
 }
 
 func (s *Server) serveBYOS(w http.ResponseWriter, r *http.Request, key, userID string) bool {

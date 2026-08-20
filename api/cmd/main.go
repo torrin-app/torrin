@@ -113,6 +113,8 @@ func main() {
 		ResellerKey:       env.Get("RESELLER_KEY", ""),
 		APIBase:           env.Get("API_PUBLIC_URL", ""),
 		WebBase:           env.Get("WEB_URL", ""),
+		TurnstileSecret:   env.Get("TURNSTILE_SECRET", ""),
+		TurnstileSiteKey:  env.Get("TURNSTILE_SITE_KEY", ""),
 		PrewarmMaxBytes:   pwMaxBytes, PrewarmMaxActive: pwMaxActive, PrewarmCapBytes: pwCapBytes,
 	})
 
@@ -156,6 +158,18 @@ func main() {
 	go metricsSnapshot(ctx, jobsRepo, users)
 	startEviction(ctx, jobsRepo, store)
 	startLibrarySync(ctx, users)
+	go func() {
+		t := time.NewTicker(30 * time.Minute)
+		defer t.Stop()
+		for {
+			jobsRepo.SweepColdPulls(ctx)
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 	go func() {
 		if n, err := jobsRepo.BackfillTitleNorm(ctx); err == nil && n > 0 {
 			slog.Info("title_norm backfill", "updated", n)

@@ -92,6 +92,23 @@ func TestBachsWebhookPaymentLinkDonation(t *testing.T) {
 	}
 }
 
+func TestBachsIsDonation(t *testing.T) {
+	cases := []struct {
+		name string
+		meta map[string]string
+		want bool
+	}{
+		{"topup is not a donation", map[string]string{"type": "topup", "credits": "2000"}, false},
+		{"plan is not a donation", map[string]string{"plan": "pro", "period": "monthly"}, false},
+		{"bare payment is a donation", map[string]string{"payment_link_id": "pl_x"}, true},
+	}
+	for _, c := range cases {
+		if got := isDonation(c.meta); got != c.want {
+			t.Errorf("%s: isDonation = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestBachsWebhookIgnoresNonPaid(t *testing.T) {
 	// users is nil: a non-paid event must return before any store access.
 	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", "", nil)

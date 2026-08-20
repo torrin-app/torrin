@@ -49,7 +49,10 @@ func (d *deps) evictUserStorage(ctx context.Context, p auth.EvictPolicy) {
 		if !overAge && !overSize {
 			continue
 		}
-		if err := auth.PurgeRelease(ctx, d.rc, p.UserID, creds, c.InfoHash); err != nil {
+		pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err := auth.PurgeRelease(pctx, d.rc, p.UserID, creds, c.InfoHash)
+		cancel()
+		if err != nil {
 			slog.Warn("byos evict: purge", "user", p.UserID, "hash", c.InfoHash, "err", err)
 			continue
 		}

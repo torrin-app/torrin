@@ -55,7 +55,7 @@ func (h *Handler) listNewz(w http.ResponseWriter, r *http.Request, user *auth.Us
 		stJSON(w, 200, map[string]any{"data": map[string]any{"items": []any{}, "total_items": 0}})
 		return
 	}
-	userJobs, _ := h.Jobs.ListByUser(r.Context(), user.ID, 500)
+	userJobs, _ := jobs.ListAll(r.Context(), h.Jobs, user.ID)
 	var usenet []*jobs.Job
 	var contentHashes []string
 	for _, j := range userJobs {

@@ -19,6 +19,16 @@ import (
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
 )
 
+const rssMaxAttempts = 4
+
+func rssExhausted(attempts int) bool { return attempts >= rssMaxAttempts }
+
+func (s *Server) rssParseFailed(ctx context.Context, feedID, guid string) {
+	if rssExhausted(s.Users.RSSAttempt(ctx, feedID, guid)) {
+		s.Users.MarkRSSSeen(ctx, feedID, guid)
+	}
+}
+
 func (s *Server) rssTorrent(ctx context.Context, feed *auth.RSSFeed, user *auth.User, plan plans.Plan, item rss.Item) (added, stop bool) {
 	job := &jobs.Job{
 		UserID: user.ID, InfoHash: extractInfoHash(item.Magnet), Magnet: item.Magnet, Name: item.Title,
@@ -35,7 +45,7 @@ func (s *Server) rssTorrentFile(ctx context.Context, feed *auth.RSSFeed, user *a
 	}
 	meta, err := torrentfile.Parse(data)
 	if err != nil {
-		s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
+		s.rssParseFailed(ctx, feed.ID, item.GUID)
 		return false, false
 	}
 	if !meta.Private || !s.seedingAllowed(user) {
@@ -106,7 +116,11 @@ func (s *Server) rssUsenet(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 		return false, false
 	}
 	parsed, err := nzb.ParseBytes(data)
-	if err != nil || len(parsed.Files) == 0 {
+	if err != nil {
+		s.rssParseFailed(ctx, feed.ID, item.GUID)
+		return false, false
+	}
+	if len(parsed.Files) == 0 {
 		s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
 		return false, false
 	}
@@ -159,7 +173,7 @@ func fetchNZBData(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := safeurl.Client(20 * time.Second).Do(req)
 	if err != nil {
 		return nil, err
 	}

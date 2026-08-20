@@ -144,3 +144,18 @@ func TestIsBlobName(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyResultFailure(t *testing.T) {
+	if emptyResultFailure(true, 0) != failure.Stalled {
+		t.Error("a stalled download must report Stalled, not NoVideo")
+	}
+	if emptyResultFailure(true, 500) != failure.Stalled {
+		t.Error("stall takes precedence over missing articles")
+	}
+	if emptyResultFailure(false, 500) != failure.Incomplete {
+		t.Error("missing articles must report Incomplete")
+	}
+	if emptyResultFailure(false, 0) != failure.NoVideo {
+		t.Error("a complete release with no video file must report NoVideo")
+	}
+}

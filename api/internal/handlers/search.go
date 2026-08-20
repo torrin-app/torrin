@@ -44,7 +44,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			if f.Name == "" {
 				continue
 			}
-			if wantEpisode && !fileMatchesEpisode(f.Name, season, episode) {
+			if wantEpisode && !episodeMatch(j, f.Name, season, episode) {
 				continue
 			}
 			files = append(files, searchFile{FileName: f.Name, Index: f.Index, Size: f.Size, MediaInfo: f.MediaInfo})
@@ -115,6 +115,13 @@ type searchResult struct {
 	Magnet   string       `json:"magnet"`
 	Cached   bool         `json:"cached"`
 	Files    []searchFile `json:"files"`
+}
+
+func episodeMatch(j *jobs.Job, fileName string, season, episode int) bool {
+	if j.Season > 0 || j.Episode > 0 {
+		return j.Season == season && j.Episode == episode
+	}
+	return fileMatchesEpisode(fileName, season, episode)
 }
 
 func fileMatchesEpisode(fileName string, season, episode int) bool {

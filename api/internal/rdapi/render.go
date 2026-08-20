@@ -51,7 +51,7 @@ func buildLinks(j *jobs.Job) []string {
 	for i, f := range j.Files {
 		key := manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name)
 		link := "torrin://" + key
-		if q := manifest.StreamQuery(j.InfoHash, key, f.Enc); q != "" {
+		if q := manifest.StreamQuery(j.InfoHash, f.Enc); q != "" {
 			link += "?" + strings.TrimPrefix(q, "&")
 		}
 		links = append(links, link)

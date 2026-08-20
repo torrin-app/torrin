@@ -126,15 +126,15 @@ func TestCredentials(ctx context.Context, c Credentials) error {
 	return nil
 }
 
-func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, outDir string, conns int, onProgress func(done, total int64)) ([]Result, error) {
+func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, outDir string, conns int, onProgress func(done, total int64)) ([]Result, int64, error) {
 	if conns < 1 {
 		conns = 10
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	total := n.TotalSize()
-	var done int64
+	var done, totalMissing int64
 	var results []Result
 
 	for _, file := range n.Files {
@@ -149,21 +149,22 @@ func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, out
 		partPath := filepath.Join(outDir, name+".part")
 		f, err := os.Create(partPath)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		missing, err := downloadFile(ctx, pool, file, group, f, &done, total, conns, onProgress)
 		f.Sync()
 		f.Close()
 		if err != nil {
 			os.Remove(partPath)
-			return nil, err
+			return nil, 0, err
 		}
+		totalMissing += missing
 		if missing > 0 {
 			slog.Warn("usenet: missing articles, leaving gaps for par2 repair", "file", name, "missing_mb", missing/1e6)
 		}
 		path := filepath.Join(outDir, name)
 		if err := os.Rename(partPath, path); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		size := int64(0)
 		if info, err := os.Stat(path); err == nil {
@@ -171,7 +172,7 @@ func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, out
 		}
 		results = append(results, Result{Name: name, Path: path, Size: size})
 	}
-	return results, nil
+	return results, totalMissing, nil
 }
 
 func isOptional(name string) bool {

@@ -127,7 +127,7 @@ func (s *Server) streamURL(r *http.Request, infoHash, key, userID string, byos, 
 	} else {
 		u = s.store.SignURLNode(s.jobs.NodeForInfoHash(r.Context(), infoHash), key, 24*time.Hour)
 	}
-	u += manifest.StreamQuery(infoHash, key, enc)
+	u += manifest.StreamQuery(infoHash, enc)
 	return georoute.URL(r, u)
 }
 

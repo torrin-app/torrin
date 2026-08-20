@@ -2,6 +2,22 @@ package plans
 
 import "testing"
 
+func TestColdPullsPerHour(t *testing.T) {
+	free, _ := Get("free")
+	starter, _ := Get("starter")
+	standard, _ := Get("standard")
+	pro, _ := Get("pro")
+	if free.ColdPullsPerHour <= 0 {
+		t.Error("free must have a positive cold-pull cap")
+	}
+	if !(free.ColdPullsPerHour < starter.ColdPullsPerHour &&
+		starter.ColdPullsPerHour < standard.ColdPullsPerHour &&
+		standard.ColdPullsPerHour < pro.ColdPullsPerHour) {
+		t.Errorf("cold-pull caps must increase by tier: free=%d starter=%d standard=%d pro=%d",
+			free.ColdPullsPerHour, starter.ColdPullsPerHour, standard.ColdPullsPerHour, pro.ColdPullsPerHour)
+	}
+}
+
 func TestListedStripsDayPricesWhenRetired(t *testing.T) {
 	defer func() { DayPlansEnabled = true }()
 

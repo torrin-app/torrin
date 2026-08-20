@@ -1,6 +1,27 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/torrin-app/torrin/shared/jobs"
+)
+
+func TestEpisodeMatch(t *testing.T) {
+	tagged := &jobs.Job{Season: 2, Episode: 5}
+	if !episodeMatch(tagged, "whatever_garbage_name.mkv", 2, 5) {
+		t.Error("tagged job trusts its stored season/episode regardless of filename")
+	}
+	if episodeMatch(tagged, "whatever_garbage_name.mkv", 1, 5) {
+		t.Error("tagged job for s2e5 must not match s1e5")
+	}
+	untagged := &jobs.Job{}
+	if !episodeMatch(untagged, "Severance.S01E03.1080p.mkv", 1, 3) {
+		t.Error("untagged job falls back to filename parse")
+	}
+	if episodeMatch(untagged, "no_episode_here.mkv", 1, 3) {
+		t.Error("untagged job with unparseable name must not match")
+	}
+}
 
 func TestFileMatchesEpisode(t *testing.T) {
 	if !fileMatchesEpisode("Severance.S01E03.1080p.mkv", 1, 3) {

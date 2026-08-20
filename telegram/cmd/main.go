@@ -9,6 +9,7 @@ import (
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -41,6 +42,10 @@ func main() {
 	for id, c := range service.OverflowStores() {
 		overflow[id] = c
 	}
+	cipher, err := crypto.NewStream(env.Get("STORAGE_KEY", ""))
+	if err != nil {
+		slog.Error("storage key", "err", err)
+	}
 	safety.Refresh(ctx, users.GetBlocklist, time.Hour)
 
 	nats, err := bus.Connect(mustEnv("NATS_URL"))
@@ -55,7 +60,7 @@ func main() {
 		TmpDir: env.Get("TELEGRAM_TMP_PATH", "/scratch/telegram"),
 		Node:   env.Get("NODE_ID", ""),
 		Store:  store, Repo: repo, Bus: nats,
-		Overflow: overflow, Sizer: repo,
+		Overflow: overflow, Blobs: repo, Cipher: cipher, Sizer: repo,
 		Resolve: func(id int64) (string, bool) { return users.TelegramUserID(ctx, id) },
 		Link:    func(code string, id int64) (string, bool) { return users.RedeemTelegramLinkCode(ctx, code, id) },
 		Plan: func(uid string) (int64, int) {

@@ -21,10 +21,7 @@ import (
 	"github.com/torrin-app/torrin/shared/usenet/postproc"
 )
 
-const (
-	partAttempts     = 3
-	partStallTimeout = 5 * time.Minute
-)
+const partAttempts = 3
 
 var ErrSourceUnavailable = errors.New("release source unavailable")
 
@@ -184,12 +181,9 @@ func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n in
 		}
 		slog.Info("release downloading", "job", job.ID, "part", i+1, "of", n, "name", name, "attempt", attempt+1)
 
-		dlCtx, cancel := context.WithCancel(ctx)
-		watchdog := time.AfterFunc(partStallTimeout, cancel)
 		var lastBytes int64
 		lastT := time.Now()
 		report := func(written, partTotal int64) {
-			watchdog.Reset(partStallTimeout)
 			var speed int64
 			if dt := time.Since(lastT).Seconds(); dt > 0 {
 				speed = int64(float64(written-lastBytes) / dt)
@@ -201,9 +195,7 @@ func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n in
 			}
 			r.repo.SetProgress(ctx, job.ID, (float64(i)+frac)/float64(n)*100, speed)
 		}
-		err = providers.FetchFile(dlCtx, r.http, dl, path, report, r.conns)
-		watchdog.Stop()
-		cancel()
+		err = providers.FetchFileStalled(ctx, r.http, dl, path, report, r.conns)
 
 		if err == nil {
 			return size, nil

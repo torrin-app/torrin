@@ -2,15 +2,20 @@ package server
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/storage"
 )
+
+const zipPrefetchWorkers = 8
 
 const maxZipFiles = 200
 
@@ -18,8 +23,9 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 	user := r.URL.Query().Get("u")
 	rangeHdr := r.Header.Get("Range")
 	isHead := r.Method == http.MethodHead
+	node := s.nodeFor(r.Context(), infoHash)
 
-	data, err := s.store.GetBytes(r.Context(), manifest.Path(infoHash))
+	data, err := s.store.GetBytesNode(r.Context(), node, manifest.Path(infoHash))
 	if err != nil {
 		httpError(w, 404, "not found")
 		return
@@ -48,7 +54,7 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 		}
 	}
 	if !seekable {
-		s.streamZip(w, r, infoHash, m, user, isHead)
+		s.streamZip(w, r, infoHash, node, m, user, isHead)
 		return
 	}
 
@@ -86,7 +92,7 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 	w.WriteHeader(status)
 	fetch := func(idx int, off, length int64) (io.ReadCloser, error) {
 		key := manifest.ResolveKey(infoHash, idx, m.Files[idx].DirectURL, m.Files[idx].FileName)
-		obj, err := s.store.Get(r.Context(), key, fmt.Sprintf("bytes=%d-%d", off, off+length-1))
+		obj, err := s.store.GetNode(r.Context(), node, key, fmt.Sprintf("bytes=%d-%d", off, off+length-1))
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +101,7 @@ func (s *Server) serveZip(w http.ResponseWriter, r *http.Request, infoHash strin
 	layout.writeRange(w, start, end, fetch)
 }
 
-func (s *Server) streamZip(w http.ResponseWriter, r *http.Request, infoHash string, m *manifest.Manifest, user string, isHead bool) {
+func (s *Server) streamZip(w http.ResponseWriter, r *http.Request, infoHash, node string, m *manifest.Manifest, user string, isHead bool) {
 	h := w.Header()
 	h.Set("Accept-Ranges", "none")
 	if isHead {
@@ -110,18 +116,22 @@ func (s *Server) streamZip(w http.ResponseWriter, r *http.Request, infoHash stri
 	defer s.zips.release(user)
 
 	s.recordView(r, infoHash+"/")
+	s.prewarmZip(r.Context(), infoHash, node, m)
+
 	zw := zip.NewWriter(w)
-	defer zw.Close()
+	ok := true
 	for i, f := range m.Files {
-		obj, err := s.store.Get(r.Context(), manifest.ResolveKey(infoHash, i, f.DirectURL, f.FileName), "")
+		obj, err := s.zipFetch(r.Context(), infoHash, node, i, f)
 		if err != nil {
 			slog.Warn("zip: file fetch failed", "hash", infoHash, "file", f.FileName, "err", err)
-			return
+			ok = false
+			break
 		}
 		entry, err := zw.CreateHeader(&zip.FileHeader{Name: f.FileName, Method: zip.Store})
 		if err != nil {
 			obj.Body.Close()
-			return
+			ok = false
+			break
 		}
 		var copyErr error
 		if f.Enc && s.cipher != nil {
@@ -132,8 +142,49 @@ func (s *Server) streamZip(w http.ResponseWriter, r *http.Request, infoHash stri
 		obj.Body.Close()
 		if copyErr != nil {
 			slog.Warn("zip: stream failed", "hash", infoHash, "file", f.FileName, "err", copyErr)
-			return
+			ok = false
+			break
 		}
+	}
+	if ok {
+		zw.Close()
+	}
+}
+
+func (s *Server) zipFetch(ctx context.Context, infoHash, node string, i int, f manifest.File) (*storage.Object, error) {
+	key := manifest.ResolveKey(infoHash, i, f.DirectURL, f.FileName)
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		obj, err := s.store.GetNode(ctx, node, key, "")
+		if err == nil {
+			return obj, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func (s *Server) prewarmZip(ctx context.Context, infoHash, node string, m *manifest.Manifest) {
+	var next atomic.Int64
+	for w := 0; w < zipPrefetchWorkers; w++ {
+		go func() {
+			for {
+				i := int(next.Add(1)) - 1
+				if i >= len(m.Files) || ctx.Err() != nil {
+					return
+				}
+				key := manifest.ResolveKey(infoHash, i, m.Files[i].DirectURL, m.Files[i].FileName)
+				obj, err := s.store.GetNode(ctx, node, key, "")
+				if err != nil {
+					continue
+				}
+				io.Copy(io.Discard, obj.Body)
+				obj.Body.Close()
+			}
+		}()
 	}
 }
 

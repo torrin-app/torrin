@@ -1,21 +1,22 @@
 package stremthru
 
 import (
+	"context"
 	"encoding/json"
 	"html"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/plans"
 )
 
 func (h *Handler) listMagnets(w http.ResponseWriter, r *http.Request, user *auth.User) {
-	userJobs, _ := h.Jobs.ListByUser(r.Context(), user.ID, 100)
+	userJobs, _ := jobs.ListAll(r.Context(), h.Jobs, user.ID)
 	items := []map[string]any{}
 	for _, j := range userJobs {
 		items = append(items, h.magnetData(r.Context(), j))
@@ -49,6 +50,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		stError(w, 400, "invalid magnet")
 		return
 	}
+	defer keyed.Lock(infoHash)()
 
 	source, mag := jobs.SourceTorrent, req.Magnet
 	hdTitle := ""
@@ -61,31 +63,12 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		source, mag, hdTitle, hdSize = jobs.Source(src), pURL, t, sz
 	}
 
-	cached, _ := h.Store.Has(r.Context(), manifest.Path(infoHash))
-
-	if !cached {
-		if existingID, loaded := h.dedup.LoadOrStore(infoHash, "pending"); loaded {
-			if id, ok := existingID.(string); ok && id != "pending" {
-				if j, err := h.Jobs.Get(r.Context(), id); err == nil {
-					stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), j)})
-					return
-				}
-			}
-			stJSON(w, 200, map[string]any{"data": map[string]any{
-				"id": "dedup", "hash": infoHash, "magnet": magnet.Build(infoHash, displayName(req.Magnet)),
-				"status": "queued", "files": []any{},
-				"size": 0, "name": displayName(req.Magnet), "added_at": time.Now().Format(time.RFC3339)}})
-			return
-		}
-		go func() { time.Sleep(60 * time.Second); h.dedup.Delete(infoHash) }()
-	}
-
+	cached := manifest.Playable(r.Context(), h.Store, infoHash)
 	plan, _ := plans.Get(user.PlanID)
 
 	existing, err := h.Jobs.GetByInfoHash(r.Context(), infoHash)
 	if err == nil && existing != nil && existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
 		if existing.UserID == user.ID {
-			h.dedup.Store(infoHash, existing.ID)
 			stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), existing)})
 			return
 		}
@@ -96,7 +79,6 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		}
 		activeLink := existing.Status.Active()
 		if activeLink && !h.Slots.Acquire(r.Context(), user.ID, plan) {
-			h.dedup.Delete(infoHash)
 			stError(w, 429, "slot limit reached")
 			return
 		}
@@ -104,15 +86,15 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		if activeLink {
 			h.Slots.Release(user.ID)
 		}
-		if !cached {
-			h.dedup.Store(infoHash, linked.ID)
-		}
 		stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), linked)})
 		return
 	}
 
+	if !cached && coldPullBlocked(r.Context(), h.Jobs, user.ID, plan.ColdPullsPerHour) {
+		stError(w, 429, "hourly download limit reached, try later or upgrade")
+		return
+	}
 	if !cached && !h.Slots.Acquire(r.Context(), user.ID, plan) {
-		h.dedup.Delete(infoHash)
 		stError(w, 429, "slot limit reached")
 		return
 	}
@@ -133,7 +115,6 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	h.Jobs.Create(r.Context(), job)
 	if !cached {
 		h.Slots.Release(user.ID)
-		h.dedup.Store(infoHash, job.ID)
 		h.assign(job)
 	}
 	stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), job)})
@@ -167,6 +148,15 @@ func (h *Handler) deleteMagnet(w http.ResponseWriter, r *http.Request, user *aut
 		}
 	}
 	w.WriteHeader(204)
+}
+
+type coldPullChecker interface {
+	ColdPullAllowed(ctx context.Context, userID string, perHour int) (bool, error)
+}
+
+func coldPullBlocked(ctx context.Context, c coldPullChecker, userID string, perHour int) bool {
+	ok, err := c.ColdPullAllowed(ctx, userID, perHour)
+	return err == nil && !ok
 }
 
 func displayName(m string) string { return magnet.DisplayName(m) }

@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/safety"
@@ -27,7 +30,7 @@ func (h *Handler) addNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 		stError(w, 403, "your plan does not include usenet")
 		return
 	}
-	link, body, ok := h.readNewz(w, r)
+	link, nameHint, body, ok := h.readNewz(w, r)
 	if !ok {
 		return
 	}
@@ -59,13 +62,17 @@ func (h *Handler) addNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 	}
 
 	contentHash := nzb.Hash(parsed)
+	defer keyed.Lock(contentHash)()
 	id := contentHash
 	if link != "" {
 		id = nzburl.Hash(link)
 		h.Jobs.MapNzbURL(r.Context(), id, contentHash)
 	}
 
-	name := parsed.Name()
+	name := cleanNzbName(nameHint)
+	if name == "" {
+		name = parsed.Name()
+	}
 	if name == "" {
 		name = "usenet download"
 	}
@@ -77,15 +84,15 @@ func (h *Handler) addNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 	stJSON(w, 201, map[string]any{"data": map[string]any{"id": id, "hash": id, "status": status}})
 }
 
-func (h *Handler) readNewz(w http.ResponseWriter, r *http.Request) (link string, body []byte, ok bool) {
-	if fh, _, err := formFile(r); err == nil {
+func (h *Handler) readNewz(w http.ResponseWriter, r *http.Request) (link, nameHint string, body []byte, ok bool) {
+	if fh, fname, err := formFile(r); err == nil {
 		defer fh.Close()
 		data, err := io.ReadAll(io.LimitReader(fh, maxNewzBytes))
 		if err != nil {
 			stError(w, 400, "could not read nzb")
-			return "", nil, false
+			return "", "", nil, false
 		}
-		return "", data, true
+		return "", fname, data, true
 	}
 
 	var req struct {
@@ -93,28 +100,43 @@ func (h *Handler) readNewz(w http.ResponseWriter, r *http.Request) (link string,
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Link == "" {
 		stError(w, 400, "link required")
-		return "", nil, false
+		return "", "", nil, false
 	}
 	resp, err := safeurl.Client(30 * time.Second).Get(req.Link)
 	if err != nil {
 		stError(w, 502, "could not fetch nzb")
-		return "", nil, false
+		return "", "", nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		stError(w, 502, "could not fetch nzb")
-		return "", nil, false
+		return "", "", nil, false
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxNewzBytes))
 	if err != nil {
 		stError(w, 502, "could not fetch nzb")
-		return "", nil, false
+		return "", "", nil, false
 	}
-	return req.Link, data, true
+	return req.Link, dispositionName(resp.Header.Get("Content-Disposition")), data, true
+}
+
+func dispositionName(cd string) string {
+	if cd == "" {
+		return ""
+	}
+	_, params, err := mime.ParseMediaType(cd)
+	if err != nil {
+		return ""
+	}
+	return params["filename"]
+}
+
+func cleanNzbName(s string) string {
+	return strings.TrimSuffix(strings.TrimSpace(s), ".nzb")
 }
 
 func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans.Plan, contentHash, name string, size int64, body []byte) (string, int, string) {
-	if cached, _ := h.Store.Has(ctx, manifest.Path(contentHash)); cached {
+	if manifest.Playable(ctx, h.Store, contentHash) {
 		mName, mSize, files := h.manifestMeta(ctx, contentHash)
 		if mName != "" {
 			name = mName
@@ -148,6 +170,9 @@ func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans
 		return stStatus(linked.Status), 0, ""
 	}
 
+	if ok, _ := h.Jobs.ColdPullAllowed(ctx, user.ID, plan.ColdPullsPerHour); !ok {
+		return "", 429, "hourly download limit reached, try later or upgrade"
+	}
 	if !h.Slots.Acquire(ctx, user.ID, plan) {
 		return "", 429, "slot limit reached"
 	}

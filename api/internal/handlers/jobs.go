@@ -63,9 +63,10 @@ func (s *Server) blockedBySafety(w http.ResponseWriter, r *http.Request, userID 
 func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, magnet, name string, source jobs.Source, budgetGate bool) {
 	user := middleware.GetUser(r)
 	plan := middleware.GetPlan(r)
+	defer lockGrab(infoHash)()
 
 	// 1. Already cached → instant.
-	if cached, _ := s.Store.Has(r.Context(), manifest.Path(infoHash)); cached {
+	if manifest.Playable(r.Context(), s.Store, infoHash) {
 		job, err := s.buildCachedJob(r.Context(), infoHash, magnet, user.ID, source)
 		if err != nil {
 			web.WriteError(w, 500, "could not read from cache")

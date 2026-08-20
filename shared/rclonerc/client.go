@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -78,8 +79,16 @@ func (c *Client) call(ctx context.Context, method string, in map[string]any) (ma
 	return out, nil
 }
 
-func (c *Client) VFSRefresh(ctx context.Context, dir string) error {
-	_, err := c.call(ctx, "vfs/refresh", map[string]any{"dir": dir})
+func (c *Client) VFSRefresh(ctx context.Context, dirs ...string) error {
+	params := map[string]any{}
+	for i, d := range dirs {
+		key := "dir"
+		if i > 0 {
+			key = "dir" + strconv.Itoa(i+1)
+		}
+		params[key] = d
+	}
+	_, err := c.call(ctx, "vfs/refresh", params)
 	return err
 }
 

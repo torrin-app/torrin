@@ -53,6 +53,16 @@ func (f *fakeStorage) Get(_ context.Context, _, rng string) (*storage.Object, er
 	return o, nil
 }
 
+func (f *fakeStorage) GetNode(ctx context.Context, _, key, rng string) (*storage.Object, error) {
+	return f.Get(ctx, key, rng)
+}
+func (f *fakeStorage) HeadNode(ctx context.Context, _, key string) (*storage.Object, error) {
+	return f.Head(ctx, key)
+}
+func (f *fakeStorage) GetBytesNode(ctx context.Context, _, key string) ([]byte, error) {
+	return f.GetBytes(ctx, key)
+}
+
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer

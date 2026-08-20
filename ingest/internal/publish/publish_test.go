@@ -283,3 +283,41 @@ func TestCompleteOnlyTouchesOwnNode(t *testing.T) {
 		t.Fatalf("other-node sibling node = %q, must stay empty", other.Node)
 	}
 }
+
+type fakeRuntime struct{ min int }
+
+func (f fakeRuntime) Runtime(context.Context, string) (int, error) { return f.min, nil }
+
+func TestRuntimeMismatch(t *testing.T) {
+	if !runtimeMismatch(104*60, 159) {
+		t.Error("104 min vs expected 159 (the mislabel case) should be flagged")
+	}
+	if runtimeMismatch(159*60, 159) {
+		t.Error("exact runtime should pass")
+	}
+	if runtimeMismatch(190*60, 159) {
+		t.Error("a longer cut within tolerance should pass")
+	}
+	if !runtimeMismatch(320*60, 159) {
+		t.Error("double-length should be flagged")
+	}
+}
+
+func TestCheckRuntimeGate(t *testing.T) {
+	p := &Publisher{rt: fakeRuntime{159}}
+	if err := p.checkRuntime(context.Background(), &jobs.Job{IMDBID: "4987556"}, 104*60); err == nil {
+		t.Error("mismatched movie runtime should reject")
+	}
+	if err := p.checkRuntime(context.Background(), &jobs.Job{IMDBID: "4987556"}, 158*60); err != nil {
+		t.Errorf("matching runtime should pass, got %v", err)
+	}
+	if err := p.checkRuntime(context.Background(), &jobs.Job{IMDBID: "x", Season: 1, Episode: 3}, 20*60); err != nil {
+		t.Error("episodes must be skipped by the gate")
+	}
+	if err := p.checkRuntime(context.Background(), &jobs.Job{}, 20*60); err != nil {
+		t.Error("no imdb must be skipped")
+	}
+	if err := (&Publisher{}).checkRuntime(context.Background(), &jobs.Job{IMDBID: "x"}, 10*60); err != nil {
+		t.Error("nil runtime source must be skipped")
+	}
+}

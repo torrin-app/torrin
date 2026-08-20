@@ -21,6 +21,7 @@ type Client struct {
 	signingKey     []byte
 	nodeBases      map[string]string
 	rcloneURL      string
+	rcloneNodeDirs map[string]string
 	hc             *http.Client
 	manifestCipher *crypto.Cipher
 }
@@ -54,14 +55,27 @@ func (c *Client) SetStorageKey(hexKey string) error {
 
 func isManifestKey(key string) bool { return strings.HasSuffix(key, "/manifest.json") }
 
-func (c *Client) SetRcloneCache(rcloneURL string) {
-	c.rcloneURL = strings.TrimRight(rcloneURL, "/")
-	c.hc = &http.Client{Transport: &http.Transport{
+func StreamHTTPClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
 		ResponseHeaderTimeout: 30 * time.Second,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 	}}
+}
+
+func (c *Client) SetRcloneCache(rcloneURL string) {
+	c.rcloneURL = strings.TrimRight(rcloneURL, "/")
+	c.hc = StreamHTTPClient()
+}
+
+func (c *Client) SetRcloneCacheNodeDirs(m map[string]string) { c.rcloneNodeDirs = m }
+
+func (c *Client) rclonePath(node, key string) string {
+	if dir := c.rcloneNodeDirs[node]; dir != "" {
+		return dir + "/" + key
+	}
+	return key
 }
 
 func (c *Client) baseFor(node string) string {
@@ -81,8 +95,12 @@ type Object struct {
 }
 
 func (c *Client) Get(ctx context.Context, key, rng string) (*Object, error) {
+	return c.GetNode(ctx, "", key, rng)
+}
+
+func (c *Client) GetNode(ctx context.Context, node, key, rng string) (*Object, error) {
 	if c.rcloneURL != "" {
-		o, err := c.rcloneGet(ctx, key, rng)
+		o, err := c.rcloneGet(ctx, c.rclonePath(node, key), rng)
 		if err == nil || c.b == nil {
 			return o, err
 		}
@@ -91,7 +109,11 @@ func (c *Client) Get(ctx context.Context, key, rng string) (*Object, error) {
 }
 
 func (c *Client) GetBytes(ctx context.Context, key string) ([]byte, error) {
-	o, err := c.Get(ctx, key, "")
+	return c.GetBytesNode(ctx, "", key)
+}
+
+func (c *Client) GetBytesNode(ctx context.Context, node, key string) ([]byte, error) {
+	o, err := c.GetNode(ctx, node, key, "")
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +137,12 @@ func (c *Client) GetReader(ctx context.Context, key string) (io.ReadCloser, erro
 }
 
 func (c *Client) Head(ctx context.Context, key string) (*Object, error) {
+	return c.HeadNode(ctx, "", key)
+}
+
+func (c *Client) HeadNode(ctx context.Context, node, key string) (*Object, error) {
 	if c.rcloneURL != "" {
-		o, err := c.rcloneHead(ctx, key)
+		o, err := c.rcloneHead(ctx, c.rclonePath(node, key))
 		if err == nil || c.b == nil {
 			return o, err
 		}

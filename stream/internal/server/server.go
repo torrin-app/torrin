@@ -26,23 +26,46 @@ func streamCopy(dst io.Writer, src io.Reader) (int64, error) {
 
 type Storage interface {
 	Get(ctx context.Context, key, rng string) (*storage.Object, error)
+	GetNode(ctx context.Context, node, key, rng string) (*storage.Object, error)
 	Head(ctx context.Context, key string) (*storage.Object, error)
+	HeadNode(ctx context.Context, node, key string) (*storage.Object, error)
 	GetBytes(ctx context.Context, key string) ([]byte, error)
+	GetBytesNode(ctx context.Context, node, key string) ([]byte, error)
 	Verify(path string, expires int64, userID, sig string) bool
 }
 
 type Server struct {
-	store  Storage
-	cors   string
-	apiURL string
-	view   *http.Client
-	zips   *zipGuard
-	byos   *byosBackend
-	cipher *crypto.Stream
+	store    Storage
+	cors     string
+	apiURL   string
+	view     *http.Client
+	zips     *zipGuard
+	byos     *byosBackend
+	cipher   *crypto.Stream
+	nodeOf   func(ctx context.Context, ih string) string
+	nodeSeen sync.Map
 }
 
 func New(store Storage, corsOrigin, apiURL string, cipher *crypto.Stream) *Server {
 	return &Server{store: store, cors: corsOrigin, apiURL: apiURL, view: &http.Client{Timeout: 5 * time.Second}, zips: newZipGuard(maxZipsPerUser), cipher: cipher}
+}
+
+func (s *Server) SetNodeResolver(fn func(ctx context.Context, ih string) string) { s.nodeOf = fn }
+
+func (s *Server) nodeFor(ctx context.Context, ih string) string {
+	if s.nodeOf == nil || len(ih) != 40 {
+		return ""
+	}
+	if v, ok := s.nodeSeen.Load(ih); ok {
+		return v.(string)
+	}
+	n := s.nodeOf(ctx, ih)
+	s.nodeSeen.Store(ih, n)
+	return n
+}
+
+func (s *Server) nodeFromReq(r *http.Request) string {
+	return s.nodeFor(r.Context(), r.URL.Query().Get("ih"))
 }
 
 func (s *Server) Handler() http.Handler {
@@ -105,7 +128,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serveHead(w http.ResponseWriter, r *http.Request, key string, enc bool) {
-	obj, err := s.store.Head(r.Context(), key)
+	obj, err := s.store.HeadNode(r.Context(), s.nodeFromReq(r), key)
 	if err != nil {
 		s.notFound(w, r, key, err)
 		return
@@ -140,7 +163,7 @@ func (s *Server) downloadName(ctx context.Context, ih, key string) string {
 	if len(ih) != 40 {
 		return fallback
 	}
-	data, err := s.store.GetBytes(ctx, manifest.Path(ih))
+	data, err := s.store.GetBytesNode(ctx, s.nodeFor(ctx, ih), manifest.Path(ih))
 	if err != nil {
 		return fallback
 	}
@@ -159,7 +182,7 @@ func sanitizeFilename(name string) string {
 
 func (s *Server) serveFile(w http.ResponseWriter, r *http.Request, key string) {
 	rng := r.Header.Get("Range")
-	obj, err := s.store.Get(r.Context(), key, rng)
+	obj, err := s.store.GetNode(r.Context(), s.nodeFromReq(r), key, rng)
 	if err != nil {
 		s.notFound(w, r, key, err)
 		return

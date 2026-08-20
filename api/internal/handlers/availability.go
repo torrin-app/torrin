@@ -75,7 +75,7 @@ func (s *Server) cachedFiles(r *http.Request, infoHash string) ([]map[string]any
 	out := make([]map[string]any, len(m.Files))
 	for i, f := range m.Files {
 		key := manifest.ResolveKey(infoHash, i, f.DirectURL, f.FileName)
-		u := s.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, key, f.Enc)
+		u := s.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, f.Enc)
 		out[i] = map[string]any{
 			"file_name": f.FileName, "size": f.FileSize,
 			"url": georoute.URL(r, u),

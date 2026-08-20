@@ -81,7 +81,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, filepath.Base(name))
 	if !providers.OnDisk(path, size) {
-		if err := providers.FetchFile(ctx, r.http, link, path, jobs.ProgressReporter(ctx, r.repo, job.ID), r.conns); err != nil {
+		if err := providers.FetchFileStalled(ctx, r.http, link, path, jobs.ProgressReporter(ctx, r.repo, job.ID), r.conns); err != nil {
 			return fmt.Errorf("download: %w", err)
 		}
 	}

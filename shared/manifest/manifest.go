@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -9,6 +10,24 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/mediainfo"
 )
+
+type BlobStore interface {
+	GetBytes(ctx context.Context, key string) ([]byte, error)
+	Has(ctx context.Context, key string) (bool, error)
+}
+
+func Playable(ctx context.Context, s BlobStore, infoHash string) bool {
+	data, err := s.GetBytes(ctx, Path(infoHash))
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	_, _, files := Meta(data)
+	if len(files) == 0 {
+		return false
+	}
+	ok, _ := s.Has(ctx, ResolveKey(infoHash, 0, files[0].Key, files[0].Name))
+	return ok
+}
 
 const FileName = "manifest.json"
 
@@ -78,9 +97,9 @@ func ResolveKey(infoHash string, index int, storedKey, name string) string {
 	return Key(infoHash, index, name)
 }
 
-func StreamQuery(infoHash, key string, enc bool) string {
+func StreamQuery(infoHash string, enc bool) string {
 	var s string
-	if strings.HasPrefix(key, "blobs/") && len(infoHash) == 40 {
+	if len(infoHash) == 40 {
 		s += "&ih=" + infoHash
 	}
 	if enc {

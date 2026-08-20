@@ -2,12 +2,54 @@ package bot
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/sources"
+	"github.com/torrin-app/torrin/shared/storage"
 )
+
+func TestParseSeasonEpisode(t *testing.T) {
+	cases := []struct {
+		in      string
+		season  int
+		episode int
+	}{
+		{"The Wire S01E03", 1, 3},
+		{"Severance.S02E05.1080p", 2, 5},
+		{"The Batman 2022", 0, 0},
+		{"just a movie name", 0, 0},
+	}
+	for _, c := range cases {
+		s, e := parseSeasonEpisode(c.in)
+		if s != c.season || e != c.episode {
+			t.Errorf("parseSeasonEpisode(%q) = s%d e%d, want s%d e%d", c.in, s, e, c.season, c.episode)
+		}
+	}
+}
+
+func TestImdbToken(t *testing.T) {
+	if got := imdbToken("some caption tt1877830 extra"); got != "tt1877830" {
+		t.Errorf("imdbToken = %q, want tt1877830", got)
+	}
+	if got := imdbToken("The Batman 2022"); got != "" {
+		t.Errorf("imdbToken should be empty, got %q", got)
+	}
+	if got := imdbToken("ttabc notanid"); got != "" {
+		t.Errorf("ttabc is not a valid imdb token, got %q", got)
+	}
+}
+
+func TestAllDigits(t *testing.T) {
+	if !allDigits("1877830") {
+		t.Error("digits should pass")
+	}
+	if allDigits("") || allDigits("12a3") {
+		t.Error("empty or non-digit must fail")
+	}
+}
 
 func TestDedupe(t *testing.T) {
 	d := newDedupe(time.Minute)
@@ -50,7 +92,10 @@ func TestDocCacheKey(t *testing.T) {
 
 type fakeStore struct{ id string }
 
-func (fakeStore) Has(context.Context, string) (bool, error)                     { return false, nil }
+func (fakeStore) Has(context.Context, string) (bool, error) { return false, nil }
+func (fakeStore) Head(context.Context, string) (*storage.Object, error) {
+	return nil, fmt.Errorf("not found")
+}
 func (fakeStore) StreamUpload(context.Context, string, io.Reader, string) error { return nil }
 func (fakeStore) Put(context.Context, string, io.Reader, string) error          { return nil }
 

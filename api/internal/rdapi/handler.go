@@ -13,6 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/qbit"
@@ -86,7 +87,7 @@ func (h *Handler) getUser(w http.ResponseWriter, r *http.Request, user *auth.Use
 }
 
 func (h *Handler) listTorrents(w http.ResponseWriter, r *http.Request, user *auth.User) {
-	userJobs, _ := h.Jobs.ListByUser(r.Context(), user.ID, 100)
+	userJobs, _ := jobs.ListAll(r.Context(), h.Jobs, user.ID)
 	torrents := []map[string]any{}
 	for _, j := range userJobs {
 		torrents = append(torrents, jobToRDTorrent(j, h.Store))
@@ -106,7 +107,8 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		writeRDError(w, 400, 2, "invalid magnet")
 		return
 	}
-	cached, _ := h.Store.Has(r.Context(), manifest.Path(infoHash))
+	defer keyed.Lock(infoHash)()
+	cached := manifest.Playable(r.Context(), h.Store, infoHash)
 	plan, _ := plans.Get(user.PlanID)
 
 	if existing, err := h.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
@@ -132,6 +134,12 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		return
 	}
 
+	if !cached {
+		if ok, _ := h.Jobs.ColdPullAllowed(r.Context(), user.ID, plan.ColdPullsPerHour); !ok {
+			writeRDError(w, 429, 20, "hourly download limit reached, try later or upgrade")
+			return
+		}
+	}
 	if !cached && !h.Slots.Acquire(r.Context(), user.ID, plan) {
 		writeRDError(w, 503, 20, "slot limit reached")
 		return
@@ -221,7 +229,7 @@ func (h *Handler) unrestrictLink(w http.ResponseWriter, r *http.Request, user *a
 		key = raw[:i]
 		if q, err := url.ParseQuery(raw[i+1:]); err == nil {
 			ih = q.Get("ih")
-			suffix = manifest.StreamQuery(ih, "blobs/", q.Get("enc") == "1")
+			suffix = manifest.StreamQuery(ih, q.Get("enc") == "1")
 		}
 	}
 	if link == "" || !isValidKey(key) {

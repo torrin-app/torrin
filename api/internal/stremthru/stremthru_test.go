@@ -94,6 +94,27 @@ func TestStStatus(t *testing.T) {
 	}
 }
 
+type fakeColdPull struct {
+	allowed bool
+	err     error
+}
+
+func (f fakeColdPull) ColdPullAllowed(context.Context, string, int) (bool, error) {
+	return f.allowed, f.err
+}
+
+func TestColdPullBlocked(t *testing.T) {
+	if !coldPullBlocked(context.Background(), fakeColdPull{allowed: false}, "u", 15) {
+		t.Error("over-limit user must be blocked")
+	}
+	if coldPullBlocked(context.Background(), fakeColdPull{allowed: true}, "u", 15) {
+		t.Error("under-limit user must not be blocked")
+	}
+	if coldPullBlocked(context.Background(), fakeColdPull{allowed: false, err: context.DeadlineExceeded}, "u", 15) {
+		t.Error("must fail open: a checker error must not block the add")
+	}
+}
+
 func TestImdbFromSID(t *testing.T) {
 	if got := imdbFromSID("tt0903747:4:5"); got != "0903747" {
 		t.Errorf("series = %q", got)

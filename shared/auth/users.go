@@ -5,13 +5,32 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lindell/go-burner-email-providers/burner"
 )
+
+func ValidateSignupEmail(ctx context.Context, email string) error {
+	at := strings.LastIndex(email, "@")
+	if at < 1 || at == len(email)-1 {
+		return errors.New("invalid email address")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	domain := email[at+1:]
+	if mx, err := net.DefaultResolver.LookupMX(ctx, domain); err == nil && len(mx) > 0 {
+		return nil
+	}
+	if ips, err := net.DefaultResolver.LookupHost(ctx, domain); err == nil && len(ips) > 0 {
+		return nil
+	}
+	return errors.New("email domain can't receive mail, check for typos")
+}
 
 func NormalizeEmail(email string) string {
 	email = strings.ToLower(strings.TrimSpace(email))

@@ -72,7 +72,7 @@ func (s *Server) updateEmail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
-	userJobs, _ := s.Jobs.ListByUser(r.Context(), user.ID, 1000)
+	userJobs, _ := jobs.ListAll(r.Context(), s.Jobs, user.ID)
 	for _, j := range userJobs {
 		qb := s.Qbit
 		if j.Seed {

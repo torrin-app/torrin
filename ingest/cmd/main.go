@@ -21,6 +21,7 @@ import (
 
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/cinemeta"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
@@ -85,6 +86,9 @@ func main() {
 	}
 	publish.VerifyVideo = env.Get("INGEST_VERIFY_VIDEO", "true") != "false"
 	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher, caches)
+	if env.Get("RUNTIME_GATE", "true") != "false" {
+		pub.SetRuntimeSource(cinemeta.NewClient())
+	}
 	if node := env.Get("NODE_ID", ""); node != "" {
 		pol := eviction.DefaultPolicy
 		if c := env.Int("EVICTION_CAP_BYTES", 0); c > 0 {

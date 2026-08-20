@@ -3,8 +3,6 @@ package publish
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"hash/crc32"
 	"io"
 	"log/slog"
 	"os"
@@ -12,6 +10,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/blob"
+	"github.com/torrin-app/torrin/shared/blobstore"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
@@ -46,6 +45,10 @@ type BlobIndex interface {
 	AddBlobRef(ctx context.Context, infoHash string, idx int, contentKey string, size int64, encrypted bool) error
 }
 
+type RuntimeSource interface {
+	Runtime(ctx context.Context, imdbID string) (int, error)
+}
+
 type Publisher struct {
 	repo   jobs.Repository
 	store  Store
@@ -53,11 +56,18 @@ type Publisher struct {
 	blobs  BlobIndex
 	cipher *crypto.Stream
 	caches []*rclonerc.Client
+	bs     *blobstore.Uploader
+	rt     RuntimeSource
 }
 
 func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher *crypto.Stream, caches []*rclonerc.Client) *Publisher {
-	return &Publisher{repo: repo, store: store, node: node, blobs: blobs, cipher: cipher, caches: caches}
+	return &Publisher{
+		repo: repo, store: store, node: node, blobs: blobs, cipher: cipher, caches: caches,
+		bs: blobstore.New(store, blobs, cipher, uploadStallTimeout),
+	}
 }
+
+func (p *Publisher) SetRuntimeSource(rt RuntimeSource) { p.rt = rt }
 
 func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) error {
 	for _, f := range files {
@@ -72,6 +82,7 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 
 	var mfFiles []manifest.File
 	var total int64
+	var vidDur float64
 	wroteBlob := false
 	for i, f := range files {
 		ck, err := blob.ContentKey(f.Path, f.Size)
@@ -96,6 +107,9 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 				slog.Warn("mediainfo probe failed", "file", f.Name, "err", err)
 			} else {
 				mi = info
+				if info.DurationSec > vidDur {
+					vidDur = info.DurationSec
+				}
 			}
 		}
 		if !job.Seed {
@@ -103,6 +117,10 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 		}
 		total += f.Size
 		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, Crc32: crc, Enc: enc, MediaInfo: mi})
+	}
+
+	if err := p.checkRuntime(ctx, job, vidDur); err != nil {
+		return err
 	}
 
 	name := job.Name
@@ -123,16 +141,43 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 		return err
 	}
 
-	if wroteBlob {
-		p.refreshCaches(ctx)
-	}
+	p.refreshCaches(ctx, job.InfoHash, wroteBlob)
 	if err := p.complete(ctx, job.InfoHash, name, mfFiles, total); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (p *Publisher) refreshCaches(ctx context.Context) {
+func (p *Publisher) checkRuntime(ctx context.Context, job *jobs.Job, durationSec float64) error {
+	if p.rt == nil || job.IMDBID == "" || job.Season > 0 || job.Episode > 0 || durationSec <= 0 {
+		return nil
+	}
+	expected, err := p.rt.Runtime(ctx, job.IMDBID)
+	if err != nil || expected <= 0 {
+		return nil
+	}
+	if runtimeMismatch(durationSec, expected) {
+		slog.Warn("runtime gate rejected", "job", job.ID, "name", job.Name, "imdb", job.IMDBID, "got_min", int(durationSec/60), "want_min", expected)
+		return failure.Newf("wrong_content", "runtime %d min doesn't match this title (~%d min), likely a mislabeled release", int(durationSec/60), expected)
+	}
+	return nil
+}
+
+func runtimeMismatch(durationSec float64, expectedMin int) bool {
+	got := durationSec / 60
+	exp := float64(expectedMin)
+	return got < exp*0.7 || got > exp*1.45
+}
+
+func (p *Publisher) refreshCaches(ctx context.Context, infoHash string, wroteBlob bool) {
+	prefix := p.node
+	if prefix == "" {
+		prefix = "box1"
+	}
+	dirs := []string{infoHash, prefix + "/" + infoHash}
+	if wroteBlob {
+		dirs = append(dirs, "blobs", prefix+"/blobs")
+	}
 	var wg sync.WaitGroup
 	for _, c := range p.caches {
 		wg.Add(1)
@@ -140,7 +185,7 @@ func (p *Publisher) refreshCaches(ctx context.Context) {
 			defer wg.Done()
 			rctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			if err := c.VFSRefresh(rctx, "blobs"); err != nil {
+			if err := c.VFSRefresh(rctx, dirs...); err != nil {
 				slog.Warn("publish: cache refresh failed", "err", err)
 			}
 		}(c)
@@ -149,85 +194,7 @@ func (p *Publisher) refreshCaches(ctx context.Context) {
 }
 
 func (p *Publisher) store2blob(ctx context.Context, infoHash string, idx int, key, ck string, f File) (uint32, bool, bool, error) {
-	var crc uint32
-	enc := false
-	reuse := false
-	if existing, err := p.blobs.LookupBlob(ctx, ck); err == nil && existing != nil {
-		if _, herr := p.store.Head(ctx, key); herr == nil {
-			reuse, enc = true, existing.Encrypted
-		}
-	}
-	if reuse {
-		c, err := crcFile(f.Path)
-		if err != nil {
-			return 0, false, false, err
-		}
-		crc = c
-	} else {
-		enc = p.cipher != nil
-		c, err := p.uploadBlob(ctx, key, f.Path, enc)
-		if err != nil {
-			return 0, false, false, err
-		}
-		crc = c
-	}
-	if err := p.blobs.AddBlobRef(ctx, infoHash, idx, ck, f.Size, enc); err != nil {
-		return 0, false, false, err
-	}
-	return crc, enc, !reuse, nil
-}
-
-func (p *Publisher) uploadBlob(ctx context.Context, key, path string, enc bool) (uint32, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	watchdog := time.AfterFunc(uploadStallTimeout, cancel)
-	defer watchdog.Stop()
-	h := crc32.NewIEEE()
-	var body io.Reader = &stallReader{r: io.TeeReader(f, h), timer: watchdog, timeout: uploadStallTimeout}
-	if enc {
-		body, err = p.cipher.EncryptReader(body)
-		if err != nil {
-			return 0, err
-		}
-	}
-
-	if err := p.store.StreamUpload(ctx, key, body, video.ContentType(path)); err != nil {
-		return 0, fmt.Errorf("upload %s: %w", key, err)
-	}
-	return h.Sum32(), nil
-}
-
-func crcFile(path string) (uint32, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, err
-	}
-	defer f.Close()
-	h := crc32.NewIEEE()
-	if _, err := io.Copy(h, f); err != nil {
-		return 0, err
-	}
-	return h.Sum32(), nil
-}
-
-type stallReader struct {
-	r       io.Reader
-	timer   *time.Timer
-	timeout time.Duration
-}
-
-func (s *stallReader) Read(p []byte) (int, error) {
-	n, err := s.r.Read(p)
-	if n > 0 {
-		s.timer.Reset(s.timeout)
-	}
-	return n, err
+	return p.bs.Put(ctx, infoHash, idx, f.Path, ck, key, video.ContentType(f.Path), f.Size)
 }
 
 func (p *Publisher) CompleteFromCache(ctx context.Context, infoHash string) (bool, error) {

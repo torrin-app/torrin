@@ -76,6 +76,8 @@ type Job struct {
 	Files        []File    `json:"files,omitempty"`
 	SelectedIdxs []int     `json:"selected_indexes,omitempty"`
 	IMDBID       string    `json:"imdb_id,omitempty"`
+	Season       int       `json:"season,omitempty"`
+	Episode      int       `json:"episode,omitempty"`
 	FileSize     int64     `json:"file_size"`
 	MaxBytes     int64     `json:"max_bytes"`
 	Priority     int       `json:"priority"`

@@ -22,6 +22,6 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request, userID string, tree
 		return
 	}
 	s.jobs.RecordView(r.Context(), n.hash, userID)
-	url := s.store.SignURLNode(n.node, n.key, 4*time.Hour) + manifest.StreamQuery(n.hash, n.key, n.enc)
+	url := s.store.SignURLNode(n.node, n.key, 4*time.Hour) + manifest.StreamQuery(n.hash, n.enc)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }

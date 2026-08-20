@@ -15,7 +15,9 @@ type PrewarmFallback struct {
 func (p *Postgres) CachedSizeByUser(ctx context.Context, userID string) (int64, error) {
 	var n int64
 	err := p.pool.QueryRow(ctx,
-		`SELECT COALESCE(SUM(file_size),0) FROM jobs WHERE user_id=$1 AND status='complete'`, userID).Scan(&n)
+		`SELECT COALESCE(SUM(file_size),0) FROM (
+			SELECT MAX(file_size) AS file_size FROM jobs
+			WHERE user_id=$1 AND status='complete' GROUP BY info_hash) t`, userID).Scan(&n)
 	return n, err
 }
 

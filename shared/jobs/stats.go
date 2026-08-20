@@ -107,7 +107,7 @@ func (p *Postgres) GetUserStats(ctx context.Context, userID string) (*UserStats,
 	p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status IN `+activeStates, userID).Scan(&st.ActiveJobs)
 	p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status='complete'`, userID).Scan(&st.CompletedJobs)
 	p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status='failed'`, userID).Scan(&st.FailedJobs)
-	p.pool.QueryRow(ctx, `SELECT COALESCE(SUM(file_size),0) FROM jobs WHERE user_id=$1 AND status='complete'`, userID).Scan(&st.TotalBytes)
+	st.TotalBytes, _ = p.CachedSizeByUser(ctx, userID)
 	p.pool.QueryRow(ctx, `SELECT COALESCE(SUM(access_count),0) FROM jobs WHERE user_id=$1`, userID).Scan(&st.TotalAccesses)
 	return st, nil
 }

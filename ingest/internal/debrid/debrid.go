@@ -171,7 +171,7 @@ func (r *Runner) download(ctx context.Context, dir, jobID string, links []provid
 		path := filepath.Join(dir, filepath.Base(link.Name))
 		if !providers.OnDisk(path, link.Size) {
 			dl := func(url string) error {
-				if err := providers.FetchFile(ctx, r.http, url, path, report, r.conns); err != nil {
+				if err := providers.FetchFileStalled(ctx, r.http, url, path, report, r.conns); err != nil {
 					return err
 				}
 				info, statErr := os.Stat(path)

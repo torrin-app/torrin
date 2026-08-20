@@ -146,13 +146,17 @@ func (b *BachsHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := stringMap(evt.Data.Metadata)
-	if meta["plan"] == "" {
+	if isDonation(meta) {
 		b.notifyDonation(donationMessage(evt.Data.Amount, evt.Data.Currency))
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 	b.activate(r.Context(), evt.ID, meta)
 	w.WriteHeader(http.StatusOK)
+}
+
+func isDonation(meta map[string]string) bool {
+	return meta["plan"] == "" && meta["type"] != "topup"
 }
 
 func stringMap(m map[string]any) map[string]string {

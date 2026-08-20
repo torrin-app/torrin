@@ -158,7 +158,7 @@ func seedCap(p plans.Plan, u *auth.User) int {
 }
 
 func (s *Server) seedUsage(ctx context.Context, user *auth.User) int {
-	list, _ := s.Jobs.ListByUser(ctx, user.ID, 500)
+	list, _ := jobs.ListAll(ctx, s.Jobs, user.ID)
 	n := 0
 	for _, j := range list {
 		if j.Seed && j.Status.Active() {

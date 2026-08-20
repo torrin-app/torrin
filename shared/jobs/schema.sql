@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 -- migrate already-created DBs (CREATE TABLE IF NOT EXISTS won't add new columns)
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dl_speed BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS node TEXT NOT NULL DEFAULT '';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS season INT NOT NULL DEFAULT 0;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS episode INT NOT NULL DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_jobs_info_hash ON jobs(info_hash);
 CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id);
@@ -119,3 +121,9 @@ CREATE TABLE IF NOT EXISTS nzb_url_hashes (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_nzb_url_hashes_content ON nzb_url_hashes(content_hash);
+
+CREATE TABLE IF NOT EXISTS cold_pulls (
+    user_id    TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_cold_pulls_user_time ON cold_pulls(user_id, created_at);

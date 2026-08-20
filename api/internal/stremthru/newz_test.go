@@ -23,3 +23,31 @@ func TestNewzStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestDispositionName(t *testing.T) {
+	cases := map[string]string{
+		`attachment; filename="The.Show.S01E01.1080p.nzb"`: "The.Show.S01E01.1080p.nzb",
+		`inline; filename=movie.nzb`:                       "movie.nzb",
+		"":                                                 "",
+		"attachment":                                       "",
+		"garbage;;;":                                       "",
+	}
+	for cd, want := range cases {
+		if got := dispositionName(cd); got != want {
+			t.Errorf("dispositionName(%q)=%q want %q", cd, got, want)
+		}
+	}
+}
+
+func TestCleanNzbName(t *testing.T) {
+	cases := map[string]string{
+		"  The.Show.nzb ": "The.Show",
+		"movie":           "movie",
+		"":                "",
+	}
+	for in, want := range cases {
+		if got := cleanNzbName(in); got != want {
+			t.Errorf("cleanNzbName(%q)=%q want %q", in, got, want)
+		}
+	}
+}

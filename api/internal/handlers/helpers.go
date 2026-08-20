@@ -86,7 +86,7 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 		} else {
 			u = s.Store.SignURLNode(job.Node, key, 24*time.Hour)
 		}
-		u += manifest.StreamQuery(job.InfoHash, key, f.Enc)
+		u += manifest.StreamQuery(job.InfoHash, f.Enc)
 		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return out

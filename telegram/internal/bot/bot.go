@@ -21,7 +21,10 @@ import (
 	"github.com/celestix/gotgproto/functions"
 	"github.com/celestix/gotgproto/sessionMaker"
 
+	"github.com/torrin-app/torrin/shared/blobstore"
+	"github.com/torrin-app/torrin/shared/cinemeta"
 	"github.com/torrin-app/torrin/shared/cluster"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/safety"
@@ -41,6 +44,8 @@ type Bot struct {
 
 	Store    sources.Store
 	Overflow map[string]sources.Store
+	Blobs    blobstore.Index
+	Cipher   *crypto.Stream
 	Sizer    cluster.Sizer
 	Repo     jobs.Repository
 	Bus      Publisher
@@ -52,6 +57,7 @@ type Bot struct {
 	Ban     func(userID, reason string)
 
 	dedup *dedupe
+	cm    *cinemeta.Client
 }
 
 type dkey struct {
@@ -94,6 +100,7 @@ func (b *Bot) Run(ctx context.Context) error {
 		return fmt.Errorf("telegram: create tmp dir %s: %w", b.TmpDir, err)
 	}
 	b.dedup = newDedupe(2 * time.Minute)
+	b.cm = cinemeta.NewClient()
 	client, err := gotgproto.NewClient(
 		b.AppID, b.APIHash,
 		gotgproto.ClientTypeBot(b.BotToken),
@@ -127,7 +134,8 @@ func (b *Bot) onStart(ctx *ext.Context, u *ext.Update) error {
 	}
 	_, err := ctx.Reply(u, ext.ReplyTextString(
 		"Forward me a video and I'll cache it to your Torrin library.\n\n"+
-			"First link your account: grab a code in Torrin settings and send /link <code>."), nil)
+			"First link your account: grab a code in Torrin settings and send /link <code>.\n\n"+
+			"Tip: add a caption with the title or imdb id (e.g. \"The Batman 2022\" or tt1877830) so it shows up in Stremio search."), nil)
 	return err
 }
 
@@ -222,6 +230,7 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 	_, _ = ctx.Reply(u, ext.ReplyTextString("⏳ Downloading "+name+" ..."), nil)
 
 	media := u.EffectiveMessage.Media
+	caption := strings.TrimSpace(u.EffectiveMessage.Text)
 	go func() {
 		tmp := filepath.Join(b.TmpDir, cacheKey+"_"+name)
 		out, err := os.Create(tmp)
@@ -240,10 +249,10 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		defer os.Remove(tmp)
 
 		f := sources.File{
-			Name: name, Size: doc.Size, CacheKey: cacheKey, Source: jobs.SourceTelegram,
-			Open: func(context.Context) (io.ReadCloser, error) { return os.Open(tmp) },
+			Name: name, Path: tmp, Size: doc.Size, CacheKey: cacheKey, Source: jobs.SourceTelegram,
 		}
-		if err := sources.Ingest(context.Background(), store, b.Repo, f, job); err != nil {
+		tag := b.applyIdentity(context.Background(), job, caption, name)
+		if err := sources.Ingest(context.Background(), store, b.Blobs, b.Cipher, b.Repo, f, job); err != nil {
 			slog.Error("telegram: ingest failed", "name", name, "err", err)
 			b.failJob(job, "caching failed")
 			_, _ = ctx.Reply(u, ext.ReplyTextString("❌ Caching failed."), nil)
@@ -252,8 +261,8 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		if b.Bus != nil {
 			b.Bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 		}
-		slog.Info("telegram: cached", "user", userID, "name", name, "job", job.ID)
-		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Done, "+name+" is in your Torrin library. Play it in Stremio."), nil)
+		slog.Info("telegram: cached", "user", userID, "name", name, "job", job.ID, "imdb", job.IMDBID)
+		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ Done, "+name+" is in your Torrin library."+tag), nil)
 	}()
 	return nil
 }

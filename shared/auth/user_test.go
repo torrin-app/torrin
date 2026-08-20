@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -20,6 +21,18 @@ func TestNormalizeEmail(t *testing.T) {
 		if got := NormalizeEmail(in); got != want {
 			t.Errorf("NormalizeEmail(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestValidateSignupEmail(t *testing.T) {
+	ctx := context.Background()
+	for _, bad := range []string{"notanemail", "x@", "@nodomain.com", "x@no-such-domain-torrin-test.invalid"} {
+		if err := ValidateSignupEmail(ctx, bad); err == nil {
+			t.Errorf("ValidateSignupEmail(%q) = nil, want error", bad)
+		}
+	}
+	if err := ValidateSignupEmail(ctx, "someone@gmail.com"); err != nil {
+		t.Errorf("gmail.com has MX, want nil, got %v", err)
 	}
 }
 

@@ -205,11 +205,10 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	go stallWatch(dlCtx, cancel, &lastAt, job.ID)
 
 	slog.Info("usenet downloading", "job", job.ID, "name", parsed.Name())
-	if _, err := download.Download(dlCtx, pool, parsed, dir, creds.MaxConns, prog); err != nil {
-		if dlCtx.Err() != nil && ctx.Err() == nil {
-			return nil, failure.Newf("stalled", "download stalled, no progress for 30 minutes")
-		}
-		return nil, fmt.Errorf("download: %w", err)
+	_, missing, dlErr := download.Download(dlCtx, pool, parsed, dir, creds.MaxConns, prog)
+	stalled := dlCtx.Err() != nil && ctx.Err() == nil
+	if dlErr != nil && !stalled {
+		return nil, fmt.Errorf("download: %w", dlErr)
 	}
 
 	job.Status = jobs.StatusProcessing
@@ -229,7 +228,7 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 		return nil, fmt.Errorf("postproc: %w", err)
 	}
 	if len(files) == 0 {
-		return nil, failure.NoVideo
+		return nil, emptyResultFailure(stalled, missing)
 	}
 	pubFiles := make([]publish.File, len(files))
 	for i, f := range files {
@@ -274,6 +273,17 @@ func decryptInPlace(path string, cipher *crypto.Stream) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func emptyResultFailure(stalled bool, missing int64) *failure.Failure {
+	switch {
+	case stalled:
+		return failure.Stalled
+	case missing > 0:
+		return failure.Incomplete
+	default:
+		return failure.NoVideo
+	}
 }
 
 func stallWatch(ctx context.Context, cancel context.CancelFunc, lastAt *atomic.Int64, jobID string) {

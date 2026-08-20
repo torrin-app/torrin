@@ -1,6 +1,16 @@
 package jobs
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
+
+func TestColdPullAllowedUnlimited(t *testing.T) {
+	p := &Postgres{}
+	if ok, err := p.ColdPullAllowed(context.Background(), "u1", 0); !ok || err != nil {
+		t.Errorf("perHour=0 should be unlimited (true, nil); got %v, %v", ok, err)
+	}
+}
 
 func TestStatusActive(t *testing.T) {
 	for _, s := range []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing, StatusSeeding} {

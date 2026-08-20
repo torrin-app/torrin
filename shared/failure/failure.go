@@ -44,6 +44,8 @@ var (
 	NoSources      = &Failure{"no_sources", "no working sources for this release right now"}
 	DeadLinks      = &Failure{"dead_links", "these download links are dead, try a different release"}
 	NoVideo        = &Failure{"no_video", "no playable video found in this release"}
+	Stalled        = &Failure{"stalled", "download stalled: the provider stopped sending data before the release finished"}
+	Incomplete     = &Failure{"incomplete_release", "this release is incomplete on the provider (missing articles) and couldn't be assembled"}
 	Upstream       = &Failure{"upstream", "source temporarily unavailable, please retry"}
 	Generic        = &Failure{"generic", "download failed, please retry"}
 )

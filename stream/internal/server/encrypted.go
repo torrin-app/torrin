@@ -10,7 +10,8 @@ import (
 )
 
 func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string) {
-	head, err := s.store.Head(r.Context(), key)
+	node := s.nodeFromReq(r)
+	head, err := s.store.HeadNode(r.Context(), node, key)
 	if err != nil {
 		s.notFound(w, r, key, err)
 		return
@@ -32,7 +33,7 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 
 	start, end, isRange := storage.ParseRange(r.Header.Get("Range"), plainTotal)
 	if !isRange {
-		obj, err := s.store.Get(r.Context(), key, "")
+		obj, err := s.store.GetNode(r.Context(), node, key, "")
 		if err != nil {
 			s.notFound(w, r, key, err)
 			return
@@ -50,7 +51,7 @@ func (s *Server) serveFileEnc(w http.ResponseWriter, r *http.Request, key string
 		return
 	}
 	encRange := fmt.Sprintf("bytes=%d-%d", plan.EncStart, plan.EncEnd-1)
-	obj, err := s.store.Get(r.Context(), key, encRange)
+	obj, err := s.store.GetNode(r.Context(), node, key, encRange)
 	if err != nil {
 		s.notFound(w, r, key, err)
 		return

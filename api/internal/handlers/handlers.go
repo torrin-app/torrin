@@ -62,6 +62,9 @@ type Deps struct {
 	APIBase       string
 	WebBase       string
 
+	TurnstileSecret  string
+	TurnstileSiteKey string
+
 	PrewarmMaxBytes  int64
 	PrewarmMaxActive int
 	PrewarmCapBytes  int64
@@ -77,6 +80,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	loginMW := func(h http.Handler) http.Handler { return authMW(middleware.RequireSession(s.SignKey)(h)) }
 	loginKeyMW := func(h http.Handler) http.Handler { return authMW(middleware.RequireLogin(h)) }
 	mux.HandleFunc("POST /api/auth/register", s.register)
+	mux.HandleFunc("GET /api/config", s.config)
 	mux.HandleFunc("GET /r/{code}", s.referralRedirect)
 	mux.HandleFunc("GET /api/partner/report", s.partnerReport)
 	mux.HandleFunc("GET /api/plans", s.plans)

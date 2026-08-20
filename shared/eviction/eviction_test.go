@@ -11,6 +11,8 @@ type fakeRepo struct {
 	candidates   []jobs.EvictionCandidate
 	total        int64
 	evicted      map[string]bool
+	evictedIDs   map[string]bool
+	siblings     map[string][]*jobs.Job
 	orphans      map[string][]string
 	blobs        []jobs.Blob
 	deletedBlobs map[string]bool
@@ -34,11 +36,17 @@ func (f *fakeRepo) GetEvictionCandidates(context.Context, string) ([]jobs.Evicti
 }
 func (f *fakeRepo) GetTotalCachedSize(context.Context, string) (int64, error) { return f.total, nil }
 func (f *fakeRepo) ListByInfoHash(_ context.Context, h string) ([]*jobs.Job, error) {
+	if s, ok := f.siblings[h]; ok {
+		return s, nil
+	}
 	return []*jobs.Job{{ID: h, InfoHash: h}}, nil
 }
 func (f *fakeRepo) Update(_ context.Context, j *jobs.Job) error {
 	if j.Status == jobs.StatusEvicted {
 		f.evicted[j.InfoHash] = true
+		if f.evictedIDs != nil {
+			f.evictedIDs[j.ID] = true
+		}
 	}
 	return nil
 }
@@ -71,6 +79,25 @@ func (f *fakeStorage) Delete(_ context.Context, key string) error {
 	}
 	f.deletedKeys[key] = true
 	return nil
+}
+
+func TestEvictOnlyMarksOwnNode(t *testing.T) {
+	repo := &fakeRepo{
+		evicted:    map[string]bool{},
+		evictedIDs: map[string]bool{},
+		siblings: map[string][]*jobs.Job{
+			"h1": {{ID: "local", InfoHash: "h1", Node: ""}, {ID: "other", InfoHash: "h1", Node: "box2"}},
+		},
+		candidates: []jobs.EvictionCandidate{{InfoHash: "h1", AccessCount: 0, DaysSinceAccess: 30}},
+	}
+	store := &fakeStorage{deleted: map[string]bool{}}
+	New(repo, store, DefaultPolicy, "").RunDaily(context.Background())
+	if !repo.evictedIDs["local"] {
+		t.Error("same-node job should be marked evicted")
+	}
+	if repo.evictedIDs["other"] {
+		t.Error("other-node job must NOT be marked evicted (that node still has the content)")
+	}
 }
 
 func TestTTLEviction(t *testing.T) {

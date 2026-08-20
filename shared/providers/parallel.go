@@ -24,6 +24,21 @@ func FetchFile(ctx context.Context, client *http.Client, url, localPath string, 
 	return os.Rename(part, localPath)
 }
 
+var StallTimeout = 5 * time.Minute
+
+func FetchFileStalled(ctx context.Context, client *http.Client, url, localPath string, onProgress func(written, total int64), conns int) error {
+	dlCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	watchdog := time.AfterFunc(StallTimeout, cancel)
+	defer watchdog.Stop()
+	return FetchFile(dlCtx, client, url, localPath, func(written, total int64) {
+		watchdog.Reset(StallTimeout)
+		if onProgress != nil {
+			onProgress(written, total)
+		}
+	}, conns)
+}
+
 func fetchToPart(ctx context.Context, client *http.Client, url, part string, onProgress func(written, total int64), conns int) error {
 	if conns > 1 {
 		if total, ok := probeRange(ctx, client, url); ok && total >= minParallelBytes {

@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
 
@@ -17,22 +18,7 @@ type usenetCacheEntry struct {
 	exp     time.Time
 }
 
-var (
-	grabLockMu sync.Mutex
-	grabLocks  = map[string]*sync.Mutex{}
-)
-
-func lockGrab(hash string) func() {
-	grabLockMu.Lock()
-	m := grabLocks[hash]
-	if m == nil {
-		m = &sync.Mutex{}
-		grabLocks[hash] = m
-	}
-	grabLockMu.Unlock()
-	m.Lock()
-	return m.Unlock
-}
+func lockGrab(hash string) func() { return keyed.Lock(hash) }
 
 var (
 	usenetCacheMu sync.Mutex

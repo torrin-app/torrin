@@ -91,7 +91,7 @@ func (sw *statusWriter) WriteHeader(code int) {
 }
 
 func (s *Server) completed(ctx context.Context, userID string) []*jobs.Job {
-	list, _ := s.jobs.ListByUser(ctx, userID, 5000)
+	list, _ := jobs.ListAll(ctx, s.jobs, userID)
 	return list
 }
 

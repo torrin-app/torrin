@@ -186,6 +186,9 @@ func (e *Engine) evict(ctx context.Context, infoHash string) error {
 	}
 	e.purgeBlobs(ctx, infoHash)
 	for _, sib := range siblings {
+		if sib.Node != e.node {
+			continue
+		}
 		sib.Status = jobs.StatusEvicted
 		sib.Error = "content evicted from cache"
 		e.repo.Update(ctx, sib)

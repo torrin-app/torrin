@@ -97,10 +97,19 @@ func (s *Store) MarkFeedChecked(ctx context.Context, feedID string) {
 
 func (s *Store) IsRSSSeen(ctx context.Context, feedID, guid string) bool {
 	var n int
-	s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM rss_seen WHERE feed_id=$1 AND guid=$2`, feedID, guid).Scan(&n)
+	s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM rss_seen WHERE feed_id=$1 AND guid=$2 AND done`, feedID, guid).Scan(&n)
 	return n > 0
 }
 
 func (s *Store) MarkRSSSeen(ctx context.Context, feedID, guid string) {
-	s.pool.Exec(ctx, `INSERT INTO rss_seen (feed_id, guid) VALUES ($1,$2) ON CONFLICT DO NOTHING`, feedID, guid)
+	s.pool.Exec(ctx, `INSERT INTO rss_seen (feed_id, guid, done) VALUES ($1,$2,true)
+		ON CONFLICT (feed_id, guid) DO UPDATE SET done=true`, feedID, guid)
+}
+
+func (s *Store) RSSAttempt(ctx context.Context, feedID, guid string) int {
+	var n int
+	s.pool.QueryRow(ctx, `INSERT INTO rss_seen (feed_id, guid, attempts, done) VALUES ($1,$2,1,false)
+		ON CONFLICT (feed_id, guid) DO UPDATE SET attempts = rss_seen.attempts + 1
+		RETURNING attempts`, feedID, guid).Scan(&n)
+	return n
 }

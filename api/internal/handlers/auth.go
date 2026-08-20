@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
@@ -14,8 +17,9 @@ import (
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email string `json:"email"`
-		Ref   string `json:"ref"`
+		Email     string `json:"email"`
+		Ref       string `json:"ref"`
+		Turnstile string `json:"turnstile"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Email == "" {
 		web.WriteError(w, 400, "email required")
@@ -29,6 +33,14 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		if c, err := r.Cookie("torrin_ref"); err == nil {
 			req.Ref = c.Value
 		}
+	}
+	if s.TurnstileSecret != "" && !verifyTurnstile(r.Context(), s.TurnstileSecret, req.Turnstile, clientIP(r)) {
+		web.WriteError(w, 403, "captcha verification failed, please retry")
+		return
+	}
+	if err := auth.ValidateSignupEmail(r.Context(), req.Email); err != nil {
+		web.WriteError(w, 400, err.Error())
+		return
 	}
 	if existing, err := s.Users.GetByEmail(r.Context(), req.Email); err == nil && existing != nil {
 		web.WriteError(w, 409, "account already exists - use your API key to log in")
@@ -75,4 +87,35 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) plans(w http.ResponseWriter, _ *http.Request) {
 	web.WriteJSON(w, 200, plans.Listed())
+}
+
+func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
+	web.WriteJSON(w, 200, map[string]any{"turnstile_site_key": s.TurnstileSiteKey})
+}
+
+var turnstileClient = &http.Client{Timeout: 10 * time.Second}
+
+func verifyTurnstile(ctx context.Context, secret, token, ip string) bool {
+	if token == "" {
+		return false
+	}
+	form := url.Values{"secret": {secret}, "response": {token}}
+	if ip != "" {
+		form.Set("remoteip", ip)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := turnstileClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Success bool `json:"success"`
+	}
+	return json.NewDecoder(resp.Body).Decode(&out) == nil && out.Success
 }

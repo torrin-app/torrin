@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-RUN pip install --no-cache-dir camoufox \
+RUN pip install --no-cache-dir "camoufox==0.5.5" "playwright==1.60.0" \
     && python -m playwright install-deps firefox \
     && python -m camoufox fetch \
     && rm -rf /var/lib/apt/lists/*

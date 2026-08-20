@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
@@ -43,7 +42,6 @@ type Deps struct {
 
 type Handler struct {
 	Deps
-	dedup sync.Map
 }
 
 func New(d Deps) *Handler { return &Handler{Deps: d} }
@@ -131,7 +129,7 @@ func (h *Handler) buildFileEntries(hash, node string, files []jobs.File) []map[s
 	out := make([]map[string]any, len(files))
 	for i, f := range files {
 		key := manifest.ResolveKey(hash, i, f.Key, f.Name)
-		link := h.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(hash, key, f.Enc)
+		link := h.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(hash, f.Enc)
 		out[i] = fileEntry(i, f.Name, f.Size, link, f.MediaInfo)
 	}
 	return out

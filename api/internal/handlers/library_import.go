@@ -108,7 +108,7 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		mag := magnet.Build(h, "")
-		if cached, _ := s.Store.Has(r.Context(), manifest.Path(h)); cached {
+		if manifest.Playable(r.Context(), s.Store, h) {
 			if _, err := s.buildCachedJob(r.Context(), h, mag, user.ID, jobs.SourceTorrent); err != nil {
 				errs = append(errs, h+": "+err.Error())
 				continue
