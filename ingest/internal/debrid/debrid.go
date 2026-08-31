@@ -90,7 +90,14 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job) (bool, error) {
 		}
 		r.recordUsage(ctx, job, prov.Name(), files)
 		slog.Info("debrid download complete, publishing", "job", job.ID, "files", len(files))
-		return true, r.pub.Publish(ctx, job, files)
+		if err := r.pub.Publish(ctx, job, files); err != nil {
+			var f *failure.Failure
+			if errors.As(err, &f) && f.Code == "wrong_content" {
+				return true, terminalErr{err}
+			}
+			return true, err
+		}
+		return true, nil
 	}
 	return cached, lastErr
 }

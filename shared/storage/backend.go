@@ -9,11 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/middleware"
 )
 
 type backend interface {
@@ -21,8 +24,10 @@ type backend interface {
 	head(ctx context.Context, key string) (*Object, error)
 	has(ctx context.Context, key string) (bool, error)
 	put(ctx context.Context, key string, body io.Reader, contentType string) error
+	putSized(ctx context.Context, key string, body io.Reader, contentType string, size int64) error
 	delete(ctx context.Context, key string) error
 	deletePrefix(ctx context.Context, prefix string) error
+	list(ctx context.Context, prefix string) ([]ObjMeta, error)
 }
 
 type fsBackend struct{ baseDir string }
@@ -122,6 +127,10 @@ func (b *fsBackend) put(_ context.Context, key string, body io.Reader, contentTy
 	return nil
 }
 
+func (b *fsBackend) putSized(ctx context.Context, key string, body io.Reader, contentType string, _ int64) error {
+	return b.put(ctx, key, body, contentType)
+}
+
 func (b *fsBackend) delete(_ context.Context, key string) error {
 	p := b.objPath(key)
 	os.Remove(p + ctypeSidecarSuffix)
@@ -133,6 +142,29 @@ func (b *fsBackend) delete(_ context.Context, key string) error {
 
 func (b *fsBackend) deletePrefix(_ context.Context, prefix string) error {
 	return os.RemoveAll(b.objPath(strings.TrimSuffix(prefix, "/")))
+}
+
+func (b *fsBackend) list(_ context.Context, prefix string) ([]ObjMeta, error) {
+	base := strings.TrimSuffix(prefix, "/")
+	entries, err := os.ReadDir(b.objPath(base))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := make([]ObjMeta, 0, len(entries))
+	for _, e := range entries {
+		if e.IsDir() || strings.HasSuffix(e.Name(), ctypeSidecarSuffix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		out = append(out, ObjMeta{Key: base + "/" + e.Name(), Size: info.Size(), ModTime: info.ModTime()})
+	}
+	return out, nil
 }
 
 type s3Backend struct {
@@ -147,10 +179,14 @@ func newS3Backend(endpoint, region, accessKey, secretKey, bucket string) *s3Back
 	ep := endpoint
 	return &s3Backend{
 		s3: s3.New(s3.Options{
-			Region:       region,
-			BaseEndpoint: &ep,
-			Credentials:  credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
-			UsePathStyle: true,
+			Region:                     region,
+			BaseEndpoint:               &ep,
+			Credentials:                credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+			UsePathStyle:               true,
+			RequestChecksumCalculation: aws.RequestChecksumCalculationWhenRequired,
+			APIOptions: []func(*middleware.Stack) error{
+				v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware,
+			},
 		}),
 		bucket: bucket,
 	}
@@ -215,6 +251,16 @@ func (b *s3Backend) put(ctx context.Context, key string, body io.Reader, content
 	return err
 }
 
+func (b *s3Backend) putSized(ctx context.Context, key string, body io.Reader, contentType string, size int64) error {
+	if size <= 0 {
+		return b.put(ctx, key, body, contentType)
+	}
+	_, err := b.s3.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: &b.bucket, Key: &key, Body: body, ContentType: &contentType, ContentLength: &size,
+	})
+	return err
+}
+
 func (b *s3Backend) delete(ctx context.Context, key string) error {
 	_, err := b.s3.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &b.bucket, Key: &key})
 	return err
@@ -234,6 +280,36 @@ func (b *s3Backend) deletePrefix(ctx context.Context, prefix string) error {
 		}
 		if list.IsTruncated == nil || !*list.IsTruncated {
 			return nil
+		}
+		token = list.NextContinuationToken
+	}
+}
+
+func (b *s3Backend) list(ctx context.Context, prefix string) ([]ObjMeta, error) {
+	var out []ObjMeta
+	var token *string
+	for {
+		list, err := b.s3.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket: &b.bucket, Prefix: &prefix, ContinuationToken: token,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, o := range list.Contents {
+			if o.Key == nil || strings.HasSuffix(*o.Key, ctypeSidecarSuffix) {
+				continue
+			}
+			m := ObjMeta{Key: *o.Key}
+			if o.Size != nil {
+				m.Size = *o.Size
+			}
+			if o.LastModified != nil {
+				m.ModTime = *o.LastModified
+			}
+			out = append(out, m)
+		}
+		if list.IsTruncated == nil || !*list.IsTruncated {
+			return out, nil
 		}
 		token = list.NextContinuationToken
 	}

@@ -42,6 +42,7 @@ type Deleted struct {
 	InfoHash string `json:"info_hash,omitempty"`
 	Source   string `json:"source,omitempty"`
 	Node     string `json:"node,omitempty"`
+	UserID   string `json:"user_id,omitempty"`
 }
 
 type CairnRequest struct {

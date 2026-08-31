@@ -94,6 +94,12 @@ type Object struct {
 	ContentRange string
 }
 
+type ObjMeta struct {
+	Key     string
+	Size    int64
+	ModTime time.Time
+}
+
 func (c *Client) Get(ctx context.Context, key, rng string) (*Object, error) {
 	return c.GetNode(ctx, "", key, rng)
 }
@@ -169,12 +175,20 @@ func (c *Client) StreamUpload(ctx context.Context, key string, body io.Reader, c
 	return c.b.put(ctx, key, body, contentType)
 }
 
+func (c *Client) PutSized(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	return c.b.putSized(ctx, key, body, contentType, size)
+}
+
 func (c *Client) Delete(ctx context.Context, key string) error {
 	return c.b.delete(ctx, key)
 }
 
 func (c *Client) DeletePrefix(ctx context.Context, prefix string) error {
 	return c.b.deletePrefix(ctx, prefix)
+}
+
+func (c *Client) List(ctx context.Context, prefix string) ([]ObjMeta, error) {
+	return c.b.list(ctx, prefix)
 }
 
 func (c *Client) TestWrite(ctx context.Context) error {

@@ -216,13 +216,14 @@ func (s *Server) mintCodes(w http.ResponseWriter, r *http.Request) {
 	if reseller == "" {
 		reseller = "reseller"
 	}
+	retail, _ := plans.PriceCents(req.PlanID, req.Period, req.Days)
 	codes := make([]string, 0, qty)
 	for i := 0; i < qty; i++ {
 		var code string
 		for attempt := 0; attempt < 5; attempt++ {
 			code = generateResellerCode()
 			if s.Users.CreateResellerCode(r.Context(), &auth.ResellerCode{
-				Code: code, PlanID: req.PlanID, Period: req.Period, Days: req.Days, Reseller: reseller}) == nil {
+				Code: code, PlanID: req.PlanID, Period: req.Period, Days: req.Days, Reseller: reseller, RetailCents: retail}) == nil {
 				break
 			}
 			code = ""

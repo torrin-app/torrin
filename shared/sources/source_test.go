@@ -33,6 +33,11 @@ func (f *fakeStore) StreamUpload(_ context.Context, key string, body io.Reader, 
 	f.uploaded[key] = true
 	return nil
 }
+func (f *fakeStore) PutSized(_ context.Context, key string, body io.Reader, _ int64, _ string) error {
+	io.Copy(io.Discard, body)
+	f.uploaded[key] = true
+	return nil
+}
 func (f *fakeStore) Put(_ context.Context, key string, body io.Reader, _ string) error {
 	io.Copy(io.Discard, body)
 	f.puts[key] = true

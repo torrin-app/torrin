@@ -24,6 +24,7 @@ func TestExpiredFreeAllowed(t *testing.T) {
 	allow := []string{
 		"/api/me", "/api/plans", "/api/stats", "/api/redeem",
 		"/api/billing/crypto/checkout", "/api/billing/bachs/checkout",
+		"/api/auth/2fa/enroll", "/api/auth/2fa/confirm", "/api/auth/2fa/disable",
 	}
 	for _, p := range allow {
 		if !expiredFreeAllowed(p) {

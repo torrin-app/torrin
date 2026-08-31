@@ -14,6 +14,23 @@ func (m mapSizer) GetTotalCachedSize(_ context.Context, node string) (int64, err
 	return m[node], nil
 }
 
+func (m mapSizer) GetInFlightSize(_ context.Context, _ string) (int64, error) {
+	return 0, nil
+}
+
+type reserveSizer struct {
+	cached   map[string]int64
+	inflight map[string]int64
+}
+
+func (s reserveSizer) GetTotalCachedSize(_ context.Context, node string) (int64, error) {
+	return s.cached[node], nil
+}
+
+func (s reserveSizer) GetInFlightSize(_ context.Context, node string) (int64, error) {
+	return s.inflight[node], nil
+}
+
 type fakePub struct {
 	subject string
 	msg     any
@@ -105,6 +122,115 @@ func TestTargetNode(t *testing.T) {
 	t.Setenv("NODE2_ID", "box2")
 	if got := TargetNode(ctx, mapSizer{"": 950}, "torrent", 100); got != "box2" {
 		t.Fatalf("legacy NODE2_ID (no cap) full -> box2, got %q", got)
+	}
+}
+
+func TestTargetNodeReservesInFlight(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("EVICTION_CAP_BYTES", "1000")
+	t.Setenv("CLUSTER_NODES", "box2:5000")
+
+	room := reserveSizer{cached: map[string]int64{"": 500}, inflight: map[string]int64{"": 100}}
+	if got := TargetNode(ctx, room, "torrent", 100); got != "" {
+		t.Fatalf("cached+inflight+job under cap -> box1, got %q", got)
+	}
+
+	burst := reserveSizer{cached: map[string]int64{"": 500}, inflight: map[string]int64{"": 600}}
+	if got := TargetNode(ctx, burst, "torrent", 100); got != "box2" {
+		t.Fatalf("in-flight burst pushes over cap -> box2, got %q", got)
+	}
+}
+
+type fakeStatuser map[string]int64
+
+func (f fakeStatuser) Free(_ context.Context, node string) (int64, bool) {
+	v, ok := f[node]
+	return v, ok
+}
+
+func (f fakeStatuser) MinFree(_ context.Context, _ string) (int64, bool) { return 0, false }
+
+type fakeStatuserMF struct{ free, minFree map[string]int64 }
+
+func (f fakeStatuserMF) Free(_ context.Context, n string) (int64, bool) {
+	v, ok := f.free[n]
+	return v, ok
+}
+func (f fakeStatuserMF) MinFree(_ context.Context, n string) (int64, bool) {
+	v, ok := f.minFree[n]
+	return v, ok
+}
+
+func TestTargetNodeUsesReportedMinFree(t *testing.T) {
+	ctx := context.Background()
+	defer SetStatuser(nil)
+	t.Setenv("CLUSTER_NODES", "box2")
+	SetStatuser(fakeStatuserMF{
+		free:    map[string]int64{"": 500, "box2": 5000},
+		minFree: map[string]int64{"": 600, "box2": 100},
+	})
+	if got := TargetNode(ctx, reserveSizer{inflight: map[string]int64{}}, "torrent", 10); got != "box2" {
+		t.Fatalf("box1 under its reported floor -> box2, got %q", got)
+	}
+}
+
+func TestTargetNodeByFreeSpace(t *testing.T) {
+	ctx := context.Background()
+	defer SetStatuser(nil)
+	t.Setenv("CLUSTER_NODES", "box2")
+	t.Setenv("STORE_MIN_FREE_BYTES", "100")
+
+	empty := reserveSizer{inflight: map[string]int64{}}
+
+	SetStatuser(fakeStatuser{"": 500, "box2": 500})
+	if got := TargetNode(ctx, empty, "torrent", 10); got != "" {
+		t.Fatalf("box1 has room -> box1, got %q", got)
+	}
+
+	SetStatuser(fakeStatuser{"": 50, "box2": 500})
+	if got := TargetNode(ctx, empty, "torrent", 10); got != "box2" {
+		t.Fatalf("box1 below floor -> overflow box2, got %q", got)
+	}
+
+	SetStatuser(fakeStatuser{"": 50, "box2": 40})
+	if got := TargetNode(ctx, empty, "torrent", 10); got != "" {
+		t.Fatalf("all full -> least-full box1 for eviction, got %q", got)
+	}
+
+	SetStatuser(fakeStatuser{"": 200, "box2": 500})
+	burst := reserveSizer{inflight: map[string]int64{"": 150}}
+	if got := TargetNode(ctx, burst, "torrent", 10); got != "box2" {
+		t.Fatalf("in-flight reservation overflows box1 -> box2, got %q", got)
+	}
+
+	SetStatuser(fakeStatuser{})
+	t.Setenv("EVICTION_CAP_BYTES", "1000")
+	if got := TargetNode(ctx, mapSizer{"": 500}, "torrent", 10); got != "" {
+		t.Fatalf("no heartbeat -> legacy cap path, box1 under cap, got %q", got)
+	}
+}
+
+func TestTargetNodePrimaryNamed(t *testing.T) {
+	ctx := context.Background()
+	defer SetStatuser(nil)
+	t.Setenv("PRIMARY_NODE_ID", "box1")
+	t.Setenv("CLUSTER_NODES", "box2")
+	t.Setenv("STORE_MIN_FREE_BYTES", "100")
+
+	empty := reserveSizer{inflight: map[string]int64{}}
+
+	SetStatuser(fakeStatuser{"box1": 500, "box2": 500})
+	if got := TargetNode(ctx, empty, "torrent", 10); got != "box1" {
+		t.Fatalf("primary named box1 with room -> box1, got %q", got)
+	}
+
+	SetStatuser(fakeStatuser{"box1": 50, "box2": 500})
+	if got := TargetNode(ctx, empty, "torrent", 10); got != "box2" {
+		t.Fatalf("box1 full -> overflow box2, got %q", got)
+	}
+
+	if got := TargetNode(ctx, empty, "internal", 10); got != "box1" {
+		t.Fatalf("non-portable -> primary box1 (never empty), got %q", got)
 	}
 }
 

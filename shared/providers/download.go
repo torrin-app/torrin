@@ -131,6 +131,7 @@ func resilient(ctx context.Context, open RangeOpener, f *os.File, onProgress fun
 func copyBody(ctx context.Context, body io.Reader, f io.Writer, written, total int64, onProgress func(written, total int64)) (int64, error, bool) {
 	buf := make([]byte, 256*1024)
 	lastUpdate := time.Now()
+	lim := LimiterFrom(ctx)
 
 	for {
 		if ctx.Err() != nil {
@@ -142,6 +143,12 @@ func copyBody(ctx context.Context, body io.Reader, f io.Writer, written, total i
 				return written, wErr, true
 			}
 			written += int64(n)
+			addBytes(ctx, n)
+			if lim != nil {
+				if err := lim.WaitN(ctx, n); err != nil {
+					return written, err, true
+				}
+			}
 			if onProgress != nil && time.Since(lastUpdate) >= 2*time.Second {
 				onProgress(written, total)
 				lastUpdate = time.Now()

@@ -13,7 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/breaker"
 )
 
-const rdBase = "https://api.real-debrid.com/rest/1.0"
+var rdBase = "https://api.real-debrid.com/rest/1.0"
 
 type rdClient struct {
 	key      string

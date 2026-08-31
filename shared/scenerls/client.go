@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -36,7 +37,14 @@ type entry struct {
 
 func NewClient() *Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.DialContext = safeurl.Dialer(false)
+	if p := os.Getenv("SCENERLS_PROXY_URL"); p != "" {
+		if u, err := url.Parse(p); err == nil {
+			tr.Proxy = http.ProxyURL(u)
+			tr.DialContext = safeurl.Dialer(true)
+		}
+	} else {
+		tr.DialContext = safeurl.Dialer(false)
+	}
 	jar, _ := cookiejar.New(nil)
 	return &Client{
 		http:     &http.Client{Timeout: 20 * time.Second, Transport: tr, Jar: jar},
@@ -119,7 +127,7 @@ func imdbFromDoc(doc *goquery.Document) string {
 	return id
 }
 
-func (c *Client) Resolve(ctx context.Context, postURL, imdbID, title string) ([][]string, error) {
+func (c *Client) Resolve(ctx context.Context, postURL, imdbID, title string) ([][][]string, error) {
 	if !isPost(postURL) {
 		return nil, fmt.Errorf("not a scene-rls post url")
 	}

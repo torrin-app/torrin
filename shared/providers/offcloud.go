@@ -44,6 +44,12 @@ func (o *offcloud) Release(ctx context.Context, handle string) error {
 }
 
 func (o *offcloud) Fetch(ctx context.Context, magnet, infoHash string) (*Result, error) {
+	if res, err := o.libraryFetch(ctx, infoHash); err != nil {
+		return nil, err
+	} else if res != nil {
+		return res, nil
+	}
+
 	id, name, err := o.add(ctx, magnet)
 	if err != nil || id == "" {
 		return nil, err

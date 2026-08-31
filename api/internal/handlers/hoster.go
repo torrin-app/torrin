@@ -10,6 +10,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/urlnorm"
 )
 
 func (s *Server) submitHoster(w http.ResponseWriter, r *http.Request) {
@@ -43,6 +44,6 @@ func isHosterURL(u string) bool {
 }
 
 func hosterInfoHash(url string) string {
-	h := sha256.Sum256([]byte(url))
+	h := sha256.Sum256([]byte(urlnorm.Canonical(url)))
 	return fmt.Sprintf("%x", h[:20])
 }

@@ -92,6 +92,14 @@ func (s *Store) DeleteUserCairn(ctx context.Context, userID, infoHash string) er
 	return err
 }
 
+func (s *Store) HasUserCairn(ctx context.Context, userID, infoHash string) bool {
+	var ok bool
+	s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM user_cairns WHERE user_id = $1 AND info_hash = $2)`,
+		userID, infoHash).Scan(&ok)
+	return ok
+}
+
 func (s *Store) ListUserCairns(ctx context.Context, userID string) ([]CairnItem, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.info_hash, COALESCE(a.name, ''), COALESCE(a.size, 0), c.created_at, a.info_hash IS NOT NULL

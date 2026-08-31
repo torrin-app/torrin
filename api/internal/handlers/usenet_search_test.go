@@ -27,3 +27,23 @@ func TestFallbackQuery(t *testing.T) {
 		t.Errorf("partial se: got %q", got)
 	}
 }
+
+func TestParseCachedTarget(t *testing.T) {
+	cases := []struct {
+		in              string
+		imdb            string
+		season, episode int
+	}{
+		{"tt20329502", "20329502", 0, 0},
+		{"tt0903747:4:5", "0903747", 4, 5},
+		{"123", "123", 0, 0},
+		{"", "", 0, 0},
+		{"tt123:2", "123", 0, 0},
+	}
+	for _, c := range cases {
+		imdb, season, episode := parseCachedTarget(c.in)
+		if imdb != c.imdb || season != c.season || episode != c.episode {
+			t.Errorf("parseCachedTarget(%q) = (%q,%d,%d), want (%q,%d,%d)", c.in, imdb, season, episode, c.imdb, c.season, c.episode)
+		}
+	}
+}

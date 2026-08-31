@@ -190,6 +190,7 @@ func fetchChunk(ctx context.Context, client *http.Client, url string, f *os.File
 func copyChunkAt(ctx context.Context, body io.Reader, f *os.File, pos int64, progress *int64) (int64, error) {
 	buf := make([]byte, 256*1024)
 	var written int64
+	lim := LimiterFrom(ctx)
 	for {
 		if ctx.Err() != nil {
 			return written, ctx.Err()
@@ -201,6 +202,12 @@ func copyChunkAt(ctx context.Context, body io.Reader, f *os.File, pos int64, pro
 			}
 			written += int64(n)
 			atomic.AddInt64(progress, int64(n))
+			addBytes(ctx, n)
+			if lim != nil {
+				if err := lim.WaitN(ctx, n); err != nil {
+					return written, err
+				}
+			}
 		}
 		if readErr != nil {
 			if readErr == io.EOF {

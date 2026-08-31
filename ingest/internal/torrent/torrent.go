@@ -29,19 +29,22 @@ type Runner struct {
 	downloads string
 	seedOnly  bool
 	node      string
+	allNodes  bool
 	category  string
 	interval  time.Duration
 	inflight  sync.Map
 	sem       chan struct{}
 }
 
-func NewRunner(qb *qbit.Client, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, store *storage.Client, downloads string, seedOnly bool, node string) *Runner {
+func NewRunner(qb *qbit.Client, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, store *storage.Client, downloads string, seedOnly bool, node string, allNodes bool) *Runner {
 	category := "torrin"
 	if seedOnly {
 		category = "torrin-seed"
 	}
-	return &Runner{qb: qb, repo: repo, pub: pub, bus: b, ban: ban, store: store, downloads: downloads, seedOnly: seedOnly, node: node, category: category, interval: 15 * time.Second, sem: make(chan struct{}, 5)}
+	return &Runner{qb: qb, repo: repo, pub: pub, bus: b, ban: ban, store: store, downloads: downloads, seedOnly: seedOnly, node: node, allNodes: allNodes, category: category, interval: 15 * time.Second, sem: make(chan struct{}, 5)}
 }
+
+func (r *Runner) mine(node string) bool { return r.allNodes || node == r.node }
 
 func (r *Runner) Hold(infoHash string) bool {
 	_, busy := r.inflight.LoadOrStore(infoHash, true)
@@ -58,11 +61,11 @@ func (r *Runner) Remove(infoHash string) {
 	r.qb.Delete(infoHash)
 }
 
-func (r *Runner) Start(job *jobs.Job) error {
+func (r *Runner) Start(job *jobs.Job, bytesPerSec int64) error {
 	if err := r.qb.Login(); err != nil {
 		return err
 	}
-	return r.qb.AddMagnet(job.Magnet)
+	return r.qb.AddMagnet(job.Magnet, bytesPerSec)
 }
 
 func (r *Runner) Run(ctx context.Context) {
@@ -84,7 +87,7 @@ func (r *Runner) poll(ctx context.Context) {
 	}
 	active, _ := r.repo.ListByStatus(ctx, jobs.StatusDownloading)
 	for _, job := range active {
-		if job.Node != r.node || job.Source != jobs.SourceTorrent || job.InfoHash == "" || job.Seed != r.seedOnly {
+		if !r.mine(job.Node) || job.Source != jobs.SourceTorrent || job.InfoHash == "" || job.Seed != r.seedOnly {
 			continue
 		}
 		if _, busy := r.inflight.Load(job.InfoHash); busy {

@@ -9,14 +9,11 @@ import (
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/cluster"
-	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
-	"github.com/torrin-app/torrin/shared/eviction"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
-	"github.com/torrin-app/torrin/shared/storage"
 )
 
 func promoteQueued(ctx context.Context, repo *jobs.Postgres, users *auth.Store, b *bus.Bus, budget int64) {
@@ -231,12 +228,4 @@ func startADWorkers(ctx context.Context, users *auth.Store, adKey string) {
 			}
 		}
 	}()
-}
-
-func startEviction(ctx context.Context, repo *jobs.Postgres, store *storage.Client) {
-	policy := eviction.DefaultPolicy
-	if c := env.Int("EVICTION_CAP_BYTES", 0); c > 0 {
-		policy.StorageCapBytes = c
-	}
-	eviction.New(repo, store, policy, env.Get("NODE_ID", "")).StartSchedule(ctx, int(env.Int("EVICTION_HOUR", 4)))
 }

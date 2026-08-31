@@ -22,12 +22,13 @@ import (
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/cinemeta"
+	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/env"
 	"github.com/torrin-app/torrin/shared/events"
-	"github.com/torrin-app/torrin/shared/eviction"
 	hdclient "github.com/torrin-app/torrin/shared/hdencode"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/nodestatus"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/qbit"
@@ -86,15 +87,23 @@ func main() {
 	}
 	publish.VerifyVideo = env.Get("INGEST_VERIFY_VIDEO", "true") != "false"
 	pub := publish.New(repo, store, env.Get("NODE_ID", ""), repo, cipher, caches)
+	pub.SetUsageRecorder(users.AddIngestUsage)
+	nc := nodeClients(env.Get("STORE_NODES", ""))
+	pub.SetNodeStores(toPublishStores(nc))
+	nodeStat := nodestatus.New(3 * time.Minute)
+	if err := nodeStat.SetDB(ctx, repo.Pool()); err != nil {
+		slog.Warn("node status db init failed", "err", err)
+	}
+	cluster.SetStatuser(nodeStat)
+	pub.SetTargeter(func(ctx context.Context, source string, size int64) string {
+		return cluster.TargetNode(ctx, repo, source, size)
+	})
+	primary := store
+	if c, ok := nc[""]; ok {
+		primary = c
+	}
 	if env.Get("RUNTIME_GATE", "true") != "false" {
 		pub.SetRuntimeSource(cinemeta.NewClient())
-	}
-	if node := env.Get("NODE_ID", ""); node != "" {
-		pol := eviction.DefaultPolicy
-		if c := env.Int("EVICTION_CAP_BYTES", 0); c > 0 {
-			pol.StorageCapBytes = c
-		}
-		eviction.New(repo, store, pol, node).StartSchedule(ctx, int(env.Int("EVICTION_HOUR", 4)))
 	}
 	sysRD, sysAD := os.Getenv("RD_API_KEY"), os.Getenv("AD_API_KEY")
 	providersFor := func(ctx context.Context, job *jobs.Job) []providers.Provider {
@@ -131,12 +140,13 @@ func main() {
 	}
 	dlConns := atoiOr(os.Getenv("DOWNLOAD_CONNS"), 6)
 	scratch := env.Get("SCRATCH_DIR", "/scratch")
+	allNodes := env.Get("INGEST_ALL_NODES", "") == "true"
 	debridRunner := debrid.NewRunner(providersFor, pub, repo, scratch, ban, dlConns, users.AddDebridUsage)
 
 	var torrentRunner, seedRunner *torrent.Runner
 	if qbURL := os.Getenv("QBIT_URL"); qbURL != "" {
 		qb := qbit.NewClient(qbURL, env.Get("QBIT_USER", "admin"), env.Get("QBIT_PASS", ""))
-		torrentRunner = torrent.NewRunner(qb, repo, pub, b, ban, store, env.Get("DOWNLOADS_DIR", "/downloads"), false, env.Get("NODE_ID", ""))
+		torrentRunner = torrent.NewRunner(qb, repo, pub, b, ban, primary, env.Get("DOWNLOADS_DIR", "/downloads"), false, env.Get("NODE_ID", ""), allNodes)
 		go torrentRunner.Run(ctx)
 		go torrent.StartTrackerRefresh(ctx, qb)
 
@@ -145,7 +155,7 @@ func main() {
 		if seedURL != qbURL {
 			qbSeed = qbit.NewClient(seedURL, env.Get("QBIT_SEED_USER", env.Get("QBIT_USER", "admin")), env.Get("QBIT_SEED_PASS", env.Get("QBIT_PASS", "")))
 		}
-		seedRunner = torrent.NewRunner(qbSeed, repo, pub, b, ban, store, env.Get("SEED_DOWNLOADS_DIR", env.Get("DOWNLOADS_DIR", "/downloads")), true, env.Get("NODE_ID", ""))
+		seedRunner = torrent.NewRunner(qbSeed, repo, pub, b, ban, primary, env.Get("SEED_DOWNLOADS_DIR", env.Get("DOWNLOADS_DIR", "/downloads")), true, env.Get("NODE_ID", ""), allNodes)
 		go configureSeedQbit(ctx, qbSeed)
 		go seedRunner.Run(ctx)
 		go seedRunner.WatchSeeds(ctx)
@@ -181,24 +191,30 @@ func main() {
 			slog.Warn("ytdlp extractors list failed", "err", err)
 			return
 		}
-		if err := store.Put(ctx, "meta/extractors.json", bytes.NewReader(data), "application/json"); err != nil {
+		if err := primary.Put(ctx, "meta/extractors.json", bytes.NewReader(data), "application/json"); err != nil {
 			slog.Warn("ytdlp extractors publish failed", "err", err)
 		}
 	}()
 
 	cancels := newCancelRegistry()
+	rateReg := providers.NewRateRegistry()
+	maxDL := int(env.Int("INGEST_MAX_ACTIVE_DOWNLOADS", 12))
+	dlGate := newGate(maxDL)
+	slog.Info("ingest download gate", "max_active", maxDL)
 	myNode := env.Get("NODE_ID", "")
+	handles := func(node string) bool { return allNodes || node == myNode }
 	if _, err := bus.Subscribe(b, events.JobAssigned, func(a events.Assigned) {
-		if a.Node != myNode {
+		if !handles(a.Node) {
 			return
 		}
-		go process(ctx, repo, debridRunner, torrentRunner, seedRunner, usenetRunner, hosterRunner, releaseRunner, ytdlpRunner, usenetFallback, b, ban, cancels, a)
+		go process(ctx, repo, users, rateReg, debridRunner, torrentRunner, seedRunner, usenetRunner, hosterRunner, releaseRunner, ytdlpRunner, usenetFallback, b, ban, cancels, dlGate, a)
 	}); err != nil {
 		fatal("subscribe", err)
 	}
 	if _, err := bus.Subscribe(b, events.JobDeleted, func(d events.Deleted) {
 		cancels.cancel(d.JobID)
-		if d.Source == string(jobs.SourceTorrent) && d.Node == myNode && d.InfoHash != "" && torrentRunner != nil {
+		if d.Source == string(jobs.SourceTorrent) && handles(d.Node) && d.InfoHash != "" && torrentRunner != nil {
+			torrentRunner.MeterAbort(context.Background(), d.InfoHash, d.UserID)
 			torrentRunner.Remove(d.InfoHash)
 			seedRunner.Remove(d.InfoHash)
 		}
@@ -214,7 +230,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				reconcile(ctx, repo, pub, b, cancels, myNode)
+				reconcile(ctx, repo, pub, b, cancels, myNode, allNodes)
 				if torrentRunner != nil {
 					torrentRunner.ReapOrphans(ctx)
 					seedRunner.ReapOrphans(ctx)
@@ -224,7 +240,7 @@ func main() {
 		}
 	}()
 
-	go sweepScratch(ctx, repo, scratch, myNode)
+	go sweepScratch(ctx, repo, scratch, myNode, allNodes)
 
 	slog.Info("ingest worker started")
 	service.RunHealth("ingest", "8083")

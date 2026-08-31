@@ -54,16 +54,16 @@ func main() {
 			maxPerUser = maxConns
 		}
 		srv.SetCairnLimits(maxConns, maxPerUser)
-		pool, release, poolErr := download.AcquireShared(download.Credentials{
+		pools, release, poolErr := download.AcquireSharedMulti([]download.Credentials{{
 			Host: host, Port: int(env.Int("USENET_PORT", 563)),
 			Username: env.Get("USENET_USER", ""), Password: env.Get("USENET_PASS", ""),
 			SSL: env.Get("USENET_SSL", "true") != "false", MaxConns: maxConns,
-		})
+		}})
 		if poolErr != nil {
 			slog.Warn("stream: cairn usenet disabled", "err", poolErr)
 		} else {
 			defer release()
-			srv.SetCairn(cairnStore, download.NewArticleFetcher(pool))
+			srv.SetCairn(cairnStore, download.NewArticleFetcher(pools))
 			slog.Info("stream serving cairn archives from usenet", "host", host,
 				"max_streams", maxConns, "max_per_user", maxPerUser)
 		}

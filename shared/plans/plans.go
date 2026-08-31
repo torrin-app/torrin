@@ -1,38 +1,46 @@
 package plans
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 type Plan struct {
-	ID               string      `json:"id"`
-	Name             string      `json:"name"`
-	DayPrices        map[int]int `json:"day_prices"`
-	MonthlyPrice     int         `json:"monthly_price_cents"`
-	YearlyPrice      int         `json:"yearly_price_cents"`
-	LifetimePrice    int         `json:"lifetime_price_cents"`
-	MaxConcurrent    int         `json:"max_concurrent_jobs"`
-	ColdPullsPerHour int         `json:"cold_pulls_per_hour"`
-	MaxTorrentBytes  int64       `json:"max_torrent_bytes"`
-	CachedStreams    int         `json:"cached_streams"`
-	SeedSlots        int         `json:"seed_slots"`
-	Priority         int         `json:"priority"`
-	Features         []string    `json:"features"`
-	Badge            string      `json:"badge,omitempty"`
-	SystemUsenet     bool        `json:"system_usenet"`
+	ID                 string      `json:"id"`
+	Name               string      `json:"name"`
+	DayPrices          map[int]int `json:"day_prices"`
+	MonthlyPrice       int         `json:"monthly_price_cents"`
+	YearlyPrice        int         `json:"yearly_price_cents"`
+	LifetimePrice      int         `json:"lifetime_price_cents"`
+	MaxConcurrent      int         `json:"max_concurrent_jobs"`
+	ColdPullsPerHour   int         `json:"cold_pulls_per_hour"`
+	MaxDownloadMbps    int         `json:"max_download_mbps"`
+	MaxTorrentBytes    int64       `json:"max_torrent_bytes"`
+	MonthlyIngestBytes int64       `json:"monthly_ingest_bytes"`
+	CachedStreams      int         `json:"cached_streams"`
+	SeedSlots          int         `json:"seed_slots"`
+	Priority           int         `json:"priority"`
+	Features           []string    `json:"features"`
+	Badge              string      `json:"badge,omitempty"`
+	SystemUsenet       bool        `json:"system_usenet"`
+	RSS                bool        `json:"rss"`
 }
 
 var (
 	Free = Plan{
-		ID:               "free",
-		Name:             "Free",
-		DayPrices:        nil,
-		MonthlyPrice:     0,
-		YearlyPrice:      0,
-		LifetimePrice:    0,
-		MaxConcurrent:    1,
-		ColdPullsPerHour: 15,
-		MaxTorrentBytes:  50_000_000_000,
-		CachedStreams:    -1,
-		Priority:         0,
+		ID:                 "free",
+		Name:               "Free",
+		DayPrices:          nil,
+		MonthlyPrice:       0,
+		YearlyPrice:        0,
+		LifetimePrice:      0,
+		MaxConcurrent:      1,
+		ColdPullsPerHour:   15,
+		MaxDownloadMbps:    250,
+		MaxTorrentBytes:    50_000_000_000,
+		MonthlyIngestBytes: 500_000_000_000,
+		CachedStreams:      -1,
+		Priority:           0,
 		Features: []string{
 			"1 concurrent download",
 			"50 GB max torrent",
@@ -45,29 +53,31 @@ var (
 	}
 
 	Starter = Plan{
-		ID:               "starter",
-		Name:             "Starter",
-		DayPrices:        map[int]int{7: 149, 15: 249},
-		MonthlyPrice:     299,
-		YearlyPrice:      2870,
-		LifetimePrice:    5382,
-		MaxConcurrent:    2,
-		ColdPullsPerHour: 40,
-		MaxTorrentBytes:  100_000_000_000,
-		CachedStreams:    -1,
-		SeedSlots:        3,
-		Priority:         1,
+		ID:                 "starter",
+		Name:               "Starter",
+		DayPrices:          map[int]int{7: 149, 15: 249},
+		MonthlyPrice:       299,
+		YearlyPrice:        2870,
+		LifetimePrice:      8900,
+		MaxConcurrent:      2,
+		ColdPullsPerHour:   40,
+		MaxDownloadMbps:    500,
+		MaxTorrentBytes:    100_000_000_000,
+		MonthlyIngestBytes: 2_000_000_000_000,
+		CachedStreams:      -1,
+		SeedSlots:          3,
+		Priority:           1,
 		Features: []string{
 			"2 concurrent downloads",
 			"100 GB max torrent",
+			"Cairn permanent archive",
 			"Hoster link support",
 			"Private-tracker seeding",
 			"BYOK Usenet",
 			"BYOK Real-Debrid",
 			"BYOK Premiumize",
 			"BYOK TorBox",
-			"Library import (RD, AllDebrid, TorBox)",
-			"RSS auto-download",
+			"Library import (RD, AllDebrid, TorBox, Offcloud)",
 			"WebDAV",
 			"Shared cache",
 			"Stremio addon",
@@ -76,30 +86,34 @@ var (
 	}
 
 	Standard = Plan{
-		ID:               "standard",
-		Name:             "Standard",
-		Badge:            "Best value",
-		DayPrices:        map[int]int{7: 299, 15: 499},
-		MonthlyPrice:     599,
-		YearlyPrice:      5750,
-		LifetimePrice:    10782,
-		MaxConcurrent:    4,
-		ColdPullsPerHour: 80,
-		MaxTorrentBytes:  250_000_000_000,
-		CachedStreams:    -1,
-		SeedSlots:        5,
-		Priority:         2,
-		SystemUsenet:     true,
+		ID:                 "standard",
+		Name:               "Standard",
+		Badge:              "Best value",
+		DayPrices:          map[int]int{7: 299, 15: 499},
+		MonthlyPrice:       599,
+		YearlyPrice:        5750,
+		LifetimePrice:      16900,
+		MaxConcurrent:      4,
+		ColdPullsPerHour:   80,
+		MaxDownloadMbps:    1000,
+		MaxTorrentBytes:    250_000_000_000,
+		MonthlyIngestBytes: 4_000_000_000_000,
+		CachedStreams:      -1,
+		SeedSlots:          5,
+		Priority:           2,
+		SystemUsenet:       true,
+		RSS:                true,
 		Features: []string{
 			"4 concurrent downloads",
 			"250 GB max torrent",
+			"Cairn permanent archive",
 			"Hoster link support",
 			"Private-tracker seeding",
 			"Usenet (included)",
 			"BYOK Real-Debrid",
 			"BYOK Premiumize",
 			"BYOK TorBox",
-			"Library import (RD, AllDebrid, TorBox)",
+			"Library import (RD, AllDebrid, TorBox, Offcloud)",
 			"RSS auto-download",
 			"WebDAV",
 			"Shared cache",
@@ -110,29 +124,33 @@ var (
 	}
 
 	Pro = Plan{
-		ID:               "pro",
-		Name:             "Pro",
-		DayPrices:        map[int]int{7: 599, 15: 999},
-		MonthlyPrice:     1199,
-		YearlyPrice:      11500,
-		LifetimePrice:    21582,
-		MaxConcurrent:    8,
-		ColdPullsPerHour: 200,
-		MaxTorrentBytes:  1_000_000_000_000,
-		CachedStreams:    -1,
-		SeedSlots:        10,
-		Priority:         3,
-		SystemUsenet:     true,
+		ID:                 "pro",
+		Name:               "Pro",
+		DayPrices:          map[int]int{7: 599, 15: 999},
+		MonthlyPrice:       1199,
+		YearlyPrice:        11500,
+		LifetimePrice:      32900,
+		MaxConcurrent:      8,
+		ColdPullsPerHour:   200,
+		MaxDownloadMbps:    2500,
+		MaxTorrentBytes:    1_000_000_000_000,
+		MonthlyIngestBytes: 8_000_000_000_000,
+		CachedStreams:      -1,
+		SeedSlots:          10,
+		Priority:           3,
+		SystemUsenet:       true,
+		RSS:                true,
 		Features: []string{
 			"8 concurrent downloads",
 			"1 TB max torrent",
+			"Cairn permanent archive",
 			"Hoster link support",
 			"Private-tracker seeding",
 			"Usenet (included)",
 			"BYOK Real-Debrid",
 			"BYOK Premiumize",
 			"BYOK TorBox",
-			"Library import (RD, AllDebrid, TorBox)",
+			"Library import (RD, AllDebrid, TorBox, Offcloud)",
 			"RSS auto-download",
 			"WebDAV",
 			"Shared cache",
@@ -241,6 +259,23 @@ func PriceCents(planID, billingPeriod string, days int) (int, bool) {
 	default:
 		return plan.MonthlyPrice, true
 	}
+}
+
+var lifetimeBumpDate = time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
+
+var preBumpLifetime = map[string]int{
+	"starter":  5382,
+	"standard": 10782,
+	"pro":      21582,
+}
+
+func PriceCentsAt(planID, billingPeriod string, days int, when time.Time) (int, bool) {
+	if billingPeriod == "lifetime" && when.Before(lifetimeBumpDate) {
+		if p, ok := preBumpLifetime[planID]; ok {
+			return p, true
+		}
+	}
+	return PriceCents(planID, billingPeriod, days)
 }
 
 func ValidatePrice(planID, billingPeriod string, priceCents int) bool {

@@ -170,6 +170,27 @@ SELECT md5(user_id), user_id, '', url, api_key, TRUE, updated_at, updated_at
 FROM usenet_indexers
 ON CONFLICT (id) DO NOTHING;
 
+CREATE TABLE IF NOT EXISTS usenet_provider_list (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    label      TEXT NOT NULL DEFAULT '',
+    host       TEXT NOT NULL,
+    port       INTEGER NOT NULL DEFAULT 563,
+    username   TEXT NOT NULL DEFAULT '',
+    password   TEXT NOT NULL DEFAULT '',
+    ssl        BOOLEAN NOT NULL DEFAULT TRUE,
+    max_conns  INTEGER NOT NULL DEFAULT 10,
+    priority   INTEGER NOT NULL DEFAULT 0,
+    enabled    BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_usenet_provider_list_user ON usenet_provider_list(user_id);
+INSERT INTO usenet_provider_list (id, user_id, label, host, port, username, password, ssl, max_conns, priority, enabled, created_at, updated_at)
+SELECT md5(user_id), user_id, '', host, port, username, password, ssl, max_conns, 0, TRUE, updated_at, updated_at
+FROM usenet_credentials
+ON CONFLICT (id) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS rd_library (
     info_hash TEXT NOT NULL,
     user_id   TEXT NOT NULL,
@@ -200,6 +221,7 @@ CREATE TABLE IF NOT EXISTS reseller_codes (
 );
 ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS settled_at     TIMESTAMPTZ;
 ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS settlement_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS retail_cents   INTEGER NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS ad_library (
     info_hash TEXT PRIMARY KEY,
@@ -246,6 +268,17 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS seed_slot_sub TEXT NOT NULL DEFAULT '
 ALTER TABLE users ADD COLUMN IF NOT EXISTS system_indexer_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret  TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS bachs_customer_id TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS webdav_overrides (
+    user_id    TEXT NOT NULL,
+    info_hash  TEXT NOT NULL,
+    file_index INTEGER NOT NULL,
+    alias      TEXT NOT NULL DEFAULT '',
+    excluded   BOOLEAN NOT NULL DEFAULT FALSE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, info_hash, file_index)
+);
 
 CREATE TABLE IF NOT EXISTS mfa_backup_codes (
     id        TEXT PRIMARY KEY,
@@ -276,6 +309,13 @@ CREATE TABLE IF NOT EXISTS debrid_usage (
     month    TEXT NOT NULL,
     bytes    BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, provider, month)
+);
+
+CREATE TABLE IF NOT EXISTS ingest_usage (
+    user_id TEXT NOT NULL,
+    month   TEXT NOT NULL,
+    bytes   BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, month)
 );
 
 ALTER TABLE cairn_archives ADD COLUMN IF NOT EXISTS nzb BYTEA;

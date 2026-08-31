@@ -43,7 +43,7 @@ func (s *Server) submitNZB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSuffix(r.URL.Query().Get("name"), ".nzb")
-	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name, true)
+	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name, "", true)
 }
 
 func readNZBBody(r *http.Request) ([]byte, error) {
@@ -85,7 +85,7 @@ func recentlyFailed(sibs []*jobs.Job, userID string, within time.Duration) *jobs
 	return nil
 }
 
-func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint string, explicit bool) {
+func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint, imdb string, explicit bool) {
 	if _, err := s.Users.GetUsenetCreds(r.Context(), user.ID); !usenetEntitled(err == nil, plan) {
 		web.WriteError(w, 403, "usenet needs your own provider, add NNTP credentials in settings, or upgrade to a plan that includes usenet")
 		return
@@ -157,6 +157,10 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			return
 		}
 		job.Name = name
+		if imdb != "" {
+			s.JobsPG.SetIMDB(r.Context(), hash, imdb)
+			job.IMDBID = imdb
+		}
 		job.StreamURLs = s.signStreams(job, r)
 		web.WriteJSON(w, 200, job)
 		return
@@ -173,6 +177,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: hash, Name: existing.Name, Source: jobs.SourceUsenet,
 			Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
+			IMDBID: existing.IMDBID,
 		}
 		activeLink := linked.Status.Active()
 		if activeLink && !s.Slots.Acquire(r.Context(), user.ID, plan) {
@@ -196,6 +201,10 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		return
 	}
 
+	if over, _ := s.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+		web.WriteError(w, 429, "monthly download limit reached, resets on the 1st")
+		return
+	}
 	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
 		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
 		return
@@ -213,7 +222,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 	}
 	job := &jobs.Job{
 		UserID: user.ID, InfoHash: hash, Name: name, FileSize: size,
-		Source: jobs.SourceUsenet, Status: status,
+		Source: jobs.SourceUsenet, Status: status, IMDBID: imdb,
 		MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
 	err = s.Jobs.Create(r.Context(), job)

@@ -13,13 +13,13 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 )
 
-func sweepScratch(ctx context.Context, repo jobs.Repository, scratch, node string) {
+func sweepScratch(ctx context.Context, repo jobs.Repository, scratch, node string, allNodes bool) {
 	run := func() {
 		active := map[string]bool{}
 		for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing, jobs.StatusSeeding} {
 			list, _ := repo.ListByStatus(ctx, st)
 			for _, j := range list {
-				if j.Node != node {
+				if !allNodes && j.Node != node {
 					continue
 				}
 				active[j.InfoHash] = true
@@ -52,20 +52,20 @@ func sweepScratch(ctx context.Context, repo jobs.Repository, scratch, node strin
 	}
 }
 
-func reconcile(ctx context.Context, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, cancels *cancelRegistry, node string) {
+func reconcile(ctx context.Context, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, cancels *cancelRegistry, node string, allNodes bool) {
 	for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing} {
 		list, err := repo.ListByStatus(ctx, st)
 		if err != nil {
 			continue
 		}
 		for _, job := range list {
-			if job.Node != node {
+			if !allNodes && job.Node != node {
 				continue
 			}
 			if cancels.has(job.ID) {
 				continue
 			}
-			if ok, _ := pub.CompleteFromCache(ctx, job.InfoHash); ok {
+			if ok, _ := pub.CompleteFromCache(ctx, job.Node, job.InfoHash); ok {
 				continue
 			}
 			if st == jobs.StatusDownloading && job.Source == jobs.SourceTorrent {

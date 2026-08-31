@@ -1,6 +1,28 @@
 package plans
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestPriceCentsAt(t *testing.T) {
+	before := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
+	after := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+
+	if c, _ := PriceCentsAt("standard", "lifetime", 0, before); c != 10782 {
+		t.Errorf("pre-bump standard lifetime = %d, want 10782", c)
+	}
+	if c, _ := PriceCentsAt("standard", "lifetime", 0, after); c != 16900 {
+		t.Errorf("post-bump standard lifetime = %d, want 16900", c)
+	}
+	if c, _ := PriceCentsAt("pro", "lifetime", 0, before); c != 21582 {
+		t.Errorf("pre-bump pro lifetime = %d, want 21582", c)
+	}
+	monthly, _ := PriceCents("standard", "monthly", 0)
+	if c, _ := PriceCentsAt("standard", "monthly", 0, before); c != monthly {
+		t.Errorf("monthly is date-independent: got %d, want %d", c, monthly)
+	}
+}
 
 func TestColdPullsPerHour(t *testing.T) {
 	free, _ := Get("free")
@@ -15,6 +37,35 @@ func TestColdPullsPerHour(t *testing.T) {
 		standard.ColdPullsPerHour < pro.ColdPullsPerHour) {
 		t.Errorf("cold-pull caps must increase by tier: free=%d starter=%d standard=%d pro=%d",
 			free.ColdPullsPerHour, starter.ColdPullsPerHour, standard.ColdPullsPerHour, pro.ColdPullsPerHour)
+	}
+}
+
+func TestMonthlyIngestBytes(t *testing.T) {
+	want := map[string]int64{
+		"free":     500_000_000_000,
+		"starter":  2_000_000_000_000,
+		"standard": 4_000_000_000_000,
+		"pro":      8_000_000_000_000,
+	}
+	for id, w := range want {
+		p, _ := Get(id)
+		if p.MonthlyIngestBytes != w {
+			t.Errorf("%s monthly ingest cap = %d, want %d", id, p.MonthlyIngestBytes, w)
+		}
+	}
+	if !(Free.MonthlyIngestBytes < Starter.MonthlyIngestBytes &&
+		Starter.MonthlyIngestBytes < Standard.MonthlyIngestBytes &&
+		Standard.MonthlyIngestBytes < Pro.MonthlyIngestBytes) {
+		t.Error("ingest caps must increase by tier")
+	}
+}
+
+func TestRSSEntitlement(t *testing.T) {
+	if Free.RSS || Starter.RSS {
+		t.Error("free and starter must not have RSS auto-download")
+	}
+	if !Standard.RSS || !Pro.RSS {
+		t.Error("standard and pro must have RSS auto-download")
 	}
 }
 
@@ -92,5 +143,28 @@ func TestValidatePrice(t *testing.T) {
 	}
 	if !ValidatePrice("starter", "days", 149) {
 		t.Error("valid day price should pass")
+	}
+}
+
+func TestCairnListedForPaidPlans(t *testing.T) {
+	has := func(feats []string, want string) bool {
+		for _, f := range feats {
+			if f == want {
+				return true
+			}
+		}
+		return false
+	}
+	for _, id := range []string{"starter", "standard", "pro"} {
+		p, _ := Get(id)
+		if !has(p.Features, "Cairn permanent archive") {
+			t.Errorf("%s should list 'Cairn permanent archive'", id)
+		}
+		if has(p.Features, "Cairn archive (restore needs Standard)") {
+			t.Errorf("%s must not gate cairn restore behind Standard", id)
+		}
+	}
+	if p, _ := Get("free"); has(p.Features, "Cairn permanent archive") {
+		t.Error("free should not list Cairn")
 	}
 }

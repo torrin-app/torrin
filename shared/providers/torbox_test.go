@@ -62,8 +62,45 @@ func TestTorboxFinishedResolves(t *testing.T) {
 	}
 }
 
-func TestTorboxRequestdlUsesHeaderNotURL(t *testing.T) {
-	var gotAuth, gotToken string
+func TestTorboxLibraryFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/torrents/checkcached":
+			w.Write([]byte(`{"success":true,"data":[]}`))
+		case "/torrents/mylist":
+			if r.URL.Query().Get("id") != "" {
+				w.Write([]byte(`{"success":true,"data":{"hash":"abc","name":"MyFilm","download_finished":true,"download_present":true,"files":[{"id":0,"name":"film.mkv","size":100}]}}`))
+			} else {
+				w.Write([]byte(`{"success":true,"data":[{"id":7,"hash":"ABC","name":"MyFilm","download_finished":true,"download_present":true}]}`))
+			}
+		case "/torrents/requestdl":
+			w.Write([]byte(`{"success":true,"data":"http://` + r.Host + `/cdn/film.mkv"}`))
+		case "/torrents/controltorrent":
+			t.Error("a library item must NOT be deleted")
+			w.Write([]byte(`{"success":true}`))
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+	old := tbBase
+	tbBase = srv.URL
+	defer func() { tbBase = old }()
+
+	res, err := NewTorBox("key").Fetch(context.Background(), "magnet:x", "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || len(res.Files) != 1 || res.Files[0].Name != "film.mkv" {
+		t.Fatalf("library fallback should resolve the file, got %+v", res)
+	}
+	if res.Handle != "" {
+		t.Fatalf("library item must have an empty Handle so it is never deleted, got %q", res.Handle)
+	}
+}
+
+func TestTorboxRequestdlTokenInQuery(t *testing.T) {
+	var gotToken string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/torrents/checkcached":
@@ -73,7 +110,6 @@ func TestTorboxRequestdlUsesHeaderNotURL(t *testing.T) {
 		case "/torrents/mylist":
 			w.Write([]byte(`{"success":true,"data":{"hash":"h","name":"pack","size":100,"progress":1,"download_finished":true,"download_present":true,"files":[{"id":0,"name":"movie.mkv","size":100}]}}`))
 		case "/torrents/requestdl":
-			gotAuth = r.Header.Get("Authorization")
 			gotToken = r.URL.Query().Get("token")
 			w.Write([]byte(`{"success":true,"data":"http://` + r.Host + `/cdn/movie.mkv"}`))
 		case "/cdn/movie.mkv":
@@ -90,11 +126,8 @@ func TestTorboxRequestdlUsesHeaderNotURL(t *testing.T) {
 	if _, err := NewTorBox("tb_secretkey").Fetch(context.Background(), "magnet:x", "h"); err != nil {
 		t.Fatal(err)
 	}
-	if gotAuth != "Bearer tb_secretkey" {
-		t.Errorf("requestdl must authenticate via header, got %q", gotAuth)
-	}
-	if gotToken != "" {
-		t.Errorf("requestdl leaked key in URL query: token=%q", gotToken)
+	if gotToken != "tb_secretkey" {
+		t.Errorf("requestdl must pass the key as a query token (TorBox requires it, not the header), got %q", gotToken)
 	}
 }
 

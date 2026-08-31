@@ -21,6 +21,7 @@ import (
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/video"
 )
 
@@ -107,15 +108,19 @@ func (r *Runner) probe(ctx context.Context, url string) (*meta, error) {
 }
 
 func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total int64) error {
-	cmd := exec.CommandContext(ctx, r.bin, r.args(
+	opts := []string{
 		"-o", filepath.Join(dir, "%(title)s.%(ext)s"),
 		"-f", r.format,
 		"--merge-output-format", "mp4",
 		"--no-playlist", "--no-warnings", "--newline", "--restrict-filenames",
 		"--concurrent-fragments", "4",
 		"--progress-template", "dl:%(progress.downloaded_bytes)s/%(progress.fragment_index)s/%(progress.fragment_count)s",
-		job.Magnet,
-	)...)
+	}
+	if lim := providers.LimiterFrom(ctx); lim != nil {
+		opts = append(opts, "--limit-rate", strconv.FormatInt(int64(lim.Limit()), 10))
+	}
+	opts = append(opts, job.Magnet)
+	cmd := exec.CommandContext(ctx, r.bin, r.args(opts...)...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -144,6 +149,9 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 		watchdog.Reset(stallTimeout)
 
 		cur := prog.add(bytes)
+		if tl := providers.TallyFrom(ctx); tl != nil {
+			tl.Downloaded.Store(cur)
+		}
 		if job.MaxBytes > 0 && cur > job.MaxBytes {
 			cancel()
 			return failure.Newf("too_large", "this download went over your plan limit of %dGB", job.MaxBytes/1e9)

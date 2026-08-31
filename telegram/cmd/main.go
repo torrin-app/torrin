@@ -33,6 +33,7 @@ func main() {
 	if err != nil {
 		fatal("auth db", err)
 	}
+	auth.QuotaEnforceMonth = env.Get("INGEST_QUOTA_ENFORCE_MONTH", "")
 	repo, err := jobs.NewPostgres(ctx, dsn)
 	if err != nil {
 		fatal("jobs db", err)
@@ -74,6 +75,15 @@ func main() {
 		Paid: func(uid string) bool {
 			u, err := users.GetByID(ctx, uid)
 			return err == nil && u != nil && u.PlanID != "free"
+		},
+		OverQuota: func(uid string) bool {
+			u, err := users.GetByID(ctx, uid)
+			if err != nil || u == nil {
+				return false
+			}
+			p, _ := plans.Get(u.PlanID)
+			over, _ := users.MonthlyQuotaExceeded(ctx, uid, p.MonthlyIngestBytes)
+			return over
 		},
 		Ban: func(uid, reason string) { users.BanUser(ctx, uid, reason) },
 	}

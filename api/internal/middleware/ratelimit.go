@@ -46,7 +46,7 @@ func RateLimit(rps, burst int, exempt []string) func(http.Handler) http.Handler 
 				return
 			}
 			if key == "" {
-				key = r.Header.Get("CF-Connecting-IP")
+				key = EdgeIP(r)
 			}
 			if key == "" {
 				next.ServeHTTP(w, r)

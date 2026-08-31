@@ -19,3 +19,17 @@ func (s *Server) debridUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	web.WriteJSON(w, 200, usage)
 }
+
+func (s *Server) ingestUsage(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUser(r)
+	plan := middleware.GetPlan(r)
+	used, err := s.Users.MonthlyIngestBytes(r.Context(), user.ID)
+	if err != nil {
+		web.WriteError(w, 500, "could not load usage")
+		return
+	}
+	web.WriteJSON(w, 200, map[string]any{
+		"used_bytes": used,
+		"cap_bytes":  plan.MonthlyIngestBytes,
+	})
+}

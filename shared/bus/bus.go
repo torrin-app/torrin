@@ -2,6 +2,8 @@ package bus
 
 import (
 	"encoding/json"
+	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go"
 )
@@ -11,7 +13,24 @@ type Bus struct {
 }
 
 func Connect(url string) (*Bus, error) {
-	nc, err := nats.Connect(url, nats.MaxReconnects(-1))
+	nc, err := nats.Connect(url,
+		nats.MaxReconnects(-1),
+		nats.ReconnectWait(2*time.Second),
+		nats.ReconnectJitter(500*time.Millisecond, 2*time.Second),
+		nats.ReconnectBufSize(16*1024*1024),
+		nats.PingInterval(20*time.Second),
+		nats.MaxPingsOutstanding(3),
+		nats.FlusherTimeout(10*time.Second),
+		nats.DisconnectErrHandler(func(_ *nats.Conn, err error) {
+			slog.Warn("nats disconnected", "err", err)
+		}),
+		nats.ReconnectHandler(func(c *nats.Conn) {
+			slog.Info("nats reconnected", "url", c.ConnectedUrl())
+		}),
+		nats.ClosedHandler(func(_ *nats.Conn) {
+			slog.Error("nats connection closed permanently")
+		}),
+	)
 	if err != nil {
 		return nil, err
 	}

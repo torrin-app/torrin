@@ -25,6 +25,22 @@ func (s *Store) Downgrade(ctx context.Context, subscriptionID string) error {
 	return err
 }
 
+func (s *Store) SetBachsCustomer(ctx context.Context, userID, customerID string) error {
+	if customerID == "" {
+		return nil
+	}
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET bachs_customer_id=$2, updated_at=$3 WHERE id=$1`,
+		userID, customerID, time.Now())
+	return err
+}
+
+func (s *Store) BachsCustomerID(ctx context.Context, userID string) (string, error) {
+	var id string
+	err := s.pool.QueryRow(ctx, `SELECT bachs_customer_id FROM users WHERE id=$1`, userID).Scan(&id)
+	return id, err
+}
+
 func (s *Store) HasProcessedSale(ctx context.Context, saleID string) bool {
 	var n int
 	s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM processed_sales WHERE sale_id=$1`, saleID).Scan(&n)

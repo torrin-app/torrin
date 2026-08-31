@@ -7,12 +7,17 @@ import (
 	"time"
 
 	"github.com/subosito/gozaru"
+	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 )
 
 type node struct {
 	name     string
+	orig     string
+	alias    string
+	idx      int
+	hidden   bool
 	dir      bool
 	size     int64
 	mod      time.Time
@@ -45,7 +50,7 @@ func (n *node) find(segs []string) *node {
 	return cur
 }
 
-func buildTree(list []*jobs.Job) *node {
+func buildTree(list []*jobs.Job, overrides map[string]auth.WebdavOverride) *node {
 	root := newDir("")
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Name != list[j].Name {
@@ -60,17 +65,30 @@ func buildTree(list []*jobs.Job) *node {
 		}
 		folder := newDir(unique(folders, folderName(j), short(j.InfoHash)))
 		folder.mod = j.UpdatedAt
+		folder.hash = j.InfoHash
+		folder.idx = -1
+		folder.hidden = overrides[auth.WebdavKey(j.InfoHash, -1)].Excluded
 		names := map[string]bool{}
 		for i, f := range j.Files {
+			ov := overrides[auth.WebdavKey(j.InfoHash, i)]
+			orig := base(f.Name)
+			display := orig
+			if ov.Alias != "" {
+				display = ov.Alias
+			}
 			folder.add(&node{
-				name: unique(names, base(f.Name), strconv.Itoa(i)),
-				size: f.Size,
-				mod:  j.UpdatedAt,
-				key:  manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name),
-				hash: j.InfoHash,
-				node: j.Node,
-				enc:  f.Enc,
-				etag: `"` + j.InfoHash + "-" + strconv.Itoa(i) + "-" + strconv.FormatInt(f.Size, 10) + `"`,
+				name:   unique(names, display, strconv.Itoa(i)),
+				orig:   orig,
+				alias:  ov.Alias,
+				idx:    i,
+				hidden: ov.Excluded,
+				size:   f.Size,
+				mod:    j.UpdatedAt,
+				key:    manifest.ResolveKey(j.InfoHash, i, f.Key, f.Name),
+				hash:   j.InfoHash,
+				node:   j.Node,
+				enc:    f.Enc,
+				etag:   `"` + j.InfoHash + "-" + strconv.Itoa(i) + "-" + strconv.FormatInt(f.Size, 10) + `"`,
 			})
 		}
 		root.add(folder)

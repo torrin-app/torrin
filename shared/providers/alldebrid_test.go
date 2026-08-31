@@ -59,7 +59,7 @@ func TestHosterUnlockError(t *testing.T) {
 
 func TestDeadLink(t *testing.T) {
 	dead := []string{"LINK_DOWN", "LINK_HOST_NOT_SUPPORTED", "LINK_HOST_UNAVAILABLE", "BAD_LINK"}
-	live := []string{"LINK_TOO_MANY_DOWNLOADS", "LINK_HOST_FULL", "MUST_BE_PREMIUM", "NO_SERVER", "LINK_IS_MISSING"}
+	live := []string{"LINK_TOO_MANY_DOWNLOADS", "LINK_HOST_FULL", "MUST_BE_PREMIUM", "NO_SERVER", "LINK_IS_MISSING", "LINK_TEMPORARY_UNAVAILABLE"}
 	for _, code := range dead {
 		if !DeadLink(failure.Newf(code, "x")) {
 			t.Errorf("%s should be dead", code)
@@ -84,5 +84,41 @@ func TestADReason(t *testing.T) {
 	}
 	if got := adReason(""); got != failure.Generic.Msg {
 		t.Errorf("empty should fall back to generic, got %q", got)
+	}
+}
+
+func TestAlldebridLibraryFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4.1/magnet/status":
+			w.Write([]byte(`{"status":"success","data":{"magnets":[{"id":7,"hash":"ABC","filename":"MyFilm","status":"Ready"}]}}`))
+		case "/v4/magnet/files":
+			w.Write([]byte(`{"status":"success","data":{"magnets":[{"files":[{"n":"film.mkv","s":100,"l":"https://ad/l1"}]}]}}`))
+		case "/v4/link/unlock":
+			w.Write([]byte(`{"status":"success","data":{"link":"https://ad/dl/film.mkv","filename":"film.mkv","filesize":100}}`))
+		case "/v4/magnet/upload":
+			t.Error("must not upload a magnet when the item is already in the library")
+			w.Write([]byte(`{"status":"success","data":{"magnets":[]}}`))
+		case "/v4/magnet/delete":
+			t.Error("a library item must NOT be deleted")
+			w.Write([]byte(`{"status":"success","data":{}}`))
+		default:
+			w.Write([]byte(`{"status":"success","data":{}}`))
+		}
+	}))
+	defer srv.Close()
+	old := adBase
+	adBase = srv.URL
+	defer func() { adBase = old }()
+
+	res, err := NewAllDebrid("key").Fetch(context.Background(), "magnet:x", "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || len(res.Files) != 1 || res.Files[0].Name != "film.mkv" {
+		t.Fatalf("library fallback should resolve the file, got %+v", res)
+	}
+	if res.Handle != "" {
+		t.Fatalf("library item must have an empty Handle so it is never deleted, got %q", res.Handle)
 	}
 }

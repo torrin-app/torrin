@@ -40,6 +40,7 @@ type CairnRepository interface {
 	AddUserCairn(ctx context.Context, userID, infoHash string) error
 	DeleteUserCairn(ctx context.Context, userID, infoHash string) error
 	ListUserCairns(ctx context.Context, userID string) ([]auth.CairnItem, error)
+	HasUserCairn(ctx context.Context, userID, infoHash string) bool
 }
 
 type CairnStore interface {
@@ -55,6 +56,7 @@ type Deps struct {
 	CairnStore  CairnStore
 	CairnCipher *crypto.Stream
 	CairnDirect bool
+	NodeStores  map[string]Storage
 	Bus         Publisher
 	Slots       *middleware.SlotTracker
 	Qbit        *qbit.Client
@@ -63,6 +65,7 @@ type Deps struct {
 	Mailer      *email.Client
 	RClone      *rclonerc.Client
 	Bitcart     *billing.BitcartHandler
+	NowPay      *billing.NowPaymentsHandler
 	Bachs       *billing.BachsHandler
 	SignKey     []byte
 	Budget      int64
@@ -81,6 +84,7 @@ type Deps struct {
 
 	TurnstileSecret  string
 	TurnstileSiteKey string
+	PartnerKey       string
 
 	PrewarmMaxBytes  int64
 	PrewarmMaxActive int
@@ -99,6 +103,13 @@ func New(d Deps) *Server {
 		d.CairnStore = d.Store
 	}
 	return &Server{d}
+}
+
+func (s *Server) storeForNode(node string) Storage {
+	if st, ok := s.NodeStores[node]; ok {
+		return st
+	}
+	return s.Store
 }
 
 func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
@@ -124,6 +135,9 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.Handle("POST /api/auth/2fa/verify", loginKeyMW(http.HandlerFunc(s.mfaVerify)))
 	mux.Handle("POST /api/billing/crypto/checkout", loginMW(http.HandlerFunc(s.cryptoCheckout)))
 	mux.Handle("POST /api/billing/bachs/checkout", loginMW(http.HandlerFunc(s.bachsCheckout)))
+	mux.Handle("POST /api/billing/bachs/portal", loginMW(http.HandlerFunc(s.bachsPortal)))
+	mux.Handle("GET /api/webdav/overrides", loginMW(http.HandlerFunc(s.webdavOverridesList)))
+	mux.Handle("POST /api/webdav/override", loginMW(http.HandlerFunc(s.webdavOverrideSet)))
 	mux.Handle("GET /api/wallet", loginMW(http.HandlerFunc(s.walletGet)))
 	mux.Handle("POST /api/wallet/buy-plan", loginMW(http.HandlerFunc(s.walletBuyPlan)))
 	mux.Handle("POST /api/wallet/topup", loginMW(http.HandlerFunc(s.walletTopup)))
@@ -148,6 +162,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerCredRoutes(mux, loginMW, "/api/torbox/credentials", credOps{s.Users.GetTBKey, s.Users.SetTBKey, s.Users.DeleteTBKey, providers.ValidateTB})
 	s.registerCredRoutes(mux, loginMW, "/api/offcloud/credentials", credOps{s.Users.GetOCKey, s.Users.SetOCKey, s.Users.DeleteOCKey, providers.ValidateOC})
 	mux.Handle("GET /api/debrid/usage", authMW(http.HandlerFunc(s.debridUsage)))
+	mux.Handle("GET /api/usage/ingest", authMW(http.HandlerFunc(s.ingestUsage)))
 	s.registerLibraryRoutes(mux, authMW)
 	s.registerUsenetRoutes(mux, authMW)
 	s.registerCairnRoutes(mux, authMW)

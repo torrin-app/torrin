@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -34,7 +35,8 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 			req.Ref = c.Value
 		}
 	}
-	if s.TurnstileSecret != "" && !verifyTurnstile(r.Context(), s.TurnstileSecret, req.Turnstile, clientIP(r)) {
+	trusted := trustedPartner(r.Header.Get("X-Partner-Key"), s.PartnerKey)
+	if !trusted && s.TurnstileSecret != "" && !verifyTurnstile(r.Context(), s.TurnstileSecret, req.Turnstile, clientIP(r)) {
 		web.WriteError(w, 403, "captcha verification failed, please retry")
 		return
 	}
@@ -46,7 +48,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 409, "account already exists - use your API key to log in")
 		return
 	}
-	if limit := int(env.Int("FREE_SIGNUPS_PER_IP", 5)); limit > 0 {
+	if limit := int(env.Int("FREE_SIGNUPS_PER_IP", 5)); !trusted && limit > 0 {
 		if ip := clientIP(r); ip != "" && s.Users.SignupsFromIP(r.Context(), ip, time.Now().Add(-30*24*time.Hour)) >= limit {
 			web.WriteError(w, 429, "too many accounts from your network, contact support if this is a mistake")
 			return
@@ -91,6 +93,10 @@ func (s *Server) plans(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 	web.WriteJSON(w, 200, map[string]any{"turnstile_site_key": s.TurnstileSiteKey})
+}
+
+func trustedPartner(header, key string) bool {
+	return key != "" && subtle.ConstantTimeCompare([]byte(header), []byte(key)) == 1
 }
 
 var turnstileClient = &http.Client{Timeout: 10 * time.Second}

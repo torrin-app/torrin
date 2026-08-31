@@ -189,6 +189,10 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 		web.WriteJSON(w, 200, existing)
 		return
 	}
+	if !s.Cairns.HasUserCairn(r.Context(), user.ID, hash) {
+		web.WriteError(w, 403, "you can only restore your own cairn archives")
+		return
+	}
 	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
 		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
 		return

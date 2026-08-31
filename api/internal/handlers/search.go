@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strconv"
@@ -35,9 +36,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 
 	seen := map[string]bool{}
 	out := []searchResult{}
-	add := func(j *jobs.Job) {
+	add := func(j *jobs.Job) bool {
 		if j.InfoHash == "" || seen[j.InfoHash] {
-			return
+			return false
 		}
 		var files []searchFile
 		for _, f := range j.Files {
@@ -50,7 +51,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			files = append(files, searchFile{FileName: f.Name, Index: f.Index, Size: f.Size, MediaInfo: f.MediaInfo})
 		}
 		if len(files) == 0 {
-			return
+			return false
 		}
 		sort.Slice(files, func(a, b int) bool { return files[a].Size > files[b].Size })
 		seen[j.InfoHash] = true
@@ -62,6 +63,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			Cached:   true,
 			Files:    files,
 		})
+		return true
 	}
 
 	if imdb != "" {
@@ -94,7 +96,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			if !wantEpisode && year > 0 && !yearMatches(j.Name, year) {
 				continue
 			}
-			add(j)
+			if add(j) && imdb != "" && j.IMDBID == "" {
+				go s.JobsPG.SetIMDB(context.WithoutCancel(r.Context()), j.InfoHash, imdb)
+			}
 		}
 	}
 

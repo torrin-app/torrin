@@ -18,7 +18,8 @@ const loginAllowedKey contextKey = "login_allowed"
 
 func expiredFreeAllowed(path string) bool {
 	return path == "/api/me" || path == "/api/plans" || path == "/api/stats" ||
-		path == "/api/redeem" || strings.HasPrefix(path, "/api/billing/")
+		path == "/api/redeem" || strings.HasPrefix(path, "/api/billing/") ||
+		strings.HasPrefix(path, "/api/auth/2fa/")
 }
 
 func largeUpload(path string) bool {
@@ -105,7 +106,13 @@ func RequireSession(signKey []byte) func(http.Handler) http.Handler {
 				return
 			}
 			if u.TOTPEnabled {
-				if uid, ok := auth.VerifySession(signKey, r.Header.Get("X-Torrin-Session")); !ok || uid != u.ID {
+				sess := r.Header.Get("X-Torrin-Session")
+				if sess == "" {
+					if c, err := r.Cookie("tr_session"); err == nil {
+						sess = c.Value
+					}
+				}
+				if uid, ok := auth.VerifySession(signKey, sess); !ok || uid != u.ID {
 					web.WriteJSON(w, 401, map[string]any{"error": "two-factor code required", "mfa_required": true})
 					return
 				}

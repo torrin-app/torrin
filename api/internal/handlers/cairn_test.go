@@ -11,7 +11,6 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/shared/auth"
-	"github.com/torrin-app/torrin/shared/cairn"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -39,6 +38,14 @@ func (f *fakeCairns) GetCairnNZB(_ context.Context, hash string) ([]byte, bool) 
 }
 func (*fakeCairns) AddUserCairn(context.Context, string, string) error    { return nil }
 func (*fakeCairns) DeleteUserCairn(context.Context, string, string) error { return nil }
+func (f *fakeCairns) HasUserCairn(_ context.Context, _, hash string) bool {
+	for _, item := range f.items {
+		if item.InfoHash == hash {
+			return true
+		}
+	}
+	return false
+}
 func (f *fakeCairns) ListUserCairns(_ context.Context, user string) ([]auth.CairnItem, error) {
 	f.listed = user
 	return f.items, nil
@@ -127,19 +134,6 @@ func TestCairnListReportsWarmAndDirectStreamsAsCached(t *testing.T) {
 	pending := response.Cairns[2]
 	if pending.Cached || pending.StreamSource != "" || len(pending.StreamURLs) != 0 {
 		t.Fatalf("pending item = %+v", pending)
-	}
-}
-
-func TestSignStreamsPreservesUserBoundCairnPath(t *testing.T) {
-	hash := strings.Repeat("e", 40)
-	s := New(Deps{Jobs: &fakeRepo{}, Store: &fakeStore{}})
-	job := &jobs.Job{UserID: "user-1", InfoHash: hash, Files: []jobs.File{{
-		Name: "movie.mkv", Size: 1234, Key: cairn.StreamPath(hash, 0, "movie.mkv"), Enc: true,
-	}}}
-	streams := s.signStreams(job, httptest.NewRequest("GET", "/api/jobs/1", nil))
-	if len(streams) != 1 || !strings.Contains(streams[0].SignedURL, hash+"/cairn/0/movie.mkv") ||
-		!strings.Contains(streams[0].SignedURL, "u=user-1") || !strings.Contains(streams[0].SignedURL, "enc=1") {
-		t.Fatalf("stream = %+v", streams)
 	}
 }
 

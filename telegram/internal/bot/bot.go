@@ -50,11 +50,12 @@ type Bot struct {
 	Repo     jobs.Repository
 	Bus      Publisher
 
-	Resolve func(tgUserID int64) (userID string, ok bool)
-	Link    func(code string, tgUserID int64) (userID string, ok bool)
-	Plan    func(userID string) (maxBytes int64, maxConcurrent int)
-	Paid    func(userID string) bool
-	Ban     func(userID, reason string)
+	Resolve   func(tgUserID int64) (userID string, ok bool)
+	Link      func(code string, tgUserID int64) (userID string, ok bool)
+	Plan      func(userID string) (maxBytes int64, maxConcurrent int)
+	Paid      func(userID string) bool
+	OverQuota func(userID string) bool
+	Ban       func(userID, reason string)
 
 	dedup *dedupe
 	cm    *cinemeta.Client
@@ -176,6 +177,10 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 	}
 	if b.Paid != nil && !b.Paid(userID) {
 		_, _ = ctx.Reply(u, ext.ReplyTextString("Telegram uploads need a paid plan."), nil)
+		return nil
+	}
+	if b.OverQuota != nil && b.OverQuota(userID) {
+		_, _ = ctx.Reply(u, ext.ReplyTextString("You've hit your monthly download limit. It resets on the 1st."), nil)
 		return nil
 	}
 

@@ -20,6 +20,7 @@ type Store interface {
 	Has(ctx context.Context, key string) (bool, error)
 	Head(ctx context.Context, key string) (*storage.Object, error)
 	StreamUpload(ctx context.Context, key string, body io.Reader, contentType string) error
+	PutSized(ctx context.Context, key string, body io.Reader, size int64, contentType string) error
 	Put(ctx context.Context, key string, body io.Reader, contentType string) error
 }
 

@@ -55,6 +55,12 @@ func (r *realdebrid) Release(ctx context.Context, handle string) error {
 }
 
 func (r *realdebrid) Fetch(ctx context.Context, magnet, infoHash string) (*Result, error) {
+	if res, err := r.libraryFetch(ctx, infoHash); err != nil {
+		return nil, err
+	} else if res != nil {
+		return res, nil
+	}
+
 	id, err := r.c.addMagnet(ctx, magnet)
 	if err != nil {
 		return nil, err
@@ -81,13 +87,27 @@ func (r *realdebrid) Fetch(ctx context.Context, magnet, infoHash string) (*Resul
 		return nil, err
 	}
 
+	files := r.linksFrom(ctx, t)
+	if len(files) == 0 {
+		r.Release(context.Background(), id)
+		return nil, nil
+	}
+
+	name := t.Filename
+	if name == "" {
+		name = files[0].Name
+	}
+	return &Result{Name: name, Handle: id, Files: files}, nil
+}
+
+func (r *realdebrid) linksFrom(ctx context.Context, t *rdTorrent) []Link {
 	var files []Link
 	for _, link := range t.Links {
-		u, err := r.c.unrestrict(ctx, link)
+		restricted := link
+		u, err := r.c.unrestrict(ctx, restricted)
 		if err != nil || !isVideoFile(u.Filename) {
 			continue
 		}
-		restricted := link
 		files = append(files, Link{
 			Name: u.Filename, Size: u.FileSize, URL: u.Download,
 			Renew: func(c context.Context) (string, error) {
@@ -99,16 +119,7 @@ func (r *realdebrid) Fetch(ctx context.Context, magnet, infoHash string) (*Resul
 			},
 		})
 	}
-	if len(files) == 0 {
-		r.Release(context.Background(), id)
-		return nil, nil
-	}
-
-	name := t.Filename
-	if name == "" {
-		name = files[0].Name
-	}
-	return &Result{Name: name, Handle: id, Files: files}, nil
+	return files
 }
 
 func (r *realdebrid) poll(ctx context.Context, id string) bool {

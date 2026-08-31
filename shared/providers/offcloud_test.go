@@ -29,6 +29,8 @@ func TestOffcloudCached(t *testing.T) {
 func TestOffcloudFetch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/api/cloud/history":
+			w.Write([]byte(`[]`))
 		case r.URL.Path == "/api/cloud":
 			w.Write([]byte(`{"requestId":"r1","fileName":"Show S01"}`))
 		case r.URL.Path == "/api/cloud/status":
@@ -90,5 +92,37 @@ func TestValidateOCBadKey(t *testing.T) {
 
 	if err := ValidateOC(context.Background(), "bad"); err == nil {
 		t.Fatal("expected error for bad key")
+	}
+}
+
+func TestOffcloudLibraryFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/cloud/history":
+			w.Write([]byte(`[{"requestId":"r9","fileName":"MyFilm","status":"downloaded","originalLink":"f409d526a1863b60eefae8d015be889866afa7aa.torrent"}]`))
+		case r.URL.Path == "/api/cloud/explore/r9":
+			w.Write([]byte(`{"files":[{"name":"film.mkv","size":100,"url":"http://x/film.mkv"}]}`))
+		case r.URL.Path == "/api/cloud":
+			t.Error("must not add a magnet when the item is already in the library")
+		case r.URL.Path == "/api/cloud/remove":
+			t.Error("a library item must NOT be removed")
+		default:
+			w.WriteHeader(200)
+		}
+	}))
+	defer srv.Close()
+	old := ocBase
+	ocBase = srv.URL
+	defer func() { ocBase = old }()
+
+	res, err := newOffcloud("k").Fetch(context.Background(), "magnet:x", "f409d526a1863b60eefae8d015be889866afa7aa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || len(res.Files) != 1 || res.Files[0].Name != "film.mkv" {
+		t.Fatalf("library fallback should resolve the file, got %+v", res)
+	}
+	if res.Handle != "" {
+		t.Fatalf("library item must have an empty Handle so it is never deleted, got %q", res.Handle)
 	}
 }

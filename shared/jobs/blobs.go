@@ -60,9 +60,34 @@ func (p *Postgres) DropBlobRefs(ctx context.Context, infoHash string) ([]string,
 	return orphaned, rows.Err()
 }
 
+func (p *Postgres) DropDanglingRefs(ctx context.Context) (int64, error) {
+	tag, err := p.pool.Exec(ctx,
+		`DELETE FROM blob_refs r WHERE NOT EXISTS (SELECT 1 FROM jobs j WHERE j.info_hash = r.info_hash)`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func (p *Postgres) DeleteBlob(ctx context.Context, contentKey string) error {
 	_, err := p.pool.Exec(ctx, `DELETE FROM blobs WHERE content_key=$1`, contentKey)
 	return err
+}
+
+func (p *Postgres) ReferencedKeys(ctx context.Context) (map[string]struct{}, error) {
+	rows, err := p.pool.Query(ctx, `SELECT DISTINCT content_key FROM blob_refs`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]struct{})
+	for rows.Next() {
+		var ck string
+		if rows.Scan(&ck) == nil {
+			out[ck] = struct{}{}
+		}
+	}
+	return out, rows.Err()
 }
 
 func (p *Postgres) OrphanedBlobs(ctx context.Context, limit int) ([]Blob, error) {

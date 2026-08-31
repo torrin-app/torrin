@@ -30,7 +30,7 @@ func (s *Server) addJob(w http.ResponseWriter, r *http.Request) {
 	case detect.Torrent:
 		s.ingestTorrent(w, r, user, plan, data)
 	case detect.NZB:
-		s.ingestNZB(w, r, user, plan, data, strings.TrimSuffix(filename, ".nzb"), true)
+		s.ingestNZB(w, r, user, plan, data, strings.TrimSuffix(filename, ".nzb"), "", true)
 	case detect.Magnet, detect.InfoHash, detect.URL:
 		s.ingestText(w, r, strings.TrimSpace(string(data)))
 	default:

@@ -27,11 +27,17 @@ func segments(name string) []string {
 }
 
 func (d davFS) node(name string) (*node, error) {
-	n := d.root.find(segments(name))
-	if n == nil {
-		return nil, os.ErrNotExist
+	cur := d.root
+	for _, seg := range segments(name) {
+		if cur == nil || !cur.dir {
+			return nil, os.ErrNotExist
+		}
+		cur = cur.index[seg]
+		if cur == nil || cur.hidden {
+			return nil, os.ErrNotExist
+		}
 	}
-	return n, nil
+	return cur, nil
 }
 
 func (d davFS) OpenFile(_ context.Context, name string, flag int, _ os.FileMode) (webdav.File, error) {
@@ -72,7 +78,12 @@ func (f *davFile) Readdir(count int) ([]os.FileInfo, error) {
 	if !f.n.dir {
 		return nil, os.ErrInvalid
 	}
-	kids := f.n.children
+	kids := make([]*node, 0, len(f.n.children))
+	for _, c := range f.n.children {
+		if !c.hidden {
+			kids = append(kids, c)
+		}
+	}
 	if f.pos >= len(kids) {
 		if count > 0 {
 			return nil, io.EOF

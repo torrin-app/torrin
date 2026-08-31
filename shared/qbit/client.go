@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -24,6 +25,7 @@ type Torrent struct {
 	Hash        string  `json:"hash"`
 	Name        string  `json:"name"`
 	Size        int64   `json:"size"`
+	Downloaded  int64   `json:"downloaded"`
 	Progress    float64 `json:"progress"`
 	DlSpeed     int64   `json:"dlspeed"`
 	State       string  `json:"state"`
@@ -112,19 +114,39 @@ func (c *Client) ConfigureForSeeding() error {
 	})
 }
 
-func (c *Client) AddMagnet(magnet string) error {
-	resp, err := c.http.PostForm(c.baseURL+"/api/v2/torrents/add", url.Values{
+func (c *Client) AddMagnet(magnet string, dlLimit int64) error {
+	form := url.Values{
 		"urls":               {magnet},
 		"savepath":           {"/downloads"},
 		"category":           {"torrin"},
 		"sequentialDownload": {"true"},
 		"firstLastPiecePrio": {"true"},
 		"stopCondition":      {"MetadataReceived"},
-	})
+	}
+	if dlLimit > 0 {
+		form.Set("dlLimit", strconv.FormatInt(dlLimit, 10))
+	}
+	resp, err := c.http.PostForm(c.baseURL+"/api/v2/torrents/add", form)
 	if err != nil {
 		return fmt.Errorf("add magnet: %w", err)
 	}
 	return addResult(resp, "add magnet")
+}
+
+func (c *Client) SetDownloadLimit(hash string, bytesPerSec int64) error {
+	resp, err := c.http.PostForm(c.baseURL+"/api/v2/torrents/setDownloadLimit", url.Values{
+		"hashes": {strings.ToLower(hash)},
+		"limit":  {strconv.FormatInt(bytesPerSec, 10)},
+	})
+	if err != nil {
+		return fmt.Errorf("set download limit: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 && resp.StatusCode != 204 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("set download limit (%d): %s", resp.StatusCode, body)
+	}
+	return nil
 }
 
 func (c *Client) AddTorrentFile(data []byte, category string) error {

@@ -38,8 +38,16 @@ func (h *Handler) getMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.User) {
 	var req struct {
 		Magnet string `json:"magnet"`
+		Link   string `json:"link"`
 	}
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Magnet == "" {
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		stError(w, 400, "magnet required")
+		return
+	}
+	if req.Magnet == "" {
+		req.Magnet = req.Link
+	}
+	if req.Magnet == "" {
 		stError(w, 400, "magnet required")
 		return
 	}
@@ -59,7 +67,9 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 			stError(w, 403, "this release requires a paid plan")
 			return
 		}
-		source, mag, hdTitle, hdSize = jobs.Source(src), pURL, t, sz
+		if jobs.Source(src) != jobs.SourceUsenet || h.canUsenet(r.Context(), user) {
+			source, mag, hdTitle, hdSize = jobs.Source(src), pURL, t, sz
+		}
 	}
 
 	cacheName, cacheSize, cacheFiles, cached := h.cachedJobFiles(r.Context(), infoHash)
@@ -89,6 +99,12 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		return
 	}
 
+	if !cached {
+		if over, _ := h.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+			stError(w, 429, "monthly download limit reached, resets on the 1st")
+			return
+		}
+	}
 	if !cached && coldPullBlocked(r.Context(), h.Jobs, user.ID, plan.ColdPullsPerHour) {
 		stError(w, 429, "hourly download limit reached, try later or upgrade")
 		return
@@ -171,4 +187,13 @@ func imdbFromSID(sid string) string {
 		sid = sid[:i]
 	}
 	return strings.TrimPrefix(sid, "tt")
+}
+
+func (h *Handler) canUsenet(ctx context.Context, user *auth.User) bool {
+	plan, _ := plans.Get(user.PlanID)
+	if plan.SystemUsenet {
+		return true
+	}
+	_, err := h.Users.GetUsenetCreds(ctx, user.ID)
+	return err == nil && plans.CanBYOK(plan.ID)
 }

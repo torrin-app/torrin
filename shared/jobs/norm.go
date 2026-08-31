@@ -9,7 +9,47 @@ import (
 var titleStopwords = map[string]bool{"the": true, "a": true, "an": true, "of": true, "and": true}
 
 func titleNormFromName(name string) string {
-	return NormTitle(rls.ParseString(stripSitePrefix(name)).Title)
+	s := stripSitePrefix(name)
+	if before, ok := beforeYearParen(s); ok {
+		return NormTitle(stripLeadingTags(before))
+	}
+	return NormTitle(rls.ParseString(s).Title)
+}
+
+func TitleYear(name string) (string, int) {
+	s := stripSitePrefix(name)
+	p := rls.ParseString(s)
+	if before, ok := beforeYearParen(s); ok {
+		return stripLeadingTags(before), p.Year
+	}
+	return strings.TrimSpace(p.Title), p.Year
+}
+
+func IsSeries(name string) bool {
+	return rls.ParseString(stripSitePrefix(name)).Type.Is(rls.Series, rls.Episode)
+}
+
+func beforeYearParen(s string) (string, bool) {
+	for i := 0; i+5 < len(s); i++ {
+		if s[i] == '(' && isYearToken(s[i+1:i+5]) && s[i+5] == ')' {
+			if t := strings.TrimSpace(s[:i]); t != "" {
+				return t, true
+			}
+		}
+	}
+	return "", false
+}
+
+func stripLeadingTags(s string) string {
+	s = strings.TrimSpace(s)
+	for strings.HasPrefix(s, "[") {
+		j := strings.IndexByte(s, ']')
+		if j < 0 {
+			break
+		}
+		s = strings.TrimSpace(s[j+1:])
+	}
+	return s
 }
 
 func stripSitePrefix(name string) string {

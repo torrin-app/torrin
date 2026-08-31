@@ -39,7 +39,7 @@ func checkoutRequest(w http.ResponseWriter, r *http.Request) (*auth.User, checko
 }
 
 func (s *Server) cryptoCheckout(w http.ResponseWriter, r *http.Request) {
-	if s.Bitcart == nil || !s.Bitcart.Enabled() {
+	if s.NowPay == nil || !s.NowPay.Enabled() {
 		web.WriteError(w, 503, "crypto payments not available")
 		return
 	}
@@ -47,12 +47,12 @@ func (s *Server) cryptoCheckout(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := s.Bitcart.CreateInvoice(r.Context(), user.Email, req.Plan, req.Period, req.Days)
+	url, err := s.NowPay.CreateInvoice(r.Context(), user.Email, req.Plan, req.Period, req.Days)
 	if err != nil {
 		web.WriteError(w, 502, "could not create invoice, please retry")
 		return
 	}
-	web.WriteJSON(w, 200, map[string]any{"invoice_id": id})
+	web.WriteJSON(w, 200, map[string]any{"checkout_url": url})
 }
 
 func (s *Server) bachsCheckout(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +70,29 @@ func (s *Server) bachsCheckout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"checkout_url": url})
+}
+
+func (s *Server) bachsPortal(w http.ResponseWriter, r *http.Request) {
+	if s.Bachs == nil || !s.Bachs.Enabled() {
+		web.WriteError(w, 503, "subscription management is unavailable right now")
+		return
+	}
+	user, _ := r.Context().Value(middleware.UserContextKey).(*auth.User)
+	if user == nil {
+		web.WriteError(w, 401, "login required")
+		return
+	}
+	custID, err := s.Users.BachsCustomerID(r.Context(), user.ID)
+	if err != nil || custID == "" {
+		web.WriteError(w, 404, "no subscription to manage")
+		return
+	}
+	url, err := s.Bachs.CreatePortalSession(r.Context(), custID)
+	if err != nil {
+		web.WriteError(w, 502, "could not open subscription management, please retry")
+		return
+	}
+	web.WriteJSON(w, 200, map[string]any{"url": url})
 }
 
 func (s *Server) cryptoInvoice(w http.ResponseWriter, r *http.Request) {

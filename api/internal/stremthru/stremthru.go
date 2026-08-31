@@ -87,6 +87,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v0/store/newz/{id}", h.withAuth(h.getNewz))
 	mux.HandleFunc("DELETE /v0/store/newz/{id}", h.withAuth(h.removeNewz))
 	mux.HandleFunc("POST /v0/store/newz/link/generate", h.withAuth(h.generateLink))
+	mux.HandleFunc("GET /v0/store/torz/check", h.withAuth(h.checkMagnets))
+	mux.HandleFunc("GET /v0/store/torz", h.withAuth(h.listMagnets))
+	mux.HandleFunc("POST /v0/store/torz", h.withAuth(h.addMagnet))
+	mux.HandleFunc("GET /v0/store/torz/{id}", h.withAuth(h.getMagnet))
+	mux.HandleFunc("DELETE /v0/store/torz/{id}", h.withAuth(h.deleteMagnet))
+	mux.HandleFunc("POST /v0/store/torz/link/generate", h.withAuth(h.generateLink))
 }
 
 func (h *Handler) withAuth(next func(http.ResponseWriter, *http.Request, *auth.User)) http.HandlerFunc {
@@ -139,7 +145,7 @@ func (h *Handler) assign(job *jobs.Job) {
 func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 	m := map[string]any{
 		"id": j.ID, "hash": j.InfoHash, "magnet": magnet.Build(j.InfoHash, j.Name), "name": j.Name, "status": stStatus(j.Status),
-		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339),
+		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339), "private": false,
 		"files": []map[string]any{},
 	}
 	if name, size, files, ok := h.cachedJobFiles(ctx, j.InfoHash); ok {

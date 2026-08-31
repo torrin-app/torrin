@@ -36,7 +36,7 @@ func (r *Runner) activeHashes(ctx context.Context) map[string]bool {
 	for _, st := range []jobs.Status{jobs.StatusPending, jobs.StatusQueued, jobs.StatusDownloading, jobs.StatusProcessing, jobs.StatusPublishing, jobs.StatusSeeding} {
 		list, _ := r.repo.ListByStatus(ctx, st)
 		for _, j := range list {
-			if j.Node != r.node {
+			if !r.mine(j.Node) {
 				continue
 			}
 			if j.InfoHash != "" {

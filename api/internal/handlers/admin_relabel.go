@@ -25,7 +25,8 @@ func (s *Server) adminRelabel(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 503, "qbit unavailable")
 		return
 	}
-	data, err := s.Store.GetBytes(r.Context(), manifest.Path(hash))
+	store := s.storeForNode(s.Jobs.NodeForInfoHash(r.Context(), hash))
+	data, err := store.GetBytes(r.Context(), manifest.Path(hash))
 	if err != nil {
 		web.WriteError(w, 404, "not cached")
 		return
@@ -71,7 +72,7 @@ func (s *Server) adminRelabel(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 500, "could not encode manifest")
 		return
 	}
-	if err := s.Store.Put(r.Context(), manifest.Path(hash), bytes.NewReader(out), "application/json"); err != nil {
+	if err := store.Put(r.Context(), manifest.Path(hash), bytes.NewReader(out), "application/json"); err != nil {
 		web.WriteError(w, 500, "could not write manifest")
 		return
 	}
@@ -96,7 +97,7 @@ func (s *Server) adminRelabel(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) torrentFiles(ctx context.Context, hash string) ([]relabel.NamedSize, error) {
 	if existing, err := s.Qbit.GetTorrent(hash); err != nil || existing == nil {
-		if err := s.Qbit.AddMagnet("magnet:?xt=urn:btih:" + hash + relabelTrackers); err != nil {
+		if err := s.Qbit.AddMagnet("magnet:?xt=urn:btih:"+hash+relabelTrackers, 0); err != nil {
 			return nil, err
 		}
 		defer s.Qbit.Delete(hash)

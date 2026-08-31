@@ -46,8 +46,8 @@ func (s *Server) listFeeds(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
-	if user.PlanID == "free" {
-		web.WriteError(w, 403, "rss feeds require a paid plan")
+	if plan := middleware.GetPlan(r); !plan.RSS {
+		web.WriteError(w, 403, "rss auto-download requires a Standard plan or higher")
 		return
 	}
 	var req struct {
@@ -159,6 +159,12 @@ func (s *Server) rssSweep(ctx context.Context) {
 			continue
 		}
 		plan, _ := plans.Get(user.PlanID)
+		if !plan.RSS {
+			continue
+		}
+		if over, _ := s.Users.MonthlyQuotaExceeded(ctx, user.ID, plan.MonthlyIngestBytes); over {
+			continue
+		}
 		src := releaseSourceFor(feed.URL)
 		submitted := 0
 		for _, item := range items {

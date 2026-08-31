@@ -27,6 +27,7 @@ type BachsHandler struct {
 	secretKey     string
 	webhookSecret string
 	productID     string
+	subProducts   map[string]string
 	apiBase       string
 	webBase       string
 	users         *auth.Store
@@ -34,7 +35,7 @@ type BachsHandler struct {
 	http          *http.Client
 }
 
-func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, apiBase, webBase, donationWebhook string, users *auth.Store) *BachsHandler {
+func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, subProducts, apiBase, webBase, donationWebhook string, users *auth.Store) *BachsHandler {
 	if apiURL == "" {
 		apiURL = "https://sandbox-api.bachs.io"
 	}
@@ -43,6 +44,7 @@ func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, apiBase, webBa
 		secretKey:     secretKey,
 		webhookSecret: webhookSecret,
 		productID:     productID,
+		subProducts:   parseSubProducts(subProducts),
 		apiBase:       strings.TrimRight(apiBase, "/"),
 		webBase:       strings.TrimRight(webBase, "/"),
 		users:         users,
@@ -51,9 +53,30 @@ func NewBachsHandler(apiURL, secretKey, webhookSecret, productID, apiBase, webBa
 	}
 }
 
+func parseSubProducts(raw string) map[string]string {
+	out := map[string]string{}
+	for _, part := range strings.Split(raw, ",") {
+		key, id, found := strings.Cut(strings.TrimSpace(part), ":")
+		if found && key != "" && id != "" {
+			out[strings.TrimSpace(key)] = strings.TrimSpace(id)
+		}
+	}
+	return out
+}
+
 func (b *BachsHandler) Enabled() bool { return b.secretKey != "" && b.productID != "" }
 
 func (b *BachsHandler) CreateCheckout(ctx context.Context, email, planID, period string, days int) (string, error) {
+	if period == "monthly" || period == "yearly" {
+		if prod := b.subProducts[planID+"-"+period]; prod != "" {
+			return b.postCheckout(ctx, map[string]any{
+				"customer":     map[string]string{"email": email, "name": email},
+				"product_cart": []map[string]any{{"product_id": prod, "quantity": 1}},
+				"return_url":   b.webBase + "/?subscribed=1",
+				"metadata":     map[string]string{"email": email, "plan": planID, "period": period},
+			})
+		}
+	}
 	cents, ok := plans.PriceCents(planID, period, days)
 	if !ok || cents <= 0 {
 		return "", fmt.Errorf("no price for plan %q period %q days %d", planID, period, days)
@@ -70,7 +93,7 @@ func (b *BachsHandler) CreateTopup(ctx context.Context, email string, cents int)
 }
 
 func (b *BachsHandler) createSession(ctx context.Context, email string, cents int, meta map[string]string) (string, error) {
-	payload := map[string]any{
+	return b.postCheckout(ctx, map[string]any{
 		"customer": map[string]string{"email": email, "name": email},
 		"product_cart": []map[string]any{{
 			"product_id": b.productID,
@@ -79,7 +102,10 @@ func (b *BachsHandler) createSession(ctx context.Context, email string, cents in
 		}},
 		"return_url": b.webBase + "/?paid=1",
 		"metadata":   meta,
-	}
+	})
+}
+
+func (b *BachsHandler) postCheckout(ctx context.Context, payload map[string]any) (string, error) {
 	body, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.apiURL+"/v1/checkout-sessions", bytes.NewReader(body))
@@ -127,13 +153,9 @@ func (b *BachsHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var evt struct {
-		ID   string `json:"id"`
-		Type string `json:"type"`
-		Data struct {
-			Metadata map[string]any `json:"metadata"`
-			Amount   string         `json:"amount"`
-			Currency string         `json:"currency"`
-		} `json:"data"`
+		ID   string         `json:"id"`
+		Type string         `json:"type"`
+		Data bachsEventData `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &evt); err != nil || evt.ID == "" {
 		http.Error(w, "bad json", http.StatusBadRequest)
@@ -141,18 +163,70 @@ func (b *BachsHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("bachs webhook", "id", evt.ID, "type", evt.Type)
-	if evt.Type != bachsPaidEvent {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
 	meta := stringMap(evt.Data.Metadata)
-	if isDonation(meta) {
-		b.notifyDonation(donationMessage(evt.Data.Amount, evt.Data.Currency))
-		w.WriteHeader(http.StatusOK)
+	switch evt.Type {
+	case bachsPaidEvent:
+		if isDonation(meta) {
+			b.notifyDonation(donationMessage(evt.Data.Amount, evt.Data.Currency))
+		} else {
+			b.activate(r.Context(), evt.ID, meta)
+		}
+	case "customer.subscription.created", "customer.subscription.updated":
+		b.syncSubscription(r.Context(), evt.Data)
+	case "customer.subscription.deleted":
+		slog.Info("bachs subscription canceled, access rides to period end", "sub", evt.Data.ID)
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+type bachsEventData struct {
+	ID               string         `json:"id"`
+	Status           string         `json:"status"`
+	CurrentPeriodEnd string         `json:"current_period_end"`
+	Metadata         map[string]any `json:"metadata"`
+	Amount           string         `json:"amount"`
+	Currency         string         `json:"currency"`
+	Customer         struct {
+		Email      string `json:"email"`
+		CustomerID string `json:"customer_id"`
+	} `json:"customer"`
+}
+
+func (b *BachsHandler) syncSubscription(ctx context.Context, d bachsEventData) {
+	meta := stringMap(d.Metadata)
+	email := d.Customer.Email
+	if email == "" {
+		email = meta["email"]
+	}
+	if email == "" {
+		slog.Error("bachs subscription missing email", "sub", d.ID)
 		return
 	}
-	b.activate(r.Context(), evt.ID, meta)
-	w.WriteHeader(http.StatusOK)
+	if d.Status != "active" && d.Status != "trialing" {
+		slog.Info("bachs subscription not active, skipping grant", "sub", d.ID, "status", d.Status)
+		return
+	}
+	planID := meta["plan"]
+	if _, ok := plans.Get(planID); !ok {
+		slog.Warn("bachs subscription unknown plan", "sub", d.ID, "plan", planID)
+		return
+	}
+	end, err := time.Parse(time.RFC3339, d.CurrentPeriodEnd)
+	if err != nil {
+		slog.Error("bachs subscription bad period end", "sub", d.ID, "err", err)
+		return
+	}
+	user, _, err := getOrCreateUser(ctx, b.users, email)
+	if err != nil {
+		slog.Error("bachs subscription user", "err", err)
+		return
+	}
+	if err := b.users.UpdatePlan(ctx, user.ID, planID, d.ID, "", meta["period"], end); err != nil {
+		slog.Error("bachs subscription update plan", "err", err)
+		return
+	}
+	b.users.SetBachsCustomer(ctx, user.ID, d.Customer.CustomerID)
+	slog.Info("bachs subscription active", "email", email, "plan", planID, "sub", d.ID, "expires", end.Format("2006-01-02"))
 }
 
 func isDonation(meta map[string]string) bool {

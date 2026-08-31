@@ -26,13 +26,14 @@ func (s *Server) adminEvictCache(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "hash required")
 		return
 	}
-	if err := s.Store.DeletePrefix(r.Context(), hash+"/"); err != nil {
+	store := s.storeForNode(s.Jobs.NodeForInfoHash(r.Context(), hash))
+	if err := store.DeletePrefix(r.Context(), hash+"/"); err != nil {
 		web.WriteError(w, 500, "cache operation failed")
 		return
 	}
 	if orphaned, err := s.JobsPG.DropBlobRefs(r.Context(), hash); err == nil {
 		for _, ck := range orphaned {
-			if s.Store.Delete(r.Context(), blob.StorageKey(ck)) == nil {
+			if store.Delete(r.Context(), blob.StorageKey(ck)) == nil {
 				s.JobsPG.DeleteBlob(r.Context(), ck)
 			}
 		}

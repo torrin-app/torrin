@@ -181,12 +181,17 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 		return nil, fmt.Errorf("content blocked by safety policy")
 	}
 
-	creds, system := r.creds(ctx, job.UserID)
-	if creds.Host == "" {
-		return nil, fmt.Errorf("no usenet provider configured")
+	credsList, system := r.credsList(ctx, job.UserID)
+	if len(credsList) == 0 {
+		if r.sysCreds.Host != "" && r.users.HasUserCairn(ctx, job.UserID, job.InfoHash) {
+			credsList, system = []download.Credentials{r.sysCreds}, true
+		} else {
+			return nil, failure.UsenetNotSetup
+		}
 	}
-	slog.Info("usenet connecting", "job", job.ID, "host", creds.Host, "conns", creds.MaxConns, "shared", system)
-	pool, release, err := download.AcquireShared(creds)
+	conns := credsList[0].MaxConns
+	slog.Info("usenet connecting", "job", job.ID, "host", credsList[0].Host, "providers", len(credsList), "conns", conns, "shared", system)
+	pools, release, err := download.AcquireSharedMulti(credsList)
 	if err != nil {
 		return nil, fmt.Errorf("connect usenet: %w", err)
 	}
@@ -205,7 +210,7 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	go stallWatch(dlCtx, cancel, &lastAt, job.ID)
 
 	slog.Info("usenet downloading", "job", job.ID, "name", parsed.Name())
-	_, missing, dlErr := download.Download(dlCtx, pool, parsed, dir, creds.MaxConns, prog)
+	_, missing, dlErr := download.Download(dlCtx, pools, parsed, dir, conns, prog)
 	stalled := dlCtx.Err() != nil && ctx.Err() == nil
 	if dlErr != nil && !stalled {
 		return nil, fmt.Errorf("download: %w", dlErr)
@@ -304,18 +309,25 @@ func stallWatch(ctx context.Context, cancel context.CancelFunc, lastAt *atomic.I
 }
 
 func (r *Runner) HasProvider(ctx context.Context, userID string) bool {
-	c, _ := r.creds(ctx, userID)
-	return c.Host != ""
+	list, _ := r.credsList(ctx, userID)
+	return len(list) > 0
 }
 
-func (r *Runner) creds(ctx context.Context, userID string) (download.Credentials, bool) {
+func (r *Runner) credsList(ctx context.Context, userID string) ([]download.Credentials, bool) {
+	if ps, err := r.users.EnabledUsenetProviders(ctx, userID); err == nil && len(ps) > 0 {
+		out := make([]download.Credentials, 0, len(ps))
+		for _, p := range ps {
+			out = append(out, download.Credentials{Host: p.Host, Port: p.Port, Username: p.Username, Password: p.Password, SSL: p.SSL, MaxConns: p.MaxConns})
+		}
+		return out, false
+	}
 	if c, err := r.users.GetUsenetCreds(ctx, userID); err == nil && c.Host != "" {
-		return download.Credentials{Host: c.Host, Port: c.Port, Username: c.Username, Password: c.Password, SSL: c.SSL, MaxConns: c.MaxConns}, false
+		return []download.Credentials{{Host: c.Host, Port: c.Port, Username: c.Username, Password: c.Password, SSL: c.SSL, MaxConns: c.MaxConns}}, false
 	}
 	if u, err := r.users.GetByID(ctx, userID); err == nil && u != nil {
 		if p, ok := plans.Get(u.PlanID); ok && p.SystemUsenet {
-			return r.sysCreds, true
+			return []download.Credentials{r.sysCreds}, true
 		}
 	}
-	return download.Credentials{}, false
+	return nil, false
 }

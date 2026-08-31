@@ -16,6 +16,7 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/mediainfo"
+	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/video"
@@ -35,6 +36,7 @@ type File struct {
 
 type Store interface {
 	StreamUpload(ctx context.Context, key string, body io.Reader, contentType string) error
+	PutSized(ctx context.Context, key string, body io.Reader, size int64, contentType string) error
 	Put(ctx context.Context, key string, body io.Reader, contentType string) error
 	Head(ctx context.Context, key string) (*storage.Object, error)
 	GetBytes(ctx context.Context, key string) ([]byte, error)
@@ -49,6 +51,11 @@ type RuntimeSource interface {
 	Runtime(ctx context.Context, imdbID string) (int, error)
 }
 
+type nodeStore struct {
+	store Store
+	bs    *blobstore.Uploader
+}
+
 type Publisher struct {
 	repo   jobs.Repository
 	store  Store
@@ -58,6 +65,9 @@ type Publisher struct {
 	caches []*rclonerc.Client
 	bs     *blobstore.Uploader
 	rt     RuntimeSource
+	nodes  map[string]*nodeStore
+	usage  func(context.Context, string, int64) error
+	target func(context.Context, string, int64) string
 }
 
 func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher *crypto.Stream, caches []*rclonerc.Client) *Publisher {
@@ -69,32 +79,92 @@ func New(repo jobs.Repository, store Store, node string, blobs BlobIndex, cipher
 
 func (p *Publisher) SetRuntimeSource(rt RuntimeSource) { p.rt = rt }
 
-func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) error {
+func (p *Publisher) SetUsageRecorder(fn func(context.Context, string, int64) error) { p.usage = fn }
+
+func (p *Publisher) SetTargeter(fn func(context.Context, string, int64) string) { p.target = fn }
+
+func (p *Publisher) SetNodeStores(stores map[string]Store) {
+	if len(stores) == 0 {
+		return
+	}
+	p.nodes = make(map[string]*nodeStore, len(stores))
+	for node, st := range stores {
+		p.nodes[node] = &nodeStore{store: st, bs: blobstore.New(st, p.blobs, p.cipher, uploadStallTimeout)}
+	}
+}
+
+func (p *Publisher) storeFor(node string) (Store, *blobstore.Uploader) {
+	if ns, ok := p.nodes[node]; ok {
+		return ns.store, ns.bs
+	}
+	return p.store, p.bs
+}
+
+func (p *Publisher) remote() bool { return len(p.nodes) > 0 }
+
+func (p *Publisher) MeterBytes(ctx context.Context, userID string, seed bool, bytes int64) {
+	if p.usage == nil || userID == "" || userID == "prewarm" || seed || bytes <= 0 {
+		return
+	}
+	if err := p.usage(context.WithoutCancel(ctx), userID, bytes); err != nil {
+		slog.Warn("ingest usage record failed", "user", userID, "err", err)
+	}
+}
+
+func (p *Publisher) meterDownload(ctx context.Context, job *jobs.Job, files []File) {
+	if t := providers.TallyFrom(ctx); t != nil {
+		t.MarkPublished()
+	}
+	var dl int64
+	for _, f := range files {
+		dl += f.Size
+	}
+	p.MeterBytes(ctx, job.UserID, job.Seed, dl)
+}
+
+func usableFiles(job *jobs.Job, files []File) []File {
+	var kept []File
 	for _, f := range files {
 		if f.Size < minVideoFileSize {
-			return failure.Newf("incomplete", "file %q too small (%d bytes), likely corrupt", f.Name, f.Size)
+			slog.Warn("publish: dropping undersized file", "name", f.Name, "bytes", f.Size)
+			if !job.Seed {
+				os.Remove(f.Path)
+			}
+			continue
 		}
+		kept = append(kept, f)
+	}
+	return kept
+}
+
+func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) error {
+	p.meterDownload(ctx, job, files)
+
+	files = usableFiles(job, files)
+	if len(files) == 0 {
+		return failure.Newf("incomplete", "no valid files, likely a corrupt or partial download")
 	}
 
 	job.Status = jobs.StatusPublishing
-	job.Node = p.node
+	if !p.remote() {
+		job.Node = p.node
+	} else if p.target != nil {
+		var total int64
+		for _, f := range files {
+			total += f.Size
+		}
+		if n := p.target(ctx, string(job.Source), total); n != "" {
+			job.Node = n
+		}
+	}
 	p.repo.Update(ctx, job)
+	store, bs := p.storeFor(job.Node)
 
 	var mfFiles []manifest.File
 	var total int64
 	var vidDur float64
 	wroteBlob := false
 	for i, f := range files {
-		ck, err := blob.ContentKey(f.Path, f.Size)
-		if err != nil {
-			return err
-		}
-		key := blob.StorageKey(ck)
-		crc, enc, wrote, err := p.store2blob(ctx, job.InfoHash, i, key, ck, f)
-		if err != nil {
-			return err
-		}
-		wroteBlob = wroteBlob || wrote
 		var mi *mediainfo.Info
 		if video.IsVideo(f.Name) {
 			pctx, cancel := context.WithTimeout(ctx, 30*time.Second)
@@ -102,7 +172,11 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 			cancel()
 			if err != nil || !mediainfo.Playable(info) {
 				if VerifyVideo {
-					return failure.Newf("incomplete", "file %q is not a playable video, likely a partial or corrupt download", f.Name)
+					slog.Warn("publish: skipping unplayable file", "name", f.Name, "err", err)
+					if !job.Seed {
+						os.Remove(f.Path)
+					}
+					continue
 				}
 				slog.Warn("mediainfo probe failed", "file", f.Name, "err", err)
 			} else {
@@ -112,11 +186,24 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 				}
 			}
 		}
+		ck, err := blob.ContentKey(f.Path, f.Size)
+		if err != nil {
+			return err
+		}
+		key := blob.StorageKey(ck)
+		crc, enc, wrote, err := bs.Put(ctx, job.InfoHash, i, f.Path, ck, key, video.ContentType(f.Path), f.Size)
+		if err != nil {
+			return err
+		}
+		wroteBlob = wroteBlob || wrote
 		if !job.Seed {
 			os.Remove(f.Path)
 		}
 		total += f.Size
 		mfFiles = append(mfFiles, manifest.File{FileName: f.Name, DirectURL: key, FileSize: f.Size, Crc32: crc, Enc: enc, MediaInfo: mi})
+	}
+	if len(mfFiles) == 0 {
+		return failure.Newf("incomplete", "no playable files, likely a corrupt or partial download")
 	}
 
 	if err := p.checkRuntime(ctx, job, vidDur); err != nil {
@@ -137,12 +224,12 @@ func (p *Publisher) Publish(ctx context.Context, job *jobs.Job, files []File) er
 	if err != nil {
 		return err
 	}
-	if err := p.store.Put(ctx, manifest.Path(job.InfoHash), bytes.NewReader(data), "application/json"); err != nil {
+	if err := store.Put(ctx, manifest.Path(job.InfoHash), bytes.NewReader(data), "application/json"); err != nil {
 		return err
 	}
 
-	p.refreshCaches(ctx, job.InfoHash, wroteBlob)
-	if err := p.complete(ctx, job.InfoHash, name, mfFiles, total); err != nil {
+	p.refreshCaches(ctx, job.Node, job.InfoHash, wroteBlob)
+	if err := p.complete(ctx, job.Node, job.InfoHash, name, mfFiles, total); err != nil {
 		return err
 	}
 	return nil
@@ -169,8 +256,8 @@ func runtimeMismatch(durationSec float64, expectedMin int) bool {
 	return got < exp*0.7 || got > exp*1.45
 }
 
-func (p *Publisher) refreshCaches(ctx context.Context, infoHash string, wroteBlob bool) {
-	prefix := p.node
+func (p *Publisher) refreshCaches(ctx context.Context, node, infoHash string, wroteBlob bool) {
+	prefix := node
 	if prefix == "" {
 		prefix = "box1"
 	}
@@ -193,12 +280,9 @@ func (p *Publisher) refreshCaches(ctx context.Context, infoHash string, wroteBlo
 	wg.Wait()
 }
 
-func (p *Publisher) store2blob(ctx context.Context, infoHash string, idx int, key, ck string, f File) (uint32, bool, bool, error) {
-	return p.bs.Put(ctx, infoHash, idx, f.Path, ck, key, video.ContentType(f.Path), f.Size)
-}
-
-func (p *Publisher) CompleteFromCache(ctx context.Context, infoHash string) (bool, error) {
-	data, err := p.store.GetBytes(ctx, manifest.Path(infoHash))
+func (p *Publisher) CompleteFromCache(ctx context.Context, node, infoHash string) (bool, error) {
+	store, _ := p.storeFor(node)
+	data, err := store.GetBytes(ctx, manifest.Path(infoHash))
 	if err != nil {
 		return false, nil
 	}
@@ -210,10 +294,10 @@ func (p *Publisher) CompleteFromCache(ctx context.Context, infoHash string) (boo
 	for _, f := range man.Files {
 		total += f.FileSize
 	}
-	return true, p.complete(ctx, infoHash, man.Name, man.Files, total)
+	return true, p.complete(ctx, node, infoHash, man.Name, man.Files, total)
 }
 
-func (p *Publisher) complete(ctx context.Context, infoHash, name string, files []manifest.File, total int64) error {
+func (p *Publisher) complete(ctx context.Context, node, infoHash, name string, files []manifest.File, total int64) error {
 	jobFiles := make([]jobs.File, len(files))
 	for i, f := range files {
 		jobFiles[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc, MediaInfo: f.MediaInfo}
@@ -223,7 +307,7 @@ func (p *Publisher) complete(ctx context.Context, infoHash, name string, files [
 		return err
 	}
 	for _, sib := range siblings {
-		if sib.Node != p.node {
+		if sib.Node != node {
 			continue
 		}
 		sib.Status = jobs.StatusComplete

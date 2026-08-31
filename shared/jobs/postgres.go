@@ -189,6 +189,20 @@ func (p *Postgres) ListByTitleNorm(ctx context.Context, norm string) ([]*Job, er
 	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE title_norm=$1 AND status='complete' ORDER BY created_at DESC`, norm)
 }
 
+func (p *Postgres) SetIMDB(ctx context.Context, infoHash, imdbID string) error {
+	if infoHash == "" || imdbID == "" {
+		return nil
+	}
+	_, err := p.pool.Exec(ctx, `UPDATE jobs SET imdb_id=$2 WHERE info_hash=$1 AND COALESCE(imdb_id,'')=''`, infoHash, imdbID)
+	return err
+}
+
+func (p *Postgres) UntaggedComplete(ctx context.Context, limit int) ([]*Job, error) {
+	return p.query(ctx, `SELECT `+cols+` FROM jobs
+		WHERE status='complete' AND COALESCE(imdb_id,'')='' AND COALESCE(info_hash,'')<>''
+		ORDER BY random() LIMIT $1`, limit)
+}
+
 func (p *Postgres) BackfillTitleNorm(ctx context.Context) (int, error) {
 	rows, err := p.pool.Query(ctx, `SELECT id, name, COALESCE(title_norm,'') FROM jobs WHERE status IN ('complete','seeding')`)
 	if err != nil {
@@ -221,8 +235,22 @@ func (p *Postgres) BackfillTitleNorm(ctx context.Context) (int, error) {
 }
 
 func (p *Postgres) Delete(ctx context.Context, id string) error {
-	_, err := p.pool.Exec(ctx, `DELETE FROM jobs WHERE id=$1`, id)
-	return err
+	var infoHash string
+	err := p.pool.QueryRow(ctx, `DELETE FROM jobs WHERE id=$1 RETURNING info_hash`, id).Scan(&infoHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var n int
+	if err := p.pool.QueryRow(ctx, `SELECT COUNT(*) FROM jobs WHERE info_hash=$1`, infoHash).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		p.DropBlobRefs(ctx, infoHash)
+	}
+	return nil
 }
 
 func (p *Postgres) ActiveCount(ctx context.Context, userID string) (int, error) {

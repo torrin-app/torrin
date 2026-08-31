@@ -135,6 +135,10 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	}
 
 	if !cached {
+		if over, _ := h.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+			writeRDError(w, 429, 20, "monthly download limit reached, resets on the 1st")
+			return
+		}
 		if ok, _ := h.Jobs.ColdPullAllowed(r.Context(), user.ID, plan.ColdPullsPerHour); !ok {
 			writeRDError(w, 429, 20, "hourly download limit reached, try later or upgrade")
 			return

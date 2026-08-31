@@ -89,7 +89,7 @@ func (c *Client) search(ctx context.Context, imdbID string, season, episode int)
 	return filterEp(out, season, episode), nil
 }
 
-func (c *Client) Resolve(ctx context.Context, postURL, _, want string) ([][]string, error) {
+func (c *Client) Resolve(ctx context.Context, postURL, _, want string) ([][][]string, error) {
 	if !isPost(postURL) {
 		return nil, fmt.Errorf("not an hdencode post url")
 	}

@@ -35,7 +35,7 @@ func (r *Runner) checkSeeds(ctx context.Context) {
 	}
 	seeds, _ := r.repo.ListByStatus(ctx, jobs.StatusSeeding)
 	for _, job := range seeds {
-		if job.Node != r.node {
+		if !r.mine(job.Node) {
 			continue
 		}
 		t, err := r.qb.GetTorrent(job.InfoHash)

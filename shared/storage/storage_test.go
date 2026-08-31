@@ -51,6 +51,30 @@ func TestFSRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFSListSkipsSidecars(t *testing.T) {
+	c := fsStore(t)
+	put(t, c, "blobs/b_one", []byte("aaaa"), "video/mp4")
+	put(t, c, "blobs/b_two", []byte("bbbbbb"), "video/x-matroska")
+
+	objs, err := c.List(context.Background(), "blobs/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sizes := map[string]int64{}
+	for _, o := range objs {
+		sizes[o.Key] = o.Size
+		if strings.HasSuffix(o.Key, ctypeSidecarSuffix) {
+			t.Fatalf("list returned a ctype sidecar: %s", o.Key)
+		}
+	}
+	if len(objs) != 2 {
+		t.Fatalf("listed %d objects, want 2 (%v)", len(objs), sizes)
+	}
+	if sizes["blobs/b_one"] != 4 || sizes["blobs/b_two"] != 6 {
+		t.Fatalf("wrong sizes: %v", sizes)
+	}
+}
+
 func TestFSRange(t *testing.T) {
 	c := fsStore(t)
 	data := make([]byte, 100_000)

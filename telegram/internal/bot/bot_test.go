@@ -97,7 +97,10 @@ func (fakeStore) Head(context.Context, string) (*storage.Object, error) {
 	return nil, fmt.Errorf("not found")
 }
 func (fakeStore) StreamUpload(context.Context, string, io.Reader, string) error { return nil }
-func (fakeStore) Put(context.Context, string, io.Reader, string) error          { return nil }
+func (fakeStore) PutSized(context.Context, string, io.Reader, int64, string) error {
+	return nil
+}
+func (fakeStore) Put(context.Context, string, io.Reader, string) error { return nil }
 
 func TestPickStore(t *testing.T) {
 	home := fakeStore{"box1"}

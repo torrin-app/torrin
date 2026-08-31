@@ -63,23 +63,29 @@ func (s *Server) availabilityBatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cachedFiles(r *http.Request, infoHash string) ([]map[string]any, bool) {
-	data, err := s.Store.GetBytes(r.Context(), manifest.Path(infoHash))
-	if err != nil {
-		return nil, false
-	}
-	m, err := manifest.Parse(data)
-	if err != nil || len(m.Files) == 0 {
-		return nil, false
-	}
-	node := s.Jobs.NodeForInfoHash(r.Context(), infoHash)
-	out := make([]map[string]any, len(m.Files))
-	for i, f := range m.Files {
-		key := manifest.ResolveKey(infoHash, i, f.DirectURL, f.FileName)
-		u := s.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, f.Enc)
-		out[i] = map[string]any{
-			"file_name": f.FileName, "size": f.FileSize,
-			"url": georoute.URL(r, u),
+	if data, err := s.Store.GetBytes(r.Context(), manifest.Path(infoHash)); err == nil {
+		if m, err := manifest.Parse(data); err == nil && len(m.Files) > 0 {
+			node := s.Jobs.NodeForInfoHash(r.Context(), infoHash)
+			out := make([]map[string]any, len(m.Files))
+			for i, f := range m.Files {
+				key := manifest.ResolveKey(infoHash, i, f.DirectURL, f.FileName)
+				u := s.Store.SignURLNode(node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, f.Enc)
+				out[i] = map[string]any{"file_name": f.FileName, "size": f.FileSize, "url": georoute.URL(r, u)}
+			}
+			return out, true
 		}
+	}
+
+	byHash, _ := s.JobsPG.CachedByHashes(r.Context(), []string{infoHash})
+	job := byHash[infoHash]
+	if job == nil || len(job.Files) == 0 {
+		return nil, false
+	}
+	out := make([]map[string]any, len(job.Files))
+	for i, f := range job.Files {
+		key := manifest.ResolveKey(infoHash, i, f.Key, f.Name)
+		u := s.Store.SignURLNode(job.Node, key, 24*time.Hour) + manifest.StreamQuery(infoHash, f.Enc)
+		out[i] = map[string]any{"file_name": f.Name, "size": f.Size, "url": georoute.URL(r, u)}
 	}
 	return out, true
 }

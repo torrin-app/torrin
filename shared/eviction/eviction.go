@@ -9,6 +9,7 @@ import (
 
 	"github.com/torrin-app/torrin/shared/blob"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/storage"
 )
 
 type Policy struct {
@@ -37,13 +38,16 @@ type Repo interface {
 	ListByInfoHash(ctx context.Context, infoHash string) ([]*jobs.Job, error)
 	Update(ctx context.Context, j *jobs.Job) error
 	DropBlobRefs(ctx context.Context, infoHash string) ([]string, error)
+	DropDanglingRefs(ctx context.Context) (int64, error)
 	DeleteBlob(ctx context.Context, contentKey string) error
 	OrphanedBlobs(ctx context.Context, limit int) ([]jobs.Blob, error)
+	ReferencedKeys(ctx context.Context) (map[string]struct{}, error)
 }
 
 type Storage interface {
 	DeletePrefix(ctx context.Context, prefix string) error
 	Delete(ctx context.Context, key string) error
+	List(ctx context.Context, prefix string) ([]storage.ObjMeta, error)
 }
 
 type Engine struct {
@@ -51,11 +55,14 @@ type Engine struct {
 	store  Storage
 	policy Policy
 	node   string
+	skipGC bool
 }
 
 func New(repo Repo, store Storage, policy Policy, node string) *Engine {
 	return &Engine{repo: repo, store: store, policy: policy, node: node}
 }
+
+func (e *Engine) SkipGC() { e.skipGC = true }
 
 func (e *Engine) RunDaily(ctx context.Context) {
 	candidates, err := e.repo.GetEvictionCandidates(ctx, e.node)
@@ -75,9 +82,18 @@ func (e *Engine) RunDaily(ctx context.Context) {
 		}
 	}
 
-	e.RunGC(ctx)
+	if n, err := e.repo.DropDanglingRefs(ctx); err != nil {
+		slog.Error("eviction: drop dangling refs", "err", err)
+	} else if n > 0 {
+		slog.Info("eviction: dropped dangling refs", "count", n)
+	}
+
+	if !e.skipGC {
+		e.RunGC(ctx)
+	}
+	e.runReconcile(ctx)
 	e.budgetPass(ctx, &evicted, &freed)
-	slog.Info("eviction: complete", "evicted", evicted, "freed_gb", freed/1e9)
+	slog.Info("eviction: complete", "node", e.node, "evicted", evicted, "freed_gb", freed/1e9)
 }
 
 func (e *Engine) RunGC(ctx context.Context) {

@@ -66,6 +66,21 @@ func CairnStore() *storage.Client {
 
 func OverflowStores() map[string]*storage.Client {
 	out := map[string]*storage.Client{}
+	if spec := env.Get("STORE_NODES", ""); spec != "" {
+		m := storage.ParseNodes(spec, env.Get("STORE_S3_REGION", "auto"),
+			env.Get("STORE_S3_ACCESS_KEY", ""), env.Get("STORE_S3_SECRET_KEY", ""),
+			env.Get("STORE_S3_BUCKET", "torrin"), "", MustEnv("SIGNING_KEY"))
+		for node, c := range m {
+			if node == "" {
+				continue
+			}
+			if err := c.SetStorageKey(env.Get("STORAGE_KEY", "")); err != nil {
+				Fatal("store node key", err)
+			}
+			out[node] = c
+		}
+		return out
+	}
 	ep, id := env.Get("NODE2_S3_ENDPOINT", ""), env.Get("NODE2_ID", "")
 	if ep == "" || id == "" {
 		return out

@@ -99,8 +99,20 @@ func (r *Runner) fail(ctx context.Context, job *jobs.Job, reason string) {
 }
 
 func (r *Runner) failDelete(ctx context.Context, job *jobs.Job, hash string, t *qbit.Torrent, reason string) {
+	r.pub.MeterBytes(ctx, job.UserID, job.Seed, t.Downloaded)
 	r.fail(ctx, job, reason)
 	r.deleteAndVerify(hash, t)
+}
+
+func (r *Runner) MeterAbort(ctx context.Context, hash, userID string) {
+	if userID == "" || userID == "prewarm" {
+		return
+	}
+	t, err := r.qb.GetTorrent(hash)
+	if err != nil || t == nil || t.Downloaded <= 0 {
+		return
+	}
+	r.pub.MeterBytes(ctx, userID, false, t.Downloaded)
 }
 
 func (r *Runner) deleteAndVerify(hash string, t *qbit.Torrent) {

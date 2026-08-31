@@ -15,7 +15,7 @@ import (
 
 type Store interface {
 	Head(ctx context.Context, key string) (*storage.Object, error)
-	StreamUpload(ctx context.Context, key string, body io.Reader, contentType string) error
+	PutSized(ctx context.Context, key string, body io.Reader, size int64, contentType string) error
 }
 
 type Index interface {
@@ -68,6 +68,17 @@ func (u *Uploader) upload(ctx context.Context, key, path, contentType string, en
 	}
 	defer f.Close()
 
+	fi, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := fi.Size()
+	if enc {
+		if size, err = u.cipher.EncryptedSize(fi.Size()); err != nil {
+			return 0, err
+		}
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	watchdog := time.AfterFunc(u.stall, cancel)
@@ -79,7 +90,7 @@ func (u *Uploader) upload(ctx context.Context, key, path, contentType string, en
 			return 0, err
 		}
 	}
-	if err := u.store.StreamUpload(ctx, key, body, contentType); err != nil {
+	if err := u.store.PutSized(ctx, key, body, size, contentType); err != nil {
 		return 0, fmt.Errorf("upload %s: %w", key, err)
 	}
 	return h.Sum32(), nil

@@ -44,6 +44,16 @@ func (p *Postgres) GetTotalCachedSizeAll(ctx context.Context) (int64, error) {
 	return total, err
 }
 
+func (p *Postgres) GetInFlightSize(ctx context.Context, node string) (int64, error) {
+	var total int64
+	err := p.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(max_size), 0) FROM (
+			SELECT MAX(file_size) AS max_size FROM jobs
+			WHERE status IN `+downloadingStates+` AND node=$1 GROUP BY info_hash
+		) t`, node).Scan(&total)
+	return total, err
+}
+
 func (p *Postgres) GetEvictionCandidates(ctx context.Context, node string) ([]EvictionCandidate, error) {
 	rows, err := p.pool.Query(ctx, `
 		SELECT MIN(id), info_hash, MAX(name), MAX(file_size), COALESCE(SUM(access_count), 0) AS access_total,

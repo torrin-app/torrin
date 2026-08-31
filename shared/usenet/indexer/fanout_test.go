@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -25,12 +26,10 @@ func TestFanOutMergesAndTags(t *testing.T) {
 }
 
 func TestFanOutToleratesFailure(t *testing.T) {
-	sources := []Source{
-		{ID: "ok", Client: NewTestClient("http://ok", "k")},
-		{ID: "dead", Client: NewTestClient("http://dead", "k")},
-	}
+	var calls int32
+	sources := []Source{{ID: "ok"}, {ID: "dead"}}
 	got := FanOut(context.Background(), sources, time.Second, func(c *Client) ([]Result, error) {
-		if c.BaseURL() == "http://dead" {
+		if atomic.AddInt32(&calls, 1) == 2 {
 			return nil, errors.New("boom")
 		}
 		return []Result{{Title: "y"}}, nil

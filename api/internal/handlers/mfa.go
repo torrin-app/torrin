@@ -35,7 +35,7 @@ func (s *Server) mfaConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Users.AuditLog(r.Context(), user.ID, "2fa_enabled", "", clientIP(r))
-	web.WriteJSON(w, 200, map[string]any{"backup_codes": backup, "session": auth.SignSession(s.SignKey, user.ID, sessionTTL)})
+	web.WriteJSON(w, 200, map[string]any{"backup_codes": backup, "session": s.issueSession(w, user.ID)})
 }
 
 func (s *Server) mfaVerify(w http.ResponseWriter, r *http.Request) {
@@ -44,7 +44,21 @@ func (s *Server) mfaVerify(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 401, "invalid code")
 		return
 	}
-	web.WriteJSON(w, 200, map[string]string{"session": auth.SignSession(s.SignKey, user.ID, sessionTTL)})
+	web.WriteJSON(w, 200, map[string]string{"session": s.issueSession(w, user.ID)})
+}
+
+func (s *Server) issueSession(w http.ResponseWriter, userID string) string {
+	token := auth.SignSession(s.SignKey, userID, sessionTTL)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "tr_session",
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(sessionTTL / time.Second),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return token
 }
 
 func (s *Server) mfaDisable(w http.ResponseWriter, r *http.Request) {

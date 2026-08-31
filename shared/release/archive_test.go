@@ -22,7 +22,11 @@ func TestBestArchiveMultiQuality(t *testing.T) {
 		<a href="https://nitroflare.com/view/BBB/Show.S01E02.1080p.WEB.h264-EDITH.mkv">x</a>
 		<a href="https://rapidgator.net/file/ccc/Show.S01E02.1080p.HEVC.x265-MeGusta.mkv.html">x</a>
 		<a href="https://nitroflare.com/view/DDD/Show.S01E02.480p.WEB.x264-mSD.mkv.html">x</a>`)
-	parts := BestArchive(doc, "Show S01E02 1080p WEB h264-EDITH")
+	archives := BestArchive(doc, "Show S01E02 1080p WEB h264-EDITH")
+	if len(archives) != 1 {
+		t.Fatalf("want 1 packaging, got %d: %v", len(archives), archives)
+	}
+	parts := archives[0]
 	if len(parts) != 1 {
 		t.Fatalf("want 1 part, got %d: %v", len(parts), parts)
 	}
@@ -42,7 +46,11 @@ func TestBestArchiveMultiPartMirrors(t *testing.T) {
 		<a href="https://rapidgator.net/file/a1/Movie.2024.part01.rar.html">x</a>
 		<a href="https://nitroflare.com/view/N1/Movie.2024.part01.rar">x</a>
 		<a href="https://nitroflare.com/view/N2/Movie.2024.part02.rar">x</a>`)
-	parts := BestArchive(doc, "Movie 2024 1080p")
+	archives := BestArchive(doc, "Movie 2024 1080p")
+	if len(archives) != 1 {
+		t.Fatalf("want 1 packaging, got %d: %v", len(archives), archives)
+	}
+	parts := archives[0]
 	if len(parts) != 2 {
 		t.Fatalf("want 2 parts, got %d: %v", len(parts), parts)
 	}
@@ -53,6 +61,24 @@ func TestBestArchiveMultiPartMirrors(t *testing.T) {
 		if len(p) != 2 {
 			t.Fatalf("part %d wants 2 mirrors, got %v", i, p)
 		}
+	}
+}
+
+func TestBestArchivePrefersVideoWithRARFallback(t *testing.T) {
+	doc := docFrom(t, `
+		<a href="https://rapidgator.net/file/bbb/Grand.Theft.Auto.VI.2026.2160p.WEB-DL.H.264-Kitsune.mkv">x</a>
+		<a href="https://nitroflare.com/view/N1/Grand.Theft.Auto.VI.2026.2160p.WEB-DL.H.264-Kitsune.part1.rar">x</a>
+		<a href="https://nitroflare.com/view/N2/Grand.Theft.Auto.VI.2026.2160p.WEB-DL.H.264-Kitsune.part2.rar">x</a>`)
+	archives := BestArchive(doc, "Grand Theft Auto VI 2026 2160p WEB-DL H.264-Kitsune")
+	if len(archives) != 2 {
+		t.Fatalf("want 2 packagings (video, then rar fallback), got %d: %v", len(archives), archives)
+	}
+	v := archives[0]
+	if len(v) != 1 || len(v[0]) != 1 || !strings.Contains(v[0][0], "rapidgator") || !strings.HasSuffix(v[0][0], ".mkv") {
+		t.Fatalf("packaging 0 should be the rapidgator mkv, got %v", v)
+	}
+	if len(archives[1]) != 2 {
+		t.Fatalf("packaging 1 should be the 2 rar parts, got %v", archives[1])
 	}
 }
 

@@ -72,16 +72,16 @@ func (s *Server) walletTopup(w http.ResponseWriter, r *http.Request) {
 		}
 		web.WriteJSON(w, 200, map[string]any{"checkout_url": url})
 	case "crypto":
-		if s.Bitcart == nil || !s.Bitcart.Enabled() {
+		if s.NowPay == nil || !s.NowPay.Enabled() {
 			web.WriteError(w, 503, "crypto payments not available")
 			return
 		}
-		id, err := s.Bitcart.CreateTopupInvoice(r.Context(), user.Email, req.AmountCents)
+		url, err := s.NowPay.CreateTopupInvoice(r.Context(), user.Email, req.AmountCents)
 		if err != nil {
 			web.WriteError(w, 502, "could not create invoice, please retry")
 			return
 		}
-		web.WriteJSON(w, 200, map[string]any{"invoice_id": id})
+		web.WriteJSON(w, 200, map[string]any{"checkout_url": url})
 	default:
 		web.WriteError(w, 400, "unknown provider")
 	}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
@@ -27,6 +28,7 @@ func fallbackQuery(title string, season, episode int) string {
 
 func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/usenet/search", authMW(http.HandlerFunc(s.usenetSearch)))
+	mux.Handle("GET /api/usenet/cached", authMW(http.HandlerFunc(s.usenetCached)))
 	mux.Handle("POST /api/usenet/grab", authMW(http.HandlerFunc(s.usenetGrab)))
 	mux.Handle("POST /api/usenet/indexer/test", authMW(http.HandlerFunc(s.testIndexer)))
 	mux.Handle("POST /api/usenet/indexer", authMW(http.HandlerFunc(s.setIndexer)))
@@ -38,6 +40,12 @@ func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http
 	mux.Handle("PUT /api/usenet/indexers/{id}", authMW(http.HandlerFunc(s.editIndexer)))
 	mux.Handle("DELETE /api/usenet/indexers/{id}", authMW(http.HandlerFunc(s.deleteIndexerH)))
 	mux.Handle("POST /api/usenet/indexers/{id}/toggle", authMW(http.HandlerFunc(s.toggleIndexerH)))
+	mux.Handle("GET /api/usenet/providers", authMW(http.HandlerFunc(s.listProviders)))
+	mux.Handle("POST /api/usenet/providers", authMW(http.HandlerFunc(s.addProvider)))
+	mux.Handle("POST /api/usenet/providers/test", authMW(http.HandlerFunc(s.testProvider)))
+	mux.Handle("PUT /api/usenet/providers/{id}", authMW(http.HandlerFunc(s.editProvider)))
+	mux.Handle("DELETE /api/usenet/providers/{id}", authMW(http.HandlerFunc(s.deleteProviderH)))
+	mux.Handle("POST /api/usenet/providers/{id}/toggle", authMW(http.HandlerFunc(s.toggleProviderH)))
 	mux.Handle("GET /api/usenet/system-indexer", authMW(http.HandlerFunc(s.getSystemIndexer)))
 	mux.Handle("POST /api/usenet/system-indexer/toggle", authMW(http.HandlerFunc(s.toggleSystemIndexer)))
 }
@@ -76,6 +84,44 @@ func (s *Server) usenetSearch(w http.ResponseWriter, r *http.Request) {
 		results = []indexer.Result{}
 	}
 	web.WriteJSON(w, 200, results)
+}
+
+func parseCachedTarget(raw string) (imdb string, season, episode int) {
+	parts := strings.Split(strings.TrimPrefix(strings.TrimSpace(raw), "tt"), ":")
+	imdb = parts[0]
+	if len(parts) >= 3 {
+		season, _ = strconv.Atoi(parts[1])
+		episode, _ = strconv.Atoi(parts[2])
+	}
+	return
+}
+
+func (s *Server) usenetCached(w http.ResponseWriter, r *http.Request) {
+	imdb, season, episode := parseCachedTarget(r.URL.Query().Get("imdb"))
+	if imdb == "" {
+		web.WriteJSON(w, 200, []any{})
+		return
+	}
+	list, err := s.JobsPG.ListByIMDB(r.Context(), imdb)
+	if err != nil {
+		web.WriteError(w, 500, "cached lookup failed")
+		return
+	}
+	out := []map[string]any{}
+	seen := map[string]bool{}
+	for _, j := range list {
+		if j.Source != jobs.SourceUsenet || seen[j.InfoHash] {
+			continue
+		}
+		seen[j.InfoHash] = true
+		for _, st := range s.signStreams(j, r) {
+			if season > 0 && episode > 0 && !episodeMatch(j, st.FileName, season, episode) {
+				continue
+			}
+			out = append(out, map[string]any{"name": j.Name, "file_name": st.FileName, "signed_url": st.SignedURL})
+		}
+	}
+	web.WriteJSON(w, 200, out)
 }
 
 func (s *Server) searchOne(c *indexer.Client, imdb, query, title, cat, seasonStr, epStr string, season, episode, offset, limit int) ([]indexer.Result, error) {
@@ -118,6 +164,7 @@ func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 		Source   string `json:"source"`
 		NZBURL   string `json:"nzb_url"`
 		Title    string `json:"title"`
+		IMDBID   string `json:"imdb_id"`
 		Explicit bool   `json:"explicit"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ID == "" {
@@ -134,7 +181,8 @@ func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 502, "failed to download NZB")
 		return
 	}
-	s.ingestNZB(w, r, user, plan, nzbData, req.Title, req.Explicit)
+	imdb, _, _ := parseCachedTarget(req.IMDBID)
+	s.ingestNZB(w, r, user, plan, nzbData, req.Title, imdb, req.Explicit)
 }
 
 func pickSource(sources []indexer.Source, sourceID, nzbURL string) *indexer.Client {

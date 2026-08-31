@@ -12,8 +12,62 @@ import (
 
 	"golang.org/x/net/webdav"
 
+	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/jobs"
 )
+
+func TestBuildTreeOverrides(t *testing.T) {
+	overrides := map[string]auth.WebdavOverride{
+		auth.WebdavKey("bbbbbbbb2222", 0):  {InfoHash: "bbbbbbbb2222", Alias: "Beta.S01E01.mkv"},
+		auth.WebdavKey("bbbbbbbb2222", 1):  {InfoHash: "bbbbbbbb2222", FileIndex: 1, Excluded: true},
+		auth.WebdavKey("aaaaaaaa1111", -1): {InfoHash: "aaaaaaaa1111", FileIndex: -1, Excluded: true},
+	}
+	root := buildTree(sample(), overrides)
+
+	byHash := func(h string) *node {
+		for _, c := range root.children {
+			if c.hash == h {
+				return c
+			}
+		}
+		return nil
+	}
+
+	if a := byHash("aaaaaaaa1111"); a == nil || !a.hidden {
+		t.Fatalf("excluded release should be present and hidden, got %+v", a)
+	}
+	beta := byHash("bbbbbbbb2222")
+	if beta == nil {
+		t.Fatal("beta folder missing")
+	}
+	var renamed, hidden bool
+	for _, f := range beta.children {
+		if f.idx == 0 && f.name == "Beta.S01E01.mkv" && !f.hidden {
+			renamed = true
+		}
+		if f.idx == 1 && f.hidden {
+			hidden = true
+		}
+	}
+	if !renamed || !hidden {
+		t.Fatalf("beta: renamed=%v hidden=%v (want both), children=%v", renamed, hidden, names(beta))
+	}
+}
+
+func TestDavReaddirHidesExcluded(t *testing.T) {
+	overrides := map[string]auth.WebdavOverride{
+		auth.WebdavKey("bbbbbbbb2222", 1): {InfoHash: "bbbbbbbb2222", FileIndex: 1, Excluded: true},
+	}
+	fs := davFS{root: buildTree(sample(), overrides)}
+	f, err := fs.OpenFile(context.Background(), "/Beta S01", 0, 0)
+	if err != nil {
+		t.Fatalf("open beta folder: %v", err)
+	}
+	infos, _ := f.Readdir(0)
+	if len(infos) != 1 {
+		t.Fatalf("excluded file must be filtered from the DAV listing, got %d entries", len(infos))
+	}
+}
 
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
@@ -100,7 +154,7 @@ func names(n *node) []string {
 }
 
 func TestBuildTreeHierarchyAndExclusion(t *testing.T) {
-	root := buildTree(sample())
+	root := buildTree(sample(), nil)
 	if len(root.children) != 3 {
 		t.Fatalf("root folders = %d, want 3 (pending excluded)", len(root.children))
 	}
@@ -114,7 +168,7 @@ func TestBuildTreeHierarchyAndExclusion(t *testing.T) {
 }
 
 func TestBuildTreeCollisions(t *testing.T) {
-	root := buildTree(sample())
+	root := buildTree(sample(), nil)
 	if root.index["Alpha 2020"] == nil || root.index["Alpha 2020 [cccccccc]"] == nil {
 		t.Errorf("folder-name collision not disambiguated: %v", names(root))
 	}
@@ -129,7 +183,7 @@ func TestBuildTreeCollisions(t *testing.T) {
 
 func propfind(t *testing.T, path, depth string) string {
 	t.Helper()
-	h := &webdav.Handler{FileSystem: davFS{root: buildTree(sample())}, LockSystem: webdav.NewMemLS()}
+	h := &webdav.Handler{FileSystem: davFS{root: buildTree(sample(), nil)}, LockSystem: webdav.NewMemLS()}
 	r := httptest.NewRequest("PROPFIND", path, nil)
 	r.Header.Set("Depth", depth)
 	w := httptest.NewRecorder()
@@ -164,7 +218,7 @@ func TestGetFileRedirects(t *testing.T) {
 	s := &Server{jobs: repo, store: sig}
 	r := httptest.NewRequest(http.MethodGet, "/Alpha%202020/alpha.mkv", nil)
 	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree(sample()))
+	s.get(w, r, "u1", buildTree(sample(), nil))
 	if w.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("code %d, want 307", w.Code)
 	}
@@ -184,7 +238,7 @@ func TestGetFileSignsWithNode(t *testing.T) {
 	s := &Server{jobs: &fakeRepo{}, store: sig}
 	r := httptest.NewRequest(http.MethodGet, "/Box2%20Movie/movie.mkv", nil)
 	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree([]*jobs.Job{j}))
+	s.get(w, r, "u1", buildTree([]*jobs.Job{j}, nil))
 	if w.Code != http.StatusTemporaryRedirect {
 		t.Fatalf("code %d, want 307", w.Code)
 	}
@@ -200,7 +254,7 @@ func TestGetEncryptedBlobRedirect(t *testing.T) {
 	s := &Server{jobs: &fakeRepo{}, store: &fakeSigner{}}
 	r := httptest.NewRequest(http.MethodGet, "/Enc%20Movie/movie.mkv", nil)
 	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree([]*jobs.Job{j}))
+	s.get(w, r, "u1", buildTree([]*jobs.Job{j}, nil))
 	loc := w.Header().Get("Location")
 	if !strings.Contains(loc, "blobs/deadbeef") {
 		t.Errorf("Location missing blob key: %q", loc)
@@ -214,7 +268,7 @@ func TestGetDirRendersHTML(t *testing.T) {
 	s := &Server{jobs: &fakeRepo{}, store: &fakeSigner{}}
 	r := httptest.NewRequest(http.MethodGet, "/Beta%20S01", nil)
 	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree(sample()))
+	s.get(w, r, "u1", buildTree(sample(), nil))
 	if w.Code != 200 || !strings.Contains(w.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("code=%d ct=%q", w.Code, w.Header().Get("Content-Type"))
 	}
@@ -226,7 +280,7 @@ func TestGetDirRendersHTML(t *testing.T) {
 func TestGetNotFound(t *testing.T) {
 	s := &Server{jobs: &fakeRepo{}, store: &fakeSigner{}}
 	w := httptest.NewRecorder()
-	s.get(w, httptest.NewRequest(http.MethodGet, "/ghost/x.mkv", nil), "u1", buildTree(sample()))
+	s.get(w, httptest.NewRequest(http.MethodGet, "/ghost/x.mkv", nil), "u1", buildTree(sample(), nil))
 	if w.Code != http.StatusNotFound {
 		t.Errorf("code %d, want 404", w.Code)
 	}
@@ -252,7 +306,7 @@ func TestBuildTreeSanitizesSlashNames(t *testing.T) {
 	j := &jobs.Job{Name: "Zadok - 08/08/2026", InfoHash: strings.Repeat("c", 40), Status: jobs.StatusComplete,
 		UpdatedAt: time.Unix(1700000000, 0),
 		Files:     []jobs.File{{Index: 0, Name: "clip.mkv", Size: 10, Key: "blobs/x"}}}
-	root := buildTree([]*jobs.Job{j})
+	root := buildTree([]*jobs.Job{j}, nil)
 	if len(root.children) != 1 {
 		t.Fatalf("want 1 folder, got %d", len(root.children))
 	}

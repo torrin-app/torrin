@@ -32,7 +32,7 @@ func SplitTitle(text string) (title, size string) {
 	return text, ""
 }
 
-func BestArchive(doc *goquery.Document, want string) [][]string {
+func BestArchive(doc *goquery.Document, want string) [][][]string {
 	byName := map[string][]string{}
 	var order []string
 	for _, host := range Hosts {
@@ -56,32 +56,42 @@ func BestArchive(doc *goquery.Document, want string) [][]string {
 		return nil
 	}
 
-	var parts []string
-	if hasRARParts(order) {
-		for _, n := range order {
-			if strings.HasSuffix(n, ".rar") {
-				parts = append(parts, n)
-			}
+	var archives [][][]string
+	if best := pickVideo(order, want); best != "" {
+		archives = append(archives, [][]string{byName[best]})
+	}
+	if names := rarParts(order); len(names) > 0 {
+		parts := make([][]string, len(names))
+		for i, n := range names {
+			parts[i] = byName[n]
 		}
-		sort.Slice(parts, func(i, j int) bool { return partNum(parts[i]) < partNum(parts[j]) })
-	} else if best := pickMatch(order, want); best != "" {
-		parts = []string{best}
+		archives = append(archives, parts)
 	}
-
-	out := make([][]string, len(parts))
-	for i, n := range parts {
-		out[i] = byName[n]
-	}
-	return out
+	return archives
 }
 
-func hasRARParts(names []string) bool {
+func pickVideo(names []string, want string) string {
+	var vids []string
 	for _, n := range names {
-		if strings.HasSuffix(n, ".rar") {
-			return true
+		if strings.HasSuffix(n, ".mkv") || strings.HasSuffix(n, ".mp4") {
+			vids = append(vids, n)
 		}
 	}
-	return false
+	if len(vids) == 0 {
+		return ""
+	}
+	return pickMatch(vids, want)
+}
+
+func rarParts(order []string) []string {
+	var names []string
+	for _, n := range order {
+		if strings.HasSuffix(n, ".rar") {
+			names = append(names, n)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool { return partNum(names[i]) < partNum(names[j]) })
+	return names
 }
 
 func pickMatch(names []string, want string) string {

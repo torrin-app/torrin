@@ -27,6 +27,9 @@ func TestTitleNormFromName(t *testing.T) {
 		"[Ex-torrenty.org]The.Big.Bang.Theory.S02.MULTi.1080p.HMAX.WEB-DL.DDP2.0.H264-Ralf": "bigbangtheory",
 		"[Erai-raws] One Piece - 1168 [1080p CR WEB-DL AVC AAC][MultiSub][9C645A80]":        "onepiece",
 		"Avatar.Fire.and.Ash.2025.1080p.AMZN.WEB-DL.DDP5.1.Atmos.H.264-BYNDR":               "avatarfireash",
+		"www.1TamilMV.top - Balan The Boy (2026) Malayalam TRUE WEB-DL - 1080p - AVC":       "balanboy",
+		"www.1TamilMV.top - Gatta Kusthi 2 (2026) Tamil HQ HDRip - 1080p - HEVC":            "gattakusthi2",
+		"www.1TamilMV.Li - Vadhandhi The Mystery of Mani (2026) S02 EP (01-08) TRUE WEB-DL": "vadhandhimysterymani",
 	}
 	for name, want := range cases {
 		if got := titleNormFromName(name); got != want {

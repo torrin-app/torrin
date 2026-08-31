@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/torrin-app/torrin/ingest/internal/jobrun"
@@ -26,7 +27,7 @@ const partAttempts = 3
 var ErrSourceUnavailable = errors.New("release source unavailable")
 
 type Resolver interface {
-	Resolve(ctx context.Context, postURL, imdbID, want string) ([][]string, error)
+	Resolve(ctx context.Context, postURL, imdbID, want string) ([][][]string, error)
 }
 
 type ADKeyFor func(context.Context, *jobs.Job) string
@@ -82,31 +83,27 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	if adKey == "" {
 		return fmt.Errorf("no AllDebrid key configured")
 	}
-	parts, err := resolver.Resolve(ctx, job.Magnet, job.IMDBID, job.Name)
+	archives, err := resolver.Resolve(ctx, job.Magnet, job.IMDBID, job.Name)
 	if err != nil {
 		return failure.Newf("resolve_failed", "%s", err)
 	}
-	if len(parts) == 0 {
+	if len(archives) == 0 {
 		return failure.Wrap(failure.NoSources, "no usable links found")
 	}
 
-	dir := filepath.Join(r.scratch, job.InfoHash)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+	if job.Name == "" {
+		if n := releaseName(archives); n != "" {
+			job.Name = n
+			r.repo.Update(ctx, job)
+		}
 	}
+
+	dir := filepath.Join(r.scratch, job.InfoHash)
 	defer os.RemoveAll(dir)
 
-	var total int64
-	for i, mirrors := range parts {
-		size, err := r.fetchPart(ctx, adKey, mirrors, i, len(parts), dir, job)
-		if err != nil {
-			return fmt.Errorf("part %d/%d: %w", i+1, len(parts), err)
-		}
-		total += size
-		if job.MaxBytes > 0 && total > job.MaxBytes {
-			return failure.Newf("too_large", "this release is over your plan limit of %dMB", job.MaxBytes/1e6)
-		}
-		r.repo.SetProgress(ctx, job.ID, float64(i+1)/float64(len(parts))*100, 0)
+	total, err := r.download(ctx, adKey, archives, dir, job)
+	if err != nil {
+		return err
 	}
 
 	job.FileSize = total
@@ -134,6 +131,61 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	r.bus.Publish(events.JobComplete, events.Complete{JobID: job.ID, InfoHash: job.InfoHash, Node: job.Node})
 	slog.Info("release complete", "job", job.ID, "source", job.Source, "files", len(pubFiles))
 	return nil
+}
+
+func releaseName(archives [][][]string) string {
+	if len(archives) == 0 || len(archives[0]) == 0 || len(archives[0][0]) == 0 {
+		return ""
+	}
+	name := filepath.Base(strings.TrimSuffix(archives[0][0][0], ".html"))
+	if strings.HasSuffix(strings.ToLower(name), ".rar") {
+		if i := strings.Index(strings.ToLower(name), ".part"); i > 0 {
+			name = name[:i]
+		}
+	}
+	return name
+}
+
+func (r *Runner) download(ctx context.Context, adKey string, archives [][][]string, dir string, job *jobs.Job) (int64, error) {
+	var lastErr error
+	for ai, parts := range archives {
+		os.RemoveAll(dir)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return 0, err
+		}
+		total, err := r.fetchArchive(ctx, adKey, parts, dir, job)
+		if err == nil {
+			return total, nil
+		}
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		var f *failure.Failure
+		if errors.As(err, &f) && f.Code == "too_large" {
+			return 0, err
+		}
+		lastErr = err
+		if ai < len(archives)-1 {
+			slog.Warn("release packaging failed, trying alternative", "job", job.ID, "packaging", ai+1, "of", len(archives), "err", err)
+		}
+	}
+	return 0, lastErr
+}
+
+func (r *Runner) fetchArchive(ctx context.Context, adKey string, parts [][]string, dir string, job *jobs.Job) (int64, error) {
+	var total int64
+	for i, mirrors := range parts {
+		size, err := r.fetchPart(ctx, adKey, mirrors, i, len(parts), dir, job)
+		if err != nil {
+			return 0, fmt.Errorf("part %d/%d: %w", i+1, len(parts), err)
+		}
+		total += size
+		if job.MaxBytes > 0 && total > job.MaxBytes {
+			return 0, failure.Newf("too_large", "this release is over your plan limit of %dMB", job.MaxBytes/1e6)
+		}
+		r.repo.SetProgress(ctx, job.ID, float64(i+1)/float64(len(parts))*100, 0)
+	}
+	return total, nil
 }
 
 func (r *Runner) fetchPart(ctx context.Context, adKey string, mirrors []string, i, n int, dir string, job *jobs.Job) (int64, error) {

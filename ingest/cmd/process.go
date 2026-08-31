@@ -12,13 +12,16 @@ import (
 	"github.com/torrin-app/torrin/ingest/internal/torrent"
 	"github.com/torrin-app/torrin/ingest/internal/usenet"
 	"github.com/torrin-app/torrin/ingest/internal/ytdlp"
+	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/plans"
+	"github.com/torrin-app/torrin/shared/providers"
 )
 
-func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr, sr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, yr *ytdlp.Runner, uf *release.UsenetFallback, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, a events.Assigned) {
+func process(ctx context.Context, repo jobs.Repository, users *auth.Store, reg *providers.RateRegistry, dr *debrid.Runner, tr, sr *torrent.Runner, ur *usenet.Runner, hr *hoster.Runner, rel *release.Runner, yr *ytdlp.Runner, uf *release.UsenetFallback, b *bus.Bus, ban screen.BanFunc, cancels *cancelRegistry, g *gate, a events.Assigned) {
 	job, err := repo.Get(ctx, a.JobID)
 	if err != nil {
 		slog.Error("load job", "id", a.JobID, "err", err)
@@ -30,7 +33,42 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr, s
 		cancel()
 		return
 	}
-	done := func() { cancels.untrack(job.ID); cancel() }
+	if !holdHash(job.InfoHash) {
+		cancels.untrack(job.ID)
+		cancel()
+		return
+	}
+	done := func() { releaseHash(job.InfoHash); cancels.untrack(job.ID); cancel() }
+
+	tally := &providers.ByteTally{}
+	jobCtx = providers.WithByteTally(jobCtx, tally)
+	{
+		inner := done
+		done = func() {
+			if job.UserID != "" && job.UserID != "prewarm" && !job.Seed && tally.Unpublished() {
+				if n := tally.Downloaded.Load(); n > 0 {
+					users.AddIngestUsage(context.WithoutCancel(ctx), job.UserID, n)
+				}
+			}
+			inner()
+		}
+	}
+
+	bps := planDownloadBps(ctx, users, job.UserID)
+	if bps > 0 {
+		jobCtx = providers.WithRateLimiter(jobCtx, reg.Acquire(job.UserID, bps))
+		inner := done
+		done = func() { reg.Release(job.UserID); inner() }
+	}
+
+	if job.Source != jobs.SourceCrossSeed {
+		if !g.acquire(jobCtx) {
+			done()
+			return
+		}
+		inner := done
+		done = func() { g.release(); inner() }
+	}
 
 	if job.Source == jobs.SourceCrossSeed {
 		if sr == nil {
@@ -113,7 +151,7 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr, s
 		if err != nil {
 			slog.Info("debrid unavailable, falling through to qbit", "job", job.ID, "err", err)
 		}
-		if e := tr.Start(job); e != nil {
+		if e := tr.Start(job, bps); e != nil {
 			jobrun.Fail(ctx, repo, b, job, failure.Wrap(failure.AddFailed, "add torrent: %v", e))
 		}
 	default:
@@ -123,4 +161,19 @@ func process(ctx context.Context, repo jobs.Repository, dr *debrid.Runner, tr, s
 		}
 		jobrun.Fail(ctx, repo, b, job, fail)
 	}
+}
+
+func planDownloadBps(ctx context.Context, users *auth.Store, userID string) int64 {
+	if users == nil || userID == "" {
+		return 0
+	}
+	u, err := users.GetByID(ctx, userID)
+	if err != nil || u == nil {
+		return 0
+	}
+	p, ok := plans.Get(u.PlanID)
+	if !ok || p.MaxDownloadMbps <= 0 {
+		return 0
+	}
+	return int64(p.MaxDownloadMbps) * 125_000
 }

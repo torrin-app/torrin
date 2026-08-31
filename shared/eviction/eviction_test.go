@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/torrin-app/torrin/shared/jobs"
+	"github.com/torrin-app/torrin/shared/storage"
 )
 
 type fakeRepo struct {
@@ -16,6 +17,14 @@ type fakeRepo struct {
 	orphans      map[string][]string
 	blobs        []jobs.Blob
 	deletedBlobs map[string]bool
+	refs         map[string]struct{}
+
+	danglingDropped int64
+	danglingCalled  bool
+}
+
+func (f *fakeRepo) ReferencedKeys(context.Context) (map[string]struct{}, error) {
+	return f.refs, nil
 }
 
 func (f *fakeRepo) OrphanedBlobs(_ context.Context, limit int) ([]jobs.Blob, error) {
@@ -56,6 +65,10 @@ func (f *fakeRepo) DropBlobRefs(_ context.Context, infoHash string) ([]string, e
 	}
 	return f.orphans[infoHash], nil
 }
+func (f *fakeRepo) DropDanglingRefs(context.Context) (int64, error) {
+	f.danglingCalled = true
+	return f.danglingDropped, nil
+}
 func (f *fakeRepo) DeleteBlob(_ context.Context, ck string) error {
 	if f.deletedBlobs == nil {
 		f.deletedBlobs = map[string]bool{}
@@ -67,6 +80,11 @@ func (f *fakeRepo) DeleteBlob(_ context.Context, ck string) error {
 type fakeStorage struct {
 	deleted     map[string]bool
 	deletedKeys map[string]bool
+	listObjs    []storage.ObjMeta
+}
+
+func (f *fakeStorage) List(context.Context, string) ([]storage.ObjMeta, error) {
+	return f.listObjs, nil
 }
 
 func (f *fakeStorage) DeletePrefix(_ context.Context, prefix string) error {
@@ -143,6 +161,14 @@ func TestEvictPurgesOnlyOrphanBlobs(t *testing.T) {
 	}
 	if store.deletedKeys["blobs/b_shared"] {
 		t.Error("still-referenced blob must not be deleted")
+	}
+}
+
+func TestRunDailyDropsDanglingRefs(t *testing.T) {
+	repo := &fakeRepo{evicted: map[string]bool{}}
+	New(repo, &fakeStorage{deleted: map[string]bool{}}, DefaultPolicy, "").RunDaily(context.Background())
+	if !repo.danglingCalled {
+		t.Error("RunDaily must drop dangling blob_refs so deleted downloads stop stranding blobs")
 	}
 }
 

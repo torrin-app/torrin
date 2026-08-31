@@ -36,6 +36,14 @@ func (s *Server) ingestText(w http.ResponseWriter, r *http.Request, input string
 		return
 	}
 	if isWebURL(input) {
+		if src := releaseSourceFor(input); src != "" {
+			if middleware.GetPlan(r).ID == "free" {
+				web.WriteError(w, 403, "grabbing from release sites requires a paid plan")
+				return
+			}
+			s.submitMagnet(w, r, hosterInfoHash(input), input, "", src, false)
+			return
+		}
 		s.submitMagnet(w, r, urlKey(input), input, "", jobs.SourceYtdlp, true)
 		return
 	}
@@ -141,7 +149,13 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		return
 	}
 
-	// 3. New download, slot limit.
+	// 3. New download, monthly quota + slot limit.
+	if s.Users != nil {
+		if over, _ := s.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+			web.WriteError(w, 429, "monthly download limit reached, resets on the 1st")
+			return
+		}
+	}
 	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
 		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
 		return
@@ -303,7 +317,7 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 
 	s.Jobs.Delete(r.Context(), job.ID)
 	if job.Status.Active() {
-		s.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node})
+		s.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node, UserID: job.UserID})
 	}
 	if job.Source == jobs.SourceUsenet && s.Users != nil {
 		s.Users.TombstoneUsenet(r.Context(), user.ID, job.InfoHash, time.Now().Add(usenetDeleteTombstone))

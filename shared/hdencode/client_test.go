@@ -57,12 +57,15 @@ func TestResolveViaSolver(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	parts, err := NewClient(srv.URL).Resolve(context.Background(), "https://hdencode.org/some-movie-2026-1080p-grp-9-gb/", "", "Movie")
+	archives, err := NewClient(srv.URL).Resolve(context.Background(), "https://hdencode.org/some-movie-2026-1080p-grp-9-gb/", "", "Movie")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(parts) != 2 {
-		t.Fatalf("got %d parts, want 2 (multi-part rar)", len(parts))
+	if len(archives) != 1 {
+		t.Fatalf("got %d packagings, want 1 (rar only)", len(archives))
+	}
+	if len(archives[0]) != 2 {
+		t.Fatalf("got %d parts, want 2 (multi-part rar)", len(archives[0]))
 	}
 }
 

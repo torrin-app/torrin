@@ -46,22 +46,35 @@ func (t *torbox) Name() string { return "torbox" }
 
 func (t *torbox) Fetch(ctx context.Context, magnet, infoHash string) (*Result, error) {
 	cached, err := t.cached(ctx, infoHash)
-	if err != nil || cached == nil {
+	if err != nil {
 		return nil, err
 	}
 
-	id, err := t.createTorrent(ctx, magnet)
-	if err != nil {
-		return nil, err
+	var id int
+	var handle string
+	if cached != nil {
+		if id, err = t.createTorrent(ctx, magnet); err != nil {
+			return nil, err
+		}
+		handle = strconv.Itoa(id)
+	} else {
+		if id, err = t.libraryID(ctx, infoHash); err != nil || id == 0 {
+			return nil, err
+		}
+	}
+	release := func() {
+		if handle != "" {
+			t.Release(context.Background(), handle)
+		}
 	}
 
 	tor, err := t.listTorrent(ctx, id)
 	if err != nil {
-		t.Release(context.Background(), strconv.Itoa(id))
+		release()
 		return nil, err
 	}
 	if !tor.DownloadFinished || !tor.DownloadPresent {
-		t.Release(context.Background(), strconv.Itoa(id))
+		release()
 		return nil, nil
 	}
 
@@ -77,18 +90,18 @@ func (t *torbox) Fetch(ctx context.Context, magnet, infoHash string) (*Result, e
 		files = append(files, Link{Name: filepath.Base(f.Name), Size: f.Size, URL: dlURL})
 	}
 	if len(files) == 0 {
-		t.Release(context.Background(), strconv.Itoa(id))
+		release()
 		return nil, nil
 	}
 
-	name := cached.Name
-	if name == "" {
-		name = tor.Name
+	name := tor.Name
+	if cached != nil && cached.Name != "" {
+		name = cached.Name
 	}
 	if name == "" {
 		name = files[0].Name
 	}
-	return &Result{Name: name, Handle: strconv.Itoa(id), Files: files}, nil
+	return &Result{Name: name, Handle: handle, Files: files}, nil
 }
 
 type tbFile struct {
@@ -153,41 +166,6 @@ func (t *torbox) Release(ctx context.Context, handle string) error {
 type tbCache struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
-}
-
-type tbListItem struct {
-	Hash             string `json:"hash"`
-	Name             string `json:"name"`
-	Size             int64  `json:"size"`
-	DownloadFinished bool   `json:"download_finished"`
-	DownloadPresent  bool   `json:"download_present"`
-}
-
-func TBLibrary(ctx context.Context, tbKey string) ([]LibraryItem, error) {
-	t := newTorbox(tbKey)
-	var out []LibraryItem
-	for offset := 0; ; offset += 1000 {
-		u := fmt.Sprintf("%s/torrents/mylist?offset=%d&limit=%d", tbBase, offset, 1000)
-		body, err := t.get(ctx, u)
-		if err != nil {
-			return out, err
-		}
-		var resp struct {
-			Success bool         `json:"success"`
-			Data    []tbListItem `json:"data"`
-		}
-		if err := json.Unmarshal(body, &resp); err != nil {
-			return out, err
-		}
-		for _, it := range resp.Data {
-			if it.Hash != "" && it.DownloadFinished && it.DownloadPresent {
-				out = append(out, LibraryItem{Hash: strings.ToLower(it.Hash), Filename: it.Name, Size: it.Size})
-			}
-		}
-		if len(resp.Data) < 1000 {
-			return out, nil
-		}
-	}
 }
 
 func TorBoxCached(ctx context.Context, tbKey string, hashes []string) map[string]bool {
@@ -264,7 +242,7 @@ func (t *torbox) createTorrent(ctx context.Context, magnet string) (int, error) 
 func (t *torbox) requestLink(ctx context.Context, id, fileID int) (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
-		u := fmt.Sprintf("%s/torrents/requestdl?torrent_id=%d&file_id=%d", tbBase, id, fileID)
+		u := fmt.Sprintf("%s/torrents/requestdl?token=%s&torrent_id=%d&file_id=%d", tbBase, url.QueryEscape(t.key), id, fileID)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		req.Header.Set("Authorization", "Bearer "+t.key)
 		body, err := t.do(req)
@@ -299,15 +277,21 @@ func (t *torbox) requestLink(ctx context.Context, id, fileID int) (string, error
 }
 
 func (t *torbox) do(req *http.Request) ([]byte, error) {
-	waitLimits(req.Context(), t.limiters)
-	status, body, err := breaker.RoundTrip("torbox", t.http, req)
-	if err != nil {
-		return nil, t.redact(err)
+	for attempt := 0; ; attempt++ {
+		waitLimits(req.Context(), t.limiters)
+		status, body, err := breaker.RoundTrip("torbox", t.http, req)
+		if err != nil {
+			return nil, t.redact(err)
+		}
+		if status == http.StatusTooManyRequests && req.Method == http.MethodGet && attempt < 2 {
+			Backoff(req.Context(), attempt)
+			continue
+		}
+		if status >= 400 {
+			return nil, fmt.Errorf("torbox HTTP %d: %s", status, body)
+		}
+		return body, nil
 	}
-	if status >= 400 {
-		return nil, fmt.Errorf("torbox HTTP %d: %s", status, body)
-	}
-	return body, nil
 }
 
 func (t *torbox) redact(err error) error {

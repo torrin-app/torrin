@@ -17,10 +17,12 @@ const checkBudget = 20 * time.Second
 
 func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *auth.User) {
 	var magnets []string
-	for _, p := range r.URL.Query()["magnet"] {
-		for _, m := range strings.Split(p, ",") {
-			if m = strings.TrimSpace(m); m != "" {
-				magnets = append(magnets, m)
+	for _, key := range []string{"magnet", "hash"} {
+		for _, p := range r.URL.Query()[key] {
+			for _, m := range strings.Split(p, ",") {
+				if m = strings.TrimSpace(m); m != "" {
+					magnets = append(magnets, m)
+				}
 			}
 		}
 	}

@@ -44,6 +44,12 @@ func NewAllDebrid(apiKey string) Provider { return newAlldebrid(apiKey) }
 func (a *alldebrid) Name() string { return "alldebrid" }
 
 func (a *alldebrid) Fetch(ctx context.Context, magnet, infoHash string) (*Result, error) {
+	if res, err := a.libraryFetch(ctx, infoHash); err != nil {
+		return nil, err
+	} else if res != nil {
+		return res, nil
+	}
+
 	added, err := a.addMagnet(ctx, magnet)
 	if err != nil {
 		return nil, err
@@ -61,17 +67,7 @@ func (a *alldebrid) Fetch(ctx context.Context, magnet, infoHash string) (*Result
 		return nil, err
 	}
 
-	var links []Link
-	for _, f := range files {
-		if !isVideoFile(f.Name) {
-			continue
-		}
-		u, err := a.unlock(ctx, f.Link)
-		if err != nil || u.Link == "" {
-			continue
-		}
-		links = append(links, Link{Name: u.Filename, Size: u.FileSize, URL: u.Link})
-	}
+	links := a.linksFrom(ctx, files)
 	if len(links) == 0 {
 		a.Release(context.Background(), handle)
 		return nil, nil

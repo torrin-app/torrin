@@ -20,12 +20,14 @@ type ResellerCode struct {
 	Settled       bool       `json:"settled"`
 	SettledAt     *time.Time `json:"settled_at,omitempty"`
 	SettlementRef string     `json:"settlement_ref,omitempty"`
+
+	RetailCents int `json:"retail_cents"`
 }
 
 func (s *Store) CreateResellerCode(ctx context.Context, c *ResellerCode) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO reseller_codes (code, plan_id, period, days, reseller) VALUES ($1,$2,$3,$4,$5)`,
-		c.Code, c.PlanID, c.Period, c.Days, c.Reseller)
+		`INSERT INTO reseller_codes (code, plan_id, period, days, reseller, retail_cents) VALUES ($1,$2,$3,$4,$5,$6)`,
+		c.Code, c.PlanID, c.Period, c.Days, c.Reseller, c.RetailCents)
 	return err
 }
 
@@ -54,12 +56,46 @@ func (s *Store) MarkResellerCodeRedeemed(ctx context.Context, code, userID strin
 	return ct.RowsAffected() == 1, nil
 }
 
+func (s *Store) BackfillResellerRetail(ctx context.Context, price func(planID, period string, days int, createdAt time.Time) int) (int, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT code, plan_id, period, days, created_at FROM reseller_codes WHERE retail_cents = 0`)
+	if err != nil {
+		return 0, err
+	}
+	type pending struct {
+		code, planID, period string
+		days                 int
+		createdAt            time.Time
+	}
+	var todo []pending
+	for rows.Next() {
+		var p pending
+		if rows.Scan(&p.code, &p.planID, &p.period, &p.days, &p.createdAt) == nil {
+			todo = append(todo, p)
+		}
+	}
+	rows.Close()
+
+	n := 0
+	for _, p := range todo {
+		cents := price(p.planID, p.period, p.days, p.createdAt)
+		if cents <= 0 {
+			continue
+		}
+		if _, err := s.pool.Exec(ctx,
+			`UPDATE reseller_codes SET retail_cents=$1 WHERE code=$2 AND retail_cents=0`, cents, p.code); err == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since *time.Time, limit, offset int) ([]*ResellerCode, error) {
 	dateCol := "created_at"
 	if redeemedOnly {
 		dateCol = "redeemed_at"
 	}
-	q := `SELECT code, plan_id, period, days, reseller, redeemed_by, redeemed_at, created_at, settled_at, settlement_ref FROM reseller_codes WHERE TRUE`
+	q := `SELECT code, plan_id, period, days, reseller, redeemed_by, redeemed_at, created_at, settled_at, settlement_ref, retail_cents FROM reseller_codes WHERE TRUE`
 	var args []any
 	if redeemedOnly {
 		q += ` AND redeemed_by != ''`
@@ -80,7 +116,7 @@ func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since 
 	for rows.Next() {
 		c := &ResellerCode{}
 		var redeemedAt, settledAt *time.Time
-		if rows.Scan(&c.Code, &c.PlanID, &c.Period, &c.Days, &c.Reseller, &c.RedeemedBy, &redeemedAt, &c.CreatedAt, &settledAt, &c.SettlementRef) != nil {
+		if rows.Scan(&c.Code, &c.PlanID, &c.Period, &c.Days, &c.Reseller, &c.RedeemedBy, &redeemedAt, &c.CreatedAt, &settledAt, &c.SettlementRef, &c.RetailCents) != nil {
 			continue
 		}
 		c.RedeemedAt = redeemedAt

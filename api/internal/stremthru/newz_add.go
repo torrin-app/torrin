@@ -170,6 +170,9 @@ func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans
 		return stStatus(linked.Status), 0, ""
 	}
 
+	if over, _ := h.Users.MonthlyQuotaExceeded(ctx, user.ID, plan.MonthlyIngestBytes); over {
+		return "", 429, "monthly download limit reached, resets on the 1st"
+	}
 	if ok, _ := h.Jobs.ColdPullAllowed(ctx, user.ID, plan.ColdPullsPerHour); !ok {
 		return "", 429, "hourly download limit reached, try later or upgrade"
 	}

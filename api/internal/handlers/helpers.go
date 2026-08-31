@@ -18,6 +18,7 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/urlnorm"
 )
 
 func isWebURL(s string) bool {
@@ -26,7 +27,7 @@ func isWebURL(s string) bool {
 }
 
 func urlKey(u string) string {
-	sum := sha1.Sum([]byte(strings.TrimSpace(u)))
+	sum := sha1.Sum([]byte(urlnorm.Canonical(u)))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -46,23 +47,7 @@ func extractInfoHash(m string) string {
 }
 
 func clientIP(r *http.Request) string {
-	if cfip := r.Header.Get("CF-Connecting-IP"); cfip != "" {
-		return cfip
-	}
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if i := strings.Index(xff, ","); i > 0 {
-			return strings.TrimSpace(xff[:i])
-		}
-		return strings.TrimSpace(xff)
-	}
-	if xri := r.Header.Get("X-Real-Ip"); xri != "" {
-		return xri
-	}
-	host := r.RemoteAddr
-	if i := strings.LastIndex(host, ":"); i > 0 {
-		return host[:i]
-	}
-	return host
+	return middleware.ClientIP(r)
 }
 
 func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {

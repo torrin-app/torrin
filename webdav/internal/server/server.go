@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -60,7 +61,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID = user.ID
-	tree := buildTree(s.completed(r.Context(), user.ID))
+	if r.Method == http.MethodPost {
+		s.setOverride(sw, r, user.ID)
+		return
+	}
+	overrides, _ := s.users.WebdavOverrides(r.Context(), user.ID)
+	tree := buildTree(s.completed(r.Context(), user.ID), overrides)
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		s.get(sw, r, user.ID, tree)
 		return
@@ -93,6 +99,28 @@ func (sw *statusWriter) WriteHeader(code int) {
 func (s *Server) completed(ctx context.Context, userID string) []*jobs.Job {
 	list, _ := jobs.ListAll(ctx, s.jobs, userID)
 	return list
+}
+
+func (s *Server) setOverride(w http.ResponseWriter, r *http.Request, userID string) {
+	var req struct {
+		InfoHash  string `json:"info_hash"`
+		FileIndex int    `json:"file_index"`
+		Alias     string `json:"alias"`
+		Excluded  bool   `json:"excluded"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req) != nil || req.InfoHash == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if len(req.Alias) > 255 {
+		http.Error(w, "name too long", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := s.users.SetWebdavOverride(r.Context(), userID, req.InfoHash, req.FileIndex, strings.TrimSpace(req.Alias), req.Excluded); err != nil {
+		http.Error(w, "could not save", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) authenticate(r *http.Request) (*auth.User, error) {

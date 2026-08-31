@@ -104,11 +104,14 @@ func (c *Client) Title(ctx context.Context, imdbID, contentType string) (string,
 }
 
 func (c *Client) Runtime(ctx context.Context, imdbID string) (int, error) {
-	m, err := c.meta(ctx, imdbID, "movie")
-	if err != nil {
-		return 0, err
+	for _, kind := range []string{"movie", "series"} {
+		if m, err := c.meta(ctx, imdbID, kind); err == nil && m != nil {
+			if rt := parseRuntimeMinutes(m.Runtime); rt > 0 {
+				return rt, nil
+			}
+		}
 	}
-	return parseRuntimeMinutes(m.Runtime), nil
+	return 0, nil
 }
 
 func parseRuntimeMinutes(s string) int {

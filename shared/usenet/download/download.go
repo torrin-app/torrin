@@ -9,102 +9,13 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/Tensai75/nntpPool"
 	"github.com/torrin-app/torrin/shared/failure"
+	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/usenet/decoder"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
 )
-
-var drainOnce sync.Once
-
-func drainPoolLogs() {
-	go func() {
-		for m := range nntpPool.LogChan {
-			slog.Info("nntpPool", "msg", m)
-		}
-	}()
-	go func() {
-		for e := range nntpPool.WarnChan {
-			slog.Warn("nntpPool", "err", e)
-		}
-	}()
-	go func() {
-		for m := range nntpPool.DebugChan {
-			slog.Debug("nntpPool", "msg", m)
-		}
-	}()
-}
-
-type Credentials struct {
-	Host     string
-	Port     int
-	Username string
-	Password string
-	SSL      bool
-	MaxConns int
-}
-
-func NewPool(c Credentials) (nntpPool.ConnectionPool, error) {
-	drainOnce.Do(drainPoolLogs)
-	max := uint32(c.MaxConns)
-	if max == 0 {
-		max = 10
-	}
-	return nntpPool.New(&nntpPool.Config{
-		Host:                  c.Host,
-		Port:                  uint32(c.Port),
-		SSL:                   c.SSL,
-		User:                  c.Username,
-		Pass:                  c.Password,
-		MaxConns:              max,
-		HealthCheck:           true,
-		ConnWaitTime:          5 * time.Second,
-		IdleTimeout:           60 * time.Second,
-		MaxConnErrors:         5,
-		MaxTooManyConnsErrors: 3,
-	}, 0)
-}
-
-type sharedEntry struct {
-	pool nntpPool.ConnectionPool
-	refs int
-}
-
-var (
-	sharedMu    sync.Mutex
-	sharedPools = map[string]*sharedEntry{}
-)
-
-func AcquireShared(c Credentials) (nntpPool.ConnectionPool, func(), error) {
-	key := c.Host + "|" + c.Username
-	sharedMu.Lock()
-	defer sharedMu.Unlock()
-	e, ok := sharedPools[key]
-	if !ok {
-		p, err := NewPool(c)
-		if err != nil {
-			return nil, nil, err
-		}
-		e = &sharedEntry{pool: p}
-		sharedPools[key] = e
-	}
-	e.refs++
-	var once sync.Once
-	release := func() {
-		once.Do(func() {
-			sharedMu.Lock()
-			defer sharedMu.Unlock()
-			e.refs--
-			if e.refs == 0 {
-				e.pool.Close()
-				delete(sharedPools, key)
-			}
-		})
-	}
-	return e.pool, release, nil
-}
 
 type Result struct {
 	Name string
@@ -118,14 +29,14 @@ type ArticleFetcher interface {
 	Fetch(ctx context.Context, msgID, group string) ([]byte, error)
 }
 
-type poolArticleFetcher struct{ pool nntpPool.ConnectionPool }
+type poolArticleFetcher struct{ pools []nntpPool.ConnectionPool }
 
-func NewArticleFetcher(pool nntpPool.ConnectionPool) ArticleFetcher {
-	return poolArticleFetcher{pool: pool}
+func NewArticleFetcher(pools []nntpPool.ConnectionPool) ArticleFetcher {
+	return poolArticleFetcher{pools: pools}
 }
 
 func (f poolArticleFetcher) Fetch(ctx context.Context, msgID, group string) ([]byte, error) {
-	return fetchSegment(ctx, f.pool, msgID, group)
+	return fetchSegment(ctx, f.pools, msgID, group)
 }
 
 func TestCredentials(ctx context.Context, c Credentials) error {
@@ -142,7 +53,7 @@ func TestCredentials(ctx context.Context, c Credentials) error {
 	return nil
 }
 
-func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, outDir string, conns int, onProgress func(done, total int64)) ([]Result, int64, error) {
+func Download(ctx context.Context, pools []nntpPool.ConnectionPool, n *nzb.NZB, outDir string, conns int, onProgress func(done, total int64)) ([]Result, int64, error) {
 	if conns < 1 {
 		conns = 10
 	}
@@ -152,7 +63,6 @@ func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, out
 	total := n.TotalSize()
 	var done, totalMissing int64
 	var results []Result
-	fetcher := NewArticleFetcher(pool)
 
 	for _, file := range n.Files {
 		name := filepath.Base(FileName(file))
@@ -168,7 +78,7 @@ func Download(ctx context.Context, pool nntpPool.ConnectionPool, n *nzb.NZB, out
 		if err != nil {
 			return nil, 0, err
 		}
-		missing, err := downloadFile(ctx, fetcher, file, group, f, &done, total, conns, onProgress)
+		missing, err := downloadFile(ctx, pools, file, group, f, &done, total, conns, onProgress)
 		f.Sync()
 		f.Close()
 		if err != nil {
@@ -198,7 +108,7 @@ func isOptional(name string) bool {
 		strings.HasSuffix(l, ".txt") || strings.HasSuffix(l, ".jpg") || strings.HasSuffix(l, ".png")
 }
 
-func downloadFile(ctx context.Context, fetcher ArticleFetcher, file nzb.File, group string, f *os.File, done *int64, total int64, conns int, onProgress func(done, total int64)) (int64, error) {
+func downloadFile(ctx context.Context, pools []nntpPool.ConnectionPool, file nzb.File, group string, f *os.File, done *int64, total int64, conns int, onProgress func(done, total int64)) (int64, error) {
 	sem := make(chan struct{}, conns)
 	var wg sync.WaitGroup
 	var fatal error
@@ -214,8 +124,14 @@ func downloadFile(ctx context.Context, fetcher ArticleFetcher, file nzb.File, gr
 			if ctx.Err() != nil {
 				return
 			}
-			data, err := fetcher.Fetch(ctx, seg.MessageID, group)
+			data, err := fetchSegment(ctx, pools, seg.MessageID, group)
 			if err == nil {
+				if lim := providers.LimiterFrom(ctx); lim != nil {
+					if werr := lim.WaitN(ctx, len(data)); werr != nil {
+						fatalOnce.Do(func() { fatal = werr })
+						return
+					}
+				}
 				var dec *decoder.YencResult
 				if dec, err = decoder.Decode(data); err == nil {
 					writeSegment(f, dec)
@@ -253,7 +169,27 @@ func writeSegment(f *os.File, dec *decoder.YencResult) {
 
 const segAttempts = 3
 
-func fetchSegment(ctx context.Context, pool nntpPool.ConnectionPool, msgID, group string) ([]byte, error) {
+var fetchOne = fetchFromPool
+
+func fetchSegment(ctx context.Context, pools []nntpPool.ConnectionPool, msgID, group string) ([]byte, error) {
+	var lastErr error
+	for _, pool := range pools {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		data, err := fetchOne(ctx, pool, msgID, group)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+	}
+	if lastErr == nil {
+		lastErr = failure.Interrupted
+	}
+	return nil, lastErr
+}
+
+func fetchFromPool(ctx context.Context, pool nntpPool.ConnectionPool, msgID, group string) ([]byte, error) {
 	var lastErr error
 	for attempt := 0; attempt < segAttempts; attempt++ {
 		if ctx.Err() != nil {
