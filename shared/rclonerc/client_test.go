@@ -72,6 +72,28 @@ func TestEnsureUserRemoteCrypt(t *testing.T) {
 	}
 }
 
+func TestCreateRemoteS3ListVersion(t *testing.T) {
+	var calls []map[string]any
+	srv := recordingServer(&calls)
+	defer srv.Close()
+	c := New(srv.URL)
+
+	if err := c.CreateRemote(context.Background(), "s3rem", "s3", map[string]string{"endpoint": "x"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := calls[0]["parameters"].(map[string]any); p["list_version"] != "2" {
+		t.Errorf("s3 list_version = %v, want 2", p["list_version"])
+	}
+
+	calls = nil
+	if err := c.CreateRemote(context.Background(), "kr", "koofr", map[string]string{"user": "x"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := calls[0]["parameters"].(map[string]any); p["list_version"] != nil {
+		t.Errorf("non-s3 must not get list_version, got %v", p["list_version"])
+	}
+}
+
 func TestErrorAuth(t *testing.T) {
 	auth := []*Error{
 		{Status: 401},

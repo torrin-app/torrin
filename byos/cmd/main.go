@@ -27,6 +27,8 @@ type deps struct {
 	rc            *rclonerc.Client
 	cipher        *crypto.Stream
 	nodeID        string
+	srcBase       string
+	srcToken      string
 	parallel      int
 	perUser       int
 	mirrorTimeout time.Duration
@@ -60,6 +62,8 @@ func main() {
 		src:           storage.NewFSClient(env.Get("STORE_DIR", "/mnt/cache/store"), "", ""),
 		cipher:        cipher,
 		nodeID:        env.Get("NODE_ID", ""),
+		srcBase:       env.Get("BYOS_SRC_URL", "http://byos:8085"),
+		srcToken:      env.Get("BYOS_SRC_TOKEN", ""),
 		parallel:      int(env.Int("BYOS_PARALLEL", 3)),
 		perUser:       int(env.Int("BYOS_PER_USER", 2)),
 		mirrorTimeout: time.Duration(env.Int("BYOS_MIRROR_TIMEOUT_MIN", 120)) * time.Minute,
@@ -94,7 +98,7 @@ func main() {
 	go d.runStorageEviction(ctx, int(env.Int("BYOS_EVICT_HOUR", 5)))
 
 	slog.Info("byos worker started")
-	service.RunHealth("byos", "8085")
+	service.Run("byos", env.Get("PORT", "8085"), d.srcMux())
 }
 
 func connectRclone(ctx context.Context) *rclonerc.Client {
@@ -206,7 +210,7 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 	defer cancel()
 	var mErr error
 	if rcl {
-		mErr = mirror.MirrorRclone(mctx, d.rc, d.src, d.cipher, job, creds, d.stallTimeout)
+		mErr = mirror.MirrorRclone(mctx, d.rc, d.srcBase, d.srcToken, job, creds, d.stallTimeout)
 	} else {
 		mErr = mirror.Mirror(mctx, d.src, d.cipher, job, creds, d.stallTimeout)
 	}

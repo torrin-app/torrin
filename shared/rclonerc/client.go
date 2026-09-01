@@ -111,6 +111,12 @@ func (c *Client) WaitReady(ctx context.Context) error {
 }
 
 func (c *Client) CreateRemote(ctx context.Context, name, backend string, params map[string]string, obscure bool) error {
+	if backend == "s3" && params["list_version"] == "" {
+		if params == nil {
+			params = map[string]string{}
+		}
+		params["list_version"] = "2"
+	}
 	_, err := c.call(ctx, "config/create", map[string]any{
 		"name":       name,
 		"type":       backend,
@@ -118,6 +124,15 @@ func (c *Client) CreateRemote(ctx context.Context, name, backend string, params 
 		"opt":        map[string]any{"obscure": obscure, "nonInteractive": true},
 	})
 	return err
+}
+
+func (c *Client) Exists(ctx context.Context, fs, remote string) (bool, error) {
+	out, err := c.call(ctx, "operations/stat", map[string]any{"fs": fs, "remote": remote})
+	if err != nil {
+		return false, err
+	}
+	item, ok := out["item"]
+	return ok && item != nil, nil
 }
 
 func (c *Client) Purge(ctx context.Context, fs, remote string) error {

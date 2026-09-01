@@ -36,7 +36,7 @@ func TestMirrorPropagatesNotFound(t *testing.T) {
 
 func TestOpenDecryptedPlain(t *testing.T) {
 	want := []byte("plain media bytes")
-	r, err := openDecrypted(context.Background(), fakeSource{want}, nil, "k", false)
+	r, err := OpenDecrypted(context.Background(), fakeSource{want}, nil, "k", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestOpenDecryptedEncrypted(t *testing.T) {
 	if bytes.Equal(enc, want) {
 		t.Fatal("test data not actually encrypted")
 	}
-	r, err := openDecrypted(context.Background(), fakeSource{enc}, cipher, "blobs/x", true)
+	r, err := OpenDecrypted(context.Background(), fakeSource{enc}, cipher, "blobs/x", true)
 	if err != nil {
 		t.Fatal(err)
 	}

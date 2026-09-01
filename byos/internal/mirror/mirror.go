@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path"
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
@@ -20,7 +19,7 @@ type Source interface {
 	Get(ctx context.Context, key, rng string) (*storage.Object, error)
 }
 
-func openDecrypted(ctx context.Context, src Source, cipher *crypto.Stream, key string, enc bool) (io.ReadCloser, error) {
+func OpenDecrypted(ctx context.Context, src Source, cipher *crypto.Stream, key string, enc bool) (io.ReadCloser, error) {
 	obj, err := src.Get(ctx, key, "")
 	if err != nil {
 		return nil, err
@@ -41,7 +40,7 @@ type uploadFn func(ctx context.Context, i int, f jobs.File, body io.Reader) erro
 
 func mirrorFiles(ctx context.Context, src Source, cipher *crypto.Stream, job *jobs.Job, stall time.Duration, up uploadFn) error {
 	for i, f := range job.Files {
-		body, err := openDecrypted(ctx, src, cipher, manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name), f.Enc)
+		body, err := OpenDecrypted(ctx, src, cipher, manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name), f.Enc)
 		if err != nil {
 			return fmt.Errorf("read %s: %w", f.Name, err)
 		}
@@ -64,13 +63,57 @@ func Mirror(ctx context.Context, src Source, cipher *crypto.Stream, job *jobs.Jo
 	})
 }
 
-func MirrorRclone(ctx context.Context, rc *rclonerc.Client, src Source, cipher *crypto.Stream, job *jobs.Job, creds *auth.StorageCreds, stall time.Duration) error {
+func MirrorRclone(ctx context.Context, rc *rclonerc.Client, srcBase, srcToken string, job *jobs.Job, creds *auth.StorageCreds, stall time.Duration) error {
 	remote, err := auth.EnsureRemote(ctx, rc, job.UserID, creds)
 	if err != nil {
 		return fmt.Errorf("create remote: %w", err)
 	}
-	return mirrorFiles(ctx, src, cipher, job, stall, func(uctx context.Context, i int, f jobs.File, body io.Reader) error {
+	srcFs := ":http,url=" + srcBase
+	for i, f := range job.Files {
+		srcRemote := fmt.Sprintf("src/%s/%s/%d", srcToken, job.ID, i)
 		dst := creds.Prefix + manifest.Key(job.InfoHash, i, f.Name)
-		return rc.UploadFile(uctx, remote+":", path.Dir(dst), path.Base(dst), body)
-	})
+		group := fmt.Sprintf("byos/%s/%d", job.ID, i)
+		jobID, err := rc.CopyFileAsync(ctx, srcFs, srcRemote, remote+":", dst, group)
+		if err != nil {
+			return fmt.Errorf("copy %s: %w", f.Name, err)
+		}
+		if err := waitCopy(ctx, rc, jobID, group, stall); err != nil {
+			return fmt.Errorf("copy %s: %w", f.Name, err)
+		}
+		if ok, err := rc.Exists(ctx, remote+":", dst); err != nil || !ok {
+			return fmt.Errorf("verify %s: not present after copy", f.Name)
+		}
+	}
+	return nil
+}
+
+func waitCopy(ctx context.Context, rc *rclonerc.Client, jobID int64, group string, stall time.Duration) error {
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	var last int64
+	progress := time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			rc.JobStop(context.Background(), jobID)
+			return ctx.Err()
+		case <-t.C:
+		}
+		st, err := rc.JobStatus(ctx, jobID)
+		if err != nil {
+			continue
+		}
+		if st.Finished {
+			if st.Success {
+				return nil
+			}
+			return fmt.Errorf("rclone copy: %s", st.Error)
+		}
+		if b := rc.GroupBytes(ctx, group); b > last {
+			last, progress = b, time.Now()
+		} else if time.Since(progress) > stall {
+			rc.JobStop(context.Background(), jobID)
+			return fmt.Errorf("stalled: no progress for %s", stall)
+		}
+	}
 }
