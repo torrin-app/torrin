@@ -57,9 +57,13 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 			byos = true
 		}
 	}
+	node := job.Node
 	if byos {
-		if cached, _ := s.Store.Has(r.Context(), manifest.Path(job.InfoHash)); cached {
+		if n, ok := s.warmCachedNode(r.Context(), job.InfoHash); ok {
 			byos = false
+			if n != "" {
+				node = n
+			}
 		}
 	}
 	out := make([]jobs.Stream, len(job.Files))
@@ -72,12 +76,25 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 		} else if _, _, _, ok := cairn.ParseStreamPath(key); ok {
 			u = s.Store.SignURLNodeUser("", key, job.UserID, 24*time.Hour)
 		} else {
-			u = s.Store.SignURLNode(job.Node, key, 24*time.Hour)
+			u = s.Store.SignURLNode(node, key, 24*time.Hour)
 		}
 		u += manifest.StreamQuery(job.InfoHash, f.Enc)
 		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return out
+}
+
+func (s *Server) warmCachedNode(ctx context.Context, hash string) (string, bool) {
+	lookup := s.cairnCachedLookup()
+	if lookup == nil {
+		return "", false
+	}
+	byHash, _ := lookup.CachedByHashes(ctx, []string{hash})
+	j := byHash[hash]
+	if j == nil {
+		return "", false
+	}
+	return j.Node, true
 }
 
 func (s *Server) serveFromBYOS(w http.ResponseWriter, r *http.Request, infoHash, magnet string, source jobs.Source) bool {

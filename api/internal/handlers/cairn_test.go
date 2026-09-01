@@ -295,3 +295,15 @@ func TestCairnRestoreKeepsWarmAndColdBehavior(t *testing.T) {
 		}
 	})
 }
+
+func TestWarmCachedNode(t *testing.T) {
+	s := &Server{Deps{CachedJobs: fakeCachedLookup{
+		"h1": &jobs.Job{Node: "box2"},
+	}}}
+	if n, ok := s.warmCachedNode(context.Background(), "h1"); !ok || n != "box2" {
+		t.Fatalf("cached hash = (%q,%v), want (box2,true)", n, ok)
+	}
+	if n, ok := s.warmCachedNode(context.Background(), "missing"); ok || n != "" {
+		t.Fatalf("uncached hash = (%q,%v), want (\"\",false)", n, ok)
+	}
+}
