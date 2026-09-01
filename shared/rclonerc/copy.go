@@ -5,10 +5,9 @@ import (
 	"fmt"
 )
 
-func (c *Client) CopyFileAsync(ctx context.Context, srcFs, srcRemote, dstFs, dstRemote, group string) (int64, error) {
-	out, err := c.call(ctx, "operations/copyfile", map[string]any{
-		"srcFs": srcFs, "srcRemote": srcRemote,
-		"dstFs": dstFs, "dstRemote": dstRemote,
+func (c *Client) CopyURLAsync(ctx context.Context, url, dstFs, dstRemote, group string) (int64, error) {
+	out, err := c.call(ctx, "operations/copyurl", map[string]any{
+		"url": url, "fs": dstFs, "remote": dstRemote,
 		"_async": true, "_group": group,
 	})
 	if err != nil {
@@ -16,7 +15,7 @@ func (c *Client) CopyFileAsync(ctx context.Context, srcFs, srcRemote, dstFs, dst
 	}
 	id, ok := out["jobid"].(float64)
 	if !ok {
-		return 0, fmt.Errorf("copyfile: no jobid in response")
+		return 0, fmt.Errorf("copyurl: no jobid in response")
 	}
 	return int64(id), nil
 }

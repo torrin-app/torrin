@@ -68,12 +68,11 @@ func MirrorRclone(ctx context.Context, rc *rclonerc.Client, srcBase, srcToken st
 	if err != nil {
 		return fmt.Errorf("create remote: %w", err)
 	}
-	srcFs := ":http,url=" + srcBase
 	for i, f := range job.Files {
-		srcRemote := fmt.Sprintf("src/%s/%s/%d", srcToken, job.ID, i)
+		srcURL := fmt.Sprintf("%s/src/%s/%s/%d", srcBase, srcToken, job.ID, i)
 		dst := creds.Prefix + manifest.Key(job.InfoHash, i, f.Name)
 		group := fmt.Sprintf("byos/%s/%d", job.ID, i)
-		jobID, err := rc.CopyFileAsync(ctx, srcFs, srcRemote, remote+":", dst, group)
+		jobID, err := rc.CopyURLAsync(ctx, srcURL, remote+":", dst, group)
 		if err != nil {
 			return fmt.Errorf("copy %s: %w", f.Name, err)
 		}

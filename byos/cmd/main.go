@@ -98,7 +98,7 @@ func main() {
 	go d.runStorageEviction(ctx, int(env.Int("BYOS_EVICT_HOUR", 5)))
 
 	slog.Info("byos worker started")
-	service.Run("byos", env.Get("PORT", "8085"), d.srcMux())
+	service.Run("byos", env.Get("PORT", "8085"), d.srcMux(), service.WithWriteTimeout(0))
 }
 
 func connectRclone(ctx context.Context) *rclonerc.Client {
