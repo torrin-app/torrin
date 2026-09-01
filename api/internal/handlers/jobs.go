@@ -41,7 +41,7 @@ func (s *Server) ingestText(w http.ResponseWriter, r *http.Request, input string
 				web.WriteError(w, 403, "grabbing from release sites requires a paid plan")
 				return
 			}
-			s.submitMagnet(w, r, hosterInfoHash(input), input, "", src, false)
+			s.submitMagnet(w, r, hosterInfoHash(input), input, releaseTitleFromURL(r.Context(), input), src, false)
 			return
 		}
 		s.submitMagnet(w, r, urlKey(input), input, "", jobs.SourceYtdlp, true)
