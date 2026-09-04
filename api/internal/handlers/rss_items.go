@@ -95,13 +95,16 @@ func (s *Server) rssSubmit(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 	if !s.Slots.Acquire(ctx, user.ID, plan) {
 		return false, true
 	}
-	err := s.Jobs.Create(ctx, job)
+	created, err := jobs.CreateAccountOnce(ctx, s.Jobs, job)
 	s.Slots.Release(user.ID)
 	if err != nil {
 		return false, false
 	}
-	s.assign(job)
 	s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
+	if !created {
+		return false, false
+	}
+	s.assign(job)
 	slog.Info("rss: auto-added "+kind, "feed", feed.Name, "title", job.Name, "hash", job.InfoHash)
 	return true, false
 }
@@ -157,13 +160,16 @@ func (s *Server) rssUsenet(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 		}
 		job.Files = append(job.Files, jobs.File{Index: i, Name: f.Subject, Size: fsize})
 	}
-	err = s.Jobs.Create(ctx, job)
+	created, err := jobs.CreateAccountOnce(ctx, s.Jobs, job)
 	s.Slots.Release(user.ID)
 	if err != nil {
 		return false, false
 	}
-	s.assign(job)
 	s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
+	if !created {
+		return false, false
+	}
+	s.assign(job)
 	slog.Info("rss: auto-added usenet", "feed", feed.Name, "title", name, "hash", hash)
 	return true, false
 }

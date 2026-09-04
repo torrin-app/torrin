@@ -96,6 +96,16 @@ func parseCachedTarget(raw string) (imdb string, season, episode int) {
 	return
 }
 
+func cachedStreamResult(job *jobs.Job, stream jobs.Stream) map[string]any {
+	return map[string]any{
+		"name":       job.Name,
+		"file_name":  stream.FileName,
+		"size":       stream.Size,
+		"info_hash":  job.InfoHash,
+		"signed_url": stream.SignedURL,
+	}
+}
+
 func (s *Server) usenetCached(w http.ResponseWriter, r *http.Request) {
 	imdb, season, episode := parseCachedTarget(r.URL.Query().Get("imdb"))
 	if imdb == "" {
@@ -118,7 +128,7 @@ func (s *Server) usenetCached(w http.ResponseWriter, r *http.Request) {
 			if season > 0 && episode > 0 && !episodeMatch(j, st.FileName, season, episode) {
 				continue
 			}
-			out = append(out, map[string]any{"name": j.Name, "file_name": st.FileName, "signed_url": st.SignedURL})
+			out = append(out, cachedStreamResult(j, st))
 		}
 	}
 	web.WriteJSON(w, 200, out)

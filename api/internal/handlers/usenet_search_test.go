@@ -1,6 +1,10 @@
 package handlers
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/torrin-app/torrin/shared/jobs"
+)
 
 func TestNormalizeIndexerURL(t *testing.T) {
 	cases := map[string]string{
@@ -45,5 +49,25 @@ func TestParseCachedTarget(t *testing.T) {
 		if imdb != c.imdb || season != c.season || episode != c.episode {
 			t.Errorf("parseCachedTarget(%q) = (%q,%d,%d), want (%q,%d,%d)", c.in, imdb, season, episode, c.imdb, c.season, c.episode)
 		}
+	}
+}
+
+func TestCachedStreamResultIncludesPlaybackMetadata(t *testing.T) {
+	job := &jobs.Job{Name: "Example.Release", InfoHash: "content-hash"}
+	stream := jobs.Stream{
+		FileName:  "Example.S02E05.1080p.mkv",
+		Size:      123456,
+		SignedURL: "https://example.com/blob",
+	}
+
+	got := cachedStreamResult(job, stream)
+	if got["name"] != job.Name || got["file_name"] != stream.FileName {
+		t.Fatalf("unexpected cached stream identity: %#v", got)
+	}
+	if got["size"] != stream.Size || got["info_hash"] != job.InfoHash {
+		t.Fatalf("missing cached stream playback metadata: %#v", got)
+	}
+	if got["signed_url"] != stream.SignedURL {
+		t.Fatalf("unexpected cached stream URL: %#v", got)
 	}
 }

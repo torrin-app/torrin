@@ -111,11 +111,12 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	cached := manifest.Playable(r.Context(), h.Store, infoHash)
 	plan, _ := plans.Get(user.PlanID)
 
-	if existing, err := h.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
-		if existing.UserID == user.ID {
-			writeJSON(w, 201, map[string]any{"id": existing.ID, "uri": "/rest/1.0/torrents/info/" + existing.ID})
-			return
-		}
+	if existing, err := h.Jobs.GetByUserInfoHash(r.Context(), user.ID, infoHash); err == nil && existing != nil {
+		writeJSON(w, 201, map[string]any{"id": existing.ID, "uri": "/rest/1.0/torrents/info/" + existing.ID})
+		return
+	}
+
+	if existing, err := h.Jobs.GetReusableByInfoHash(r.Context(), infoHash); err == nil && existing != nil {
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: existing.Name,
 			Source: jobs.SourceTorrent, Status: existing.Status, IMDBID: existing.IMDBID,
@@ -126,7 +127,13 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 			writeRDError(w, 503, 20, "slot limit reached")
 			return
 		}
-		h.Jobs.Create(r.Context(), linked)
+		if _, err := h.Jobs.CreateOnce(r.Context(), linked); err != nil {
+			if active {
+				h.Slots.Release(user.ID)
+			}
+			writeRDError(w, 500, 20, "could not create download")
+			return
+		}
 		if active {
 			h.Slots.Release(user.ID)
 		}
@@ -156,10 +163,19 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		job.Status = jobs.StatusComplete
 		job.Name, job.FileSize, job.Files = h.manifestMeta(r.Context(), infoHash)
 	}
-	h.Jobs.Create(r.Context(), job)
+	created, err := h.Jobs.CreateOnce(r.Context(), job)
+	if err != nil {
+		if !cached {
+			h.Slots.Release(user.ID)
+		}
+		writeRDError(w, 500, 20, "could not create download")
+		return
+	}
 	if !cached {
 		h.Slots.Release(user.ID)
-		h.assign(job)
+		if created {
+			h.assign(job)
+		}
 	}
 	writeJSON(w, 201, map[string]any{"id": job.ID, "uri": "/rest/1.0/torrents/info/" + job.ID})
 }

@@ -11,7 +11,6 @@ import (
 	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/plans"
-	"github.com/torrin-app/torrin/shared/stremioid"
 )
 
 func (h *Handler) listMagnets(w http.ResponseWriter, r *http.Request, user *auth.User) {
@@ -32,7 +31,12 @@ func (h *Handler) getMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	if job.Status == jobs.StatusComplete || job.Status == jobs.StatusSeeding {
 		h.Jobs.RecordView(r.Context(), job.InfoHash, user.ID)
 	}
-	stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), job)})
+	target, validTarget := playbackTarget(r.URL.Query().Get("sid"))
+	if !validTarget {
+		stError(w, 400, "invalid series sid")
+		return
+	}
+	stJSON(w, 200, map[string]any{"data": h.magnetDataForTarget(r.Context(), job, target)})
 }
 
 func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.User) {
@@ -58,7 +62,11 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		return
 	}
 	defer keyed.Lock(infoHash)()
-	streamID := stremioid.Parse(r.URL.Query().Get("sid"))
+	target, validTarget := playbackTarget(r.URL.Query().Get("sid"))
+	if !validTarget {
+		stError(w, 400, "invalid series sid")
+		return
+	}
 
 	source, mag := jobs.SourceTorrent, req.Magnet
 	hdTitle := ""
@@ -76,38 +84,44 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	cache, cached := h.cachedJobFiles(r.Context(), infoHash)
 	plan, _ := plans.Get(user.PlanID)
 
-	if streamID.IsEpisode() {
-		if siblings, listErr := h.Jobs.ListByInfoHash(r.Context(), infoHash); listErr == nil {
-			if reusable := reusableStreamJob(siblings, user.ID, streamID); reusable != nil {
-				stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), reusable)})
-				return
-			}
+	// A job is the user's account row for the whole pack. The episode belongs
+	// to this request and must never create another row.
+	if owned, ownedErr := h.Jobs.GetByUserInfoHash(r.Context(), user.ID, infoHash); ownedErr == nil && owned != nil {
+		if target.IMDBID != "" && owned.IMDBID == "" {
+			h.Jobs.SetIMDB(r.Context(), infoHash, target.IMDBID)
+			owned.IMDBID = target.IMDBID
 		}
+		stJSON(w, 200, map[string]any{"data": h.magnetDataForTarget(r.Context(), owned, target)})
+		return
 	}
 
-	existing, err := h.Jobs.GetByInfoHash(r.Context(), infoHash)
-	if err == nil && existing != nil && existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
-		if existing.UserID == user.ID && sameStreamTarget(existing, streamID) {
-			stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), existing)})
-			return
-		}
+	existing, err := h.Jobs.GetReusableByInfoHash(r.Context(), infoHash)
+	if err == nil && existing != nil {
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: infoHash, Name: existing.Name, Magnet: mag,
 			Source: source, Status: existing.Status, IMDBID: existing.IMDBID,
-			Season: existing.Season, Episode: existing.Episode,
+			Season: target.Season, Episode: target.Episode,
 			Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
-		applyStreamTarget(linked, streamID)
+		if target.IMDBID != "" {
+			linked.IMDBID = target.IMDBID
+		}
 		activeLink := existing.Status.Active()
 		if activeLink && !h.Slots.Acquire(r.Context(), user.ID, plan) {
 			stError(w, 429, "slot limit reached")
 			return
 		}
-		h.Jobs.Create(r.Context(), linked)
+		if _, err := h.Jobs.CreateOnce(r.Context(), linked); err != nil {
+			if activeLink {
+				h.Slots.Release(user.ID)
+			}
+			stError(w, 500, "could not create download")
+			return
+		}
 		if activeLink {
 			h.Slots.Release(user.ID)
 		}
-		stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), linked)})
+		stJSON(w, 200, map[string]any{"data": h.magnetDataForTarget(r.Context(), linked, target)})
 		return
 	}
 
@@ -132,7 +146,7 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 	}
 	job := &jobs.Job{
 		UserID: user.ID, InfoHash: infoHash, Magnet: mag, Name: name, FileSize: hdSize,
-		Source: source, IMDBID: streamID.IMDBID, Season: streamID.Season, Episode: streamID.Episode,
+		Source: source, IMDBID: target.IMDBID, Season: target.Season, Episode: target.Episode,
 		Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
 	if cached {
@@ -142,12 +156,21 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		}
 		job.FileSize, job.Files, job.Node = cache.size, cache.files, cache.node
 	}
-	h.Jobs.Create(r.Context(), job)
+	created, err := h.Jobs.CreateOnce(r.Context(), job)
+	if err != nil {
+		if !cached {
+			h.Slots.Release(user.ID)
+		}
+		stError(w, 500, "could not create download")
+		return
+	}
 	if !cached {
 		h.Slots.Release(user.ID)
-		h.assign(job)
+		if created {
+			h.assign(job)
+		}
 	}
-	stJSON(w, 200, map[string]any{"data": h.magnetData(r.Context(), job)})
+	stJSON(w, 200, map[string]any{"data": h.magnetDataForTarget(r.Context(), job, target)})
 }
 
 func (h *Handler) deleteMagnet(w http.ResponseWriter, r *http.Request, user *auth.User) {
@@ -190,39 +213,6 @@ func coldPullBlocked(ctx context.Context, c coldPullChecker, userID string, perH
 }
 
 func displayName(m string) string { return magnet.DisplayName(m) }
-
-func sameStreamTarget(j *jobs.Job, id stremioid.ID) bool {
-	if id.IMDBID == "" {
-		return true
-	}
-	if j.IMDBID != "" && j.IMDBID != id.IMDBID {
-		return false
-	}
-	if id.IsEpisode() {
-		return j.IMDBID == id.IMDBID && j.Season == id.Season && j.Episode == id.Episode
-	}
-	return j.Season == 0 && j.Episode == 0
-}
-
-func reusableStreamJob(candidates []*jobs.Job, userID string, id stremioid.ID) *jobs.Job {
-	for _, candidate := range candidates {
-		if candidate == nil || candidate.UserID != userID || candidate.Status == jobs.StatusFailed || candidate.Status == jobs.StatusEvicted {
-			continue
-		}
-		if sameStreamTarget(candidate, id) {
-			return candidate
-		}
-	}
-	return nil
-}
-
-func applyStreamTarget(j *jobs.Job, id stremioid.ID) {
-	if id.IMDBID != "" {
-		j.IMDBID = id.IMDBID
-		j.Season = id.Season
-		j.Episode = id.Episode
-	}
-}
 
 func (h *Handler) canUsenet(ctx context.Context, user *auth.User) bool {
 	plan, _ := plans.Get(user.PlanID)

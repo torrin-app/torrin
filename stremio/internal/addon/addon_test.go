@@ -74,21 +74,21 @@ func streamLink(t *testing.T, streams []map[string]any) string {
 
 func TestLibraryFilesFiltersRequestedEpisode(t *testing.T) {
 	j := &jobs.Job{Season: 5, Files: []jobs.File{
-		{Name: "Paw.Patrol.S05E01.mkv"},
-		{Name: "Paw.Patrol.S05E02.mkv"},
-		{Name: "Paw.Patrol.S12E01.mkv"},
+		{Name: "Example.Show.S05E01.mkv"},
+		{Name: "Example.Show.S05E02.mkv"},
+		{Name: "Example.Show.S12E01.mkv"},
 	}}
 	got := libraryFiles(j, stremioid.Parse("tt3121722:5:1"))
 	if len(got) != 1 {
 		t.Fatalf("files = %d, want one S05E01 file", len(got))
 	}
-	if got[0].Name != "Paw.Patrol.S05E01.mkv" || got[0].Index != 0 {
+	if got[0].Name != "Example.Show.S05E01.mkv" || got[0].Index != 0 {
 		t.Fatalf("file = %+v, want the original S05E01 file", got[0])
 	}
 }
 
 func TestLibraryFilesDoesNotReturnWrongSeasonPack(t *testing.T) {
-	j := &jobs.Job{Season: 12, Files: []jobs.File{{Name: "Paw.Patrol.S12E01.mkv"}}}
+	j := &jobs.Job{Season: 12, Files: []jobs.File{{Name: "Example.Show.S12E01.mkv"}}}
 	if got := libraryFiles(j, stremioid.Parse("tt3121722:5:1")); len(got) != 0 {
 		t.Fatalf("wrong-season files = %v, want none", got)
 	}

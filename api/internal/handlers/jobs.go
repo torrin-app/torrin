@@ -16,7 +16,6 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/plans"
-	"github.com/torrin-app/torrin/shared/safety"
 )
 
 func (s *Server) submitJob(w http.ResponseWriter, r *http.Request) {
@@ -55,25 +54,22 @@ func (s *Server) ingestText(w http.ResponseWriter, r *http.Request, input string
 	s.submitMagnet(w, r, infoHash, input, "", jobs.SourceTorrent, true)
 }
 
-func (s *Server) blockedBySafety(w http.ResponseWriter, r *http.Request, userID string, texts ...string) bool {
-	v := safety.Screen(texts...)
-	if !v.Blocked {
-		return false
-	}
-	if v.Ban {
-		s.Users.BanUser(r.Context(), userID, v.Reason)
-		s.Users.AuditLog(r.Context(), userID, "banned", v.Reason, clientIP(r))
-	}
-	web.WriteError(w, 403, "content blocked by safety policy")
-	return true
-}
-
 func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, magnet, name string, source jobs.Source, budgetGate bool) {
 	user := middleware.GetUser(r)
 	plan := middleware.GetPlan(r)
 	defer lockGrab(infoHash)()
 
-	// 1. Already cached → instant.
+	// 1. Reuse this account's live row before consulting shared cache state.
+	siblings, _ := s.Jobs.ListByInfoHash(r.Context(), infoHash)
+	if existing := userJobForHash(siblings, user.ID); existing != nil {
+		if !existing.Status.Active() {
+			existing.StreamURLs = s.signStreams(existing, r)
+		}
+		web.WriteJSON(w, 200, existing)
+		return
+	}
+
+	// 2. Already cached → instant.
 	if manifest.Playable(r.Context(), s.Store, infoHash) {
 		job, err := s.buildCachedJob(r.Context(), infoHash, magnet, user.ID, source)
 		if err != nil {
@@ -85,15 +81,8 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		return
 	}
 
-	// 2. Dedup against an existing job for this hash.
-	if existing, err := s.Jobs.GetByInfoHash(r.Context(), infoHash); err == nil && existing != nil && existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
-		if existing.UserID == user.ID {
-			if !existing.Status.Active() {
-				existing.StreamURLs = s.signStreams(existing, r)
-			}
-			web.WriteJSON(w, 200, existing)
-			return
-		}
+	// 3. Link another user's reusable physical cache to this account.
+	if existing := reusableJobForHash(siblings); existing != nil {
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: infoHash, Name: existing.Name, Magnet: magnet,
 			Source: source, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
@@ -103,7 +92,7 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
 			return
 		}
-		if err := s.Jobs.Create(r.Context(), linked); err != nil {
+		if _, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, linked); err != nil {
 			if activeLink {
 				s.Slots.Release(user.ID)
 			}
@@ -132,14 +121,20 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 				Source: jobs.SourceUsenet, Status: jobs.StatusPending,
 				MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 			}
-			err := s.Jobs.Create(r.Context(), job)
+			created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
 			s.Slots.Release(user.ID)
 			if err != nil {
 				web.WriteError(w, 500, "could not start this download")
 				return
 			}
-			s.assign(job)
-			web.WriteJSON(w, 202, job)
+			if created {
+				s.assign(job)
+			}
+			responseStatus := http.StatusOK
+			if created {
+				responseStatus = http.StatusAccepted
+			}
+			web.WriteJSON(w, responseStatus, job)
 			return
 		}
 	}
@@ -170,16 +165,20 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: name,
 		Source: source, Status: status, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
-	err := s.Jobs.Create(r.Context(), job)
+	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
 	s.Slots.Release(user.ID)
 	if err != nil {
 		web.WriteError(w, 500, "could not start this download")
 		return
 	}
-	if status == jobs.StatusPending {
+	if created && status == jobs.StatusPending {
 		s.assign(job)
 	}
-	web.WriteJSON(w, 202, job)
+	responseStatus := http.StatusOK
+	if created {
+		responseStatus = http.StatusAccepted
+	}
+	web.WriteJSON(w, responseStatus, job)
 }
 
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {

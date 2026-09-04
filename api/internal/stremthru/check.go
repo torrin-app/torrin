@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
@@ -16,6 +17,11 @@ import (
 const checkBudget = 20 * time.Second
 
 func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *auth.User) {
+	target, validTarget := playbackTarget(r.URL.Query().Get("sid"))
+	if !validTarget {
+		stError(w, 400, "invalid series sid")
+		return
+	}
 	var magnets []string
 	for _, key := range []string{"magnet", "hash"} {
 		for _, p := range r.URL.Query()[key] {
@@ -90,10 +96,13 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	// Tier 1: our shared cache. Fan out (each is a storage round-trip) so a 150-hash
 	// batch doesn't take ~24s and make the client drop the whole thing to uncached.
 	fanOut(uncached(), func(hash string) {
-		name, files, ok := h.warmCachedFiles(ctx, user.ID, hash)
+		cached, ok := h.warmJobFiles(ctx, hash)
 		if !ok {
 			return
 		}
+		name := cached.name
+		selected := jobs.FilesForEpisode(nil, cached.files, target.Season, target.Episode)
+		files := h.buildFileEntries(user.ID, hash, cached.node, selected)
 		mu.Lock()
 		if name == "" {
 			name, _ = items[idxOf[hash]]["name"].(string)
@@ -116,7 +125,8 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 				if name == "" {
 					name, _ = items[idxOf[hash]]["name"].(string)
 				}
-				items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(user.ID, hash, job.Node, job.Files)}
+				selected := jobs.FilesForEpisode(job, job.Files, target.Season, target.Episode)
+				items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(user.ID, hash, job.Node, selected)}
 			}
 			mu.Unlock()
 		}
@@ -125,10 +135,13 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	// Tier 1.75: a durable Cairn is immediately playable even when its warm
 	// cache copy was evicted. Prefer local and cross-node warm copies above.
 	fanOut(uncached(), func(hash string) {
-		name, files, ok := h.cairnCachedFiles(ctx, user.ID, hash)
+		cached, ok := h.cairnJobFiles(ctx, hash)
 		if !ok {
 			return
 		}
+		name := cached.name
+		selected := jobs.FilesForEpisode(nil, cached.files, target.Season, target.Episode)
+		files := h.buildFileEntries(user.ID, hash, cached.node, selected)
 		mu.Lock()
 		if name == "" {
 			name, _ = items[idxOf[hash]]["name"].(string)

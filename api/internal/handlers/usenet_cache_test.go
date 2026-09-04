@@ -45,6 +45,9 @@ func TestUserJobForHash(t *testing.T) {
 	if userJobForHash([]*jobs.Job{{UserID: "u1", Status: jobs.StatusFailed}}, "u1") != nil {
 		t.Error("a failed job should not count (allows retry)")
 	}
+	if userJobForHash([]*jobs.Job{{UserID: "u1", Status: jobs.StatusEvicted}}, "u1") != nil {
+		t.Error("an evicted job should not count (allows restore)")
+	}
 }
 
 func TestRecentlyFailed(t *testing.T) {

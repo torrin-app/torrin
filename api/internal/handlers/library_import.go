@@ -128,7 +128,8 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 		if !hasSlot {
 			job.Status = jobs.StatusQueued
 		}
-		if err := s.Jobs.Create(r.Context(), job); err != nil {
+		wasCreated, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
+		if err != nil {
 			if hasSlot {
 				s.Slots.Release(user.ID)
 			}
@@ -137,7 +138,9 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 		}
 		if hasSlot {
 			s.Slots.Release(user.ID)
-			s.assign(job)
+			if wasCreated {
+				s.assign(job)
+			}
 		}
 		created = append(created, h)
 	}

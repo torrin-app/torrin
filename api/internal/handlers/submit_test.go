@@ -89,9 +89,14 @@ func (f *fakeRepo) DownloadingCount(context.Context, string) (int, error) { retu
 func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)             { return f.budget, nil }
 
 // unused-by-submit stubs (satisfy jobs.Repository)
-func (f *fakeRepo) Update(context.Context, *jobs.Job) error                      { return nil }
-func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error)               { return f.toGet, nil }
-func (f *fakeRepo) ListByInfoHash(context.Context, string) ([]*jobs.Job, error)  { return nil, nil }
+func (f *fakeRepo) Update(context.Context, *jobs.Job) error        { return nil }
+func (f *fakeRepo) Get(context.Context, string) (*jobs.Job, error) { return f.toGet, nil }
+func (f *fakeRepo) ListByInfoHash(context.Context, string) ([]*jobs.Job, error) {
+	if f.existing == nil {
+		return nil, nil
+	}
+	return []*jobs.Job{f.existing}, nil
+}
 func (f *fakeRepo) NodeForInfoHash(context.Context, string) string               { return "" }
 func (f *fakeRepo) ListByUser(context.Context, string, int) ([]*jobs.Job, error) { return nil, nil }
 func (f *fakeRepo) ListByUserBefore(context.Context, string, time.Time, string, int) ([]*jobs.Job, error) {
@@ -233,5 +238,32 @@ func TestSubmitMagnet_DedupSameUser(t *testing.T) {
 	}
 	if len(repo.created) != 0 {
 		t.Error("same-user dedup must not create a new job")
+	}
+}
+
+func TestSubmitMagnet_LinksCrossUserCachedJob(t *testing.T) {
+	existing := &jobs.Job{
+		ID: "other-user-job", UserID: "u2", InfoHash: testHash,
+		Status: jobs.StatusComplete, Name: "Shared", Files: []jobs.File{{Index: 0, Name: "movie.mkv", Size: 100}},
+	}
+	repo, store, pub := &fakeRepo{existing: existing}, &fakeStore{has: false}, &fakePub{}
+	s := newTestServer(repo, store, pub, 1_000_000_000_000)
+	r := httptest.NewRequest("POST", "/api/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserContextKey, &auth.User{ID: "u1", PlanID: "pro", ExpiresAt: time.Now().Add(time.Hour)}))
+	w := httptest.NewRecorder()
+
+	s.submitMagnet(w, r, testHash, "magnet:x", "", jobs.SourceTorrent, true)
+
+	if w.Code != 200 {
+		t.Fatalf("cross-user cache status = %d, want 200", w.Code)
+	}
+	if len(repo.created) != 1 {
+		t.Fatalf("created %d account rows, want 1", len(repo.created))
+	}
+	if got := repo.created[0]; got.UserID != "u1" || got.InfoHash != testHash || got.ID == existing.ID {
+		t.Fatalf("linked account row = %+v", got)
+	}
+	if len(pub.published) != 0 {
+		t.Fatal("complete cross-user cache link must not start a download")
 	}
 }

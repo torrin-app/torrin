@@ -64,7 +64,16 @@ func usenetEntitled(hasOwnCreds bool, plan plans.Plan) bool {
 
 func userJobForHash(sibs []*jobs.Job, userID string) *jobs.Job {
 	for _, j := range sibs {
-		if j.UserID == userID && j.Status != jobs.StatusFailed {
+		if j != nil && j.UserID == userID && !j.Seed && j.Status != jobs.StatusFailed && j.Status != jobs.StatusEvicted {
+			return j
+		}
+	}
+	return nil
+}
+
+func reusableJobForHash(sibs []*jobs.Job) *jobs.Job {
+	for _, j := range sibs {
+		if j != nil && !j.Seed && j.Status != jobs.StatusFailed && j.Status != jobs.StatusEvicted {
 			return j
 		}
 	}
@@ -166,14 +175,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		return
 	}
 
-	if existing, err := s.Jobs.GetByInfoHash(r.Context(), hash); err == nil && existing != nil && existing.Status != jobs.StatusFailed {
-		if existing.UserID == user.ID {
-			if !existing.Status.Active() {
-				existing.StreamURLs = s.signStreams(existing, r)
-			}
-			web.WriteJSON(w, 200, existing)
-			return
-		}
+	if existing := reusableJobForHash(sibs); existing != nil {
 		linked := &jobs.Job{
 			UserID: user.ID, InfoHash: hash, Name: existing.Name, Source: jobs.SourceUsenet,
 			Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
@@ -184,7 +186,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
 			return
 		}
-		if err := s.Jobs.Create(r.Context(), linked); err != nil {
+		if _, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, linked); err != nil {
 			if activeLink {
 				s.Slots.Release(user.ID)
 			}
@@ -225,16 +227,20 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		Source: jobs.SourceUsenet, Status: status, IMDBID: imdb,
 		MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
-	err = s.Jobs.Create(r.Context(), job)
+	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
 	s.Slots.Release(user.ID)
 	if err != nil {
 		web.WriteError(w, 500, "could not start this download")
 		return
 	}
-	if status == jobs.StatusPending {
+	if created && status == jobs.StatusPending {
 		s.assign(job)
 	}
-	web.WriteJSON(w, 202, job)
+	responseStatus := http.StatusOK
+	if created {
+		responseStatus = http.StatusAccepted
+	}
+	web.WriteJSON(w, responseStatus, job)
 }
 
 func (s *Server) setUsenetCreds(w http.ResponseWriter, r *http.Request) {

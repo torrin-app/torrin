@@ -12,22 +12,22 @@ func TestMatchesEpisodeFile(t *testing.T) {
 		single   bool
 		want     bool
 	}{
-		{name: "filename exact", job: &Job{}, fileName: "Paw.Patrol.S05E01.mkv", season: 5, episode: 1, want: true},
-		{name: "filename wrong episode", job: &Job{}, fileName: "Paw.Patrol.S05E02.mkv", season: 5, episode: 1},
-		{name: "filename wrong season", job: &Job{}, fileName: "Paw.Patrol.S12E01.mkv", season: 5, episode: 1},
-		{name: "x format", job: &Job{}, fileName: "Paw Patrol 5x01.mkv", season: 5, episode: 1, want: true},
-		{name: "multi episode range", job: &Job{}, fileName: "Paw.Patrol.S05E01-E03.mkv", season: 5, episode: 2, want: true},
-		{name: "episode range misses", job: &Job{}, fileName: "Paw.Patrol.S05E01-E03.mkv", season: 5, episode: 4},
-		{name: "special", job: &Job{}, fileName: "Paw.Patrol.S00E02.mkv", season: 0, episode: 2, want: true},
+		{name: "filename exact", job: &Job{}, fileName: "Example.Show.S05E01.mkv", season: 5, episode: 1, want: true},
+		{name: "filename wrong episode", job: &Job{}, fileName: "Example.Show.S05E02.mkv", season: 5, episode: 1},
+		{name: "filename wrong season", job: &Job{}, fileName: "Example.Show.S12E01.mkv", season: 5, episode: 1},
+		{name: "x format", job: &Job{}, fileName: "Example Show 5x01.mkv", season: 5, episode: 1, want: true},
+		{name: "multi episode range", job: &Job{}, fileName: "Example.Show.S05E01-E03.mkv", season: 5, episode: 2, want: true},
+		{name: "episode range misses", job: &Job{}, fileName: "Example.Show.S05E01-E03.mkv", season: 5, episode: 4},
+		{name: "special", job: &Job{}, fileName: "Example.Show.S00E02.mkv", season: 0, episode: 2, want: true},
 		{name: "date is not episode", job: &Job{}, fileName: "The Ed Show 10-19-12.mp4", season: 10, episode: 19},
-		{name: "season pack metadata", job: &Job{Season: 5}, fileName: "Paw.Patrol.S05E01.mkv", season: 5, episode: 1, want: true},
-		{name: "wrong pack metadata", job: &Job{Season: 12}, fileName: "Paw.Patrol.S12E01.mkv", season: 5, episode: 1},
+		{name: "season pack metadata", job: &Job{Season: 5}, fileName: "Example.Show.S05E01.mkv", season: 5, episode: 1, want: true},
+		{name: "wrong pack metadata", job: &Job{Season: 12}, fileName: "Example.Show.S12E01.mkv", season: 5, episode: 1},
 		{name: "exact metadata fallback single file", job: &Job{Season: 5, Episode: 1}, fileName: "opaque-video.mkv", season: 5, episode: 1, single: true, want: true},
 		{name: "special metadata fallback single file", job: &Job{Season: 0, Episode: 2}, fileName: "opaque-special.mkv", season: 0, episode: 2, single: true, want: true},
 		{name: "metadata fallback rejects wrong season", job: &Job{Season: 0, Episode: 2}, fileName: "opaque-special.mkv", season: 1, episode: 2, single: true},
 		{name: "opaque file in a pack is not trusted", job: &Job{Season: 5, Episode: 1}, fileName: "opaque-video.mkv", season: 5, episode: 1, single: false},
-		{name: "metadata does not override filename", job: &Job{Season: 5, Episode: 1}, fileName: "Paw.Patrol.S05E02.mkv", season: 5, episode: 1},
-		{name: "filename overrides stale metadata", job: &Job{Season: 12, Episode: 1}, fileName: "Paw.Patrol.S05E01.mkv", season: 5, episode: 1, want: true},
+		{name: "metadata does not override filename", job: &Job{Season: 5, Episode: 1}, fileName: "Example.Show.S05E02.mkv", season: 5, episode: 1},
+		{name: "filename overrides stale metadata", job: &Job{Season: 12, Episode: 1}, fileName: "Example.Show.S05E01.mkv", season: 5, episode: 1, want: true},
 		{name: "movie is unfiltered", job: &Job{}, fileName: "anything.mkv", want: true},
 	}
 	for _, tt := range tests {
@@ -41,8 +41,8 @@ func TestMatchesEpisodeFile(t *testing.T) {
 
 func TestFilesForEpisodeUsesPositionWhenUnindexed(t *testing.T) {
 	j := &Job{Season: 5, Files: []File{
-		{Name: "Paw.Patrol.S05E01.mkv"},
-		{Name: "Paw.Patrol.S05E02.mkv"},
+		{Name: "Example.Show.S05E01.mkv"},
+		{Name: "Example.Show.S05E02.mkv"},
 	}}
 	got := FilesForEpisode(j, j.Files, 5, 2)
 	if len(got) != 1 {
@@ -55,8 +55,8 @@ func TestFilesForEpisodeUsesPositionWhenUnindexed(t *testing.T) {
 
 func TestFilesForEpisodeTrustsPersistedIndex(t *testing.T) {
 	j := &Job{Season: 5, Files: []File{
-		{Name: "Paw.Patrol.S05E02.mkv", Index: 3},
-		{Name: "Paw.Patrol.S05E01.mkv", Index: 0},
+		{Name: "Example.Show.S05E02.mkv", Index: 3},
+		{Name: "Example.Show.S05E01.mkv", Index: 0},
 	}}
 	got := FilesForEpisode(j, j.Files, 5, 1)
 	if len(got) != 1 {

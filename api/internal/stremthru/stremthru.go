@@ -19,6 +19,7 @@ import (
 	"github.com/torrin-app/torrin/shared/manifest"
 	"github.com/torrin-app/torrin/shared/mediainfo"
 	"github.com/torrin-app/torrin/shared/qbit"
+	"github.com/torrin-app/torrin/shared/stremioid"
 	"github.com/torrin-app/torrin/shared/torrentclaw"
 )
 
@@ -26,6 +27,7 @@ type store interface {
 	Has(ctx context.Context, key string) (bool, error)
 	GetBytes(ctx context.Context, key string) ([]byte, error)
 	Put(ctx context.Context, key string, body io.Reader, contentType string) error
+	Delete(ctx context.Context, key string) error
 	SignURL(path string, expiry time.Duration) string
 	SignURLNode(node, path string, expiry time.Duration) string
 	SignURLNodeUser(node, path, userID string, expiry time.Duration) string
@@ -144,6 +146,12 @@ func (h *Handler) assign(job *jobs.Job) {
 }
 
 func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
+	return h.magnetDataForTarget(ctx, j, stremioid.ID{})
+}
+
+// magnetDataForTarget keeps the persisted job as the pack/account record and
+// applies the current playback target only to the response.
+func (h *Handler) magnetDataForTarget(ctx context.Context, j *jobs.Job, target stremioid.ID) map[string]any {
 	m := map[string]any{
 		"id": j.ID, "hash": j.InfoHash, "magnet": magnet.Build(j.InfoHash, j.Name), "name": j.Name, "status": stStatus(j.Status),
 		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339), "private": false,
@@ -152,7 +160,7 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 	if cached, ok := h.cachedJobFiles(ctx, j.InfoHash); ok {
 		m["status"] = "downloaded"
 		m["size"] = cached.size
-		files := jobs.FilesForEpisode(j, cached.files, j.Season, j.Episode)
+		files := jobs.FilesForEpisode(j, cached.files, target.Season, target.Episode)
 		m["files"] = h.buildFileEntries(j.UserID, j.InfoHash, cached.node, files)
 		if cached.name != "" {
 			m["name"] = cached.name
@@ -162,7 +170,7 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 		if _, _, mf := h.manifestMeta(ctx, j.InfoHash); mf != nil {
 			files = mf
 		}
-		files = jobs.FilesForEpisode(j, files, j.Season, j.Episode)
+		files = jobs.FilesForEpisode(j, files, target.Season, target.Episode)
 		m["files"] = h.buildFileEntries(j.UserID, j.InfoHash, j.Node, files)
 	}
 	return m
@@ -218,6 +226,15 @@ func stStatus(s jobs.Status) string {
 }
 
 func extractHash(m string) string { return magnet.Hash(m) }
+
+func playbackTarget(raw string) (stremioid.ID, bool) {
+	target := stremioid.Parse(raw)
+	// Preserve generic/movie compatibility. An IMDb ID containing episode
+	// separators is a series request and must parse completely; otherwise
+	// returning an unfiltered pack would silently play the wrong season.
+	valid := !(strings.HasPrefix(raw, "tt") && strings.Contains(raw, ":")) || target.IsEpisode()
+	return target, valid
+}
 
 func bearer(h string) string {
 	if strings.HasPrefix(h, "Bearer ") {

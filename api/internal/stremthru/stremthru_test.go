@@ -62,6 +62,7 @@ func (f fakeStore) GetBytes(context.Context, string) ([]byte, error) {
 	return f.manifest, f.err
 }
 func (f fakeStore) Put(context.Context, string, io.Reader, string) error { return nil }
+func (f fakeStore) Delete(context.Context, string) error                 { return nil }
 func (f fakeStore) SignURL(path string, _ time.Duration) string          { return "sign://" + path }
 func (f fakeStore) SignURLNode(node, path string, _ time.Duration) string {
 	return "sign://" + node + "/" + path
@@ -149,57 +150,6 @@ func TestColdPullBlocked(t *testing.T) {
 	}
 }
 
-func TestSameStreamTarget(t *testing.T) {
-	j := &jobs.Job{IMDBID: "3121722", Season: 5, Episode: 1}
-	if !sameStreamTarget(j, stremioid.Parse("tt3121722:5:1")) {
-		t.Fatal("same episode should reuse the job")
-	}
-	if sameStreamTarget(j, stremioid.Parse("tt3121722:5:2")) {
-		t.Fatal("another episode in the same pack needs a distinct linked job")
-	}
-	if sameStreamTarget(j, stremioid.Parse("tt9999999:5:1")) {
-		t.Fatal("another title needs a distinct linked job")
-	}
-	if sameStreamTarget(j, stremioid.Parse("tt3121722")) {
-		t.Fatal("movie requests must not inherit an episode-scoped job")
-	}
-	if !sameStreamTarget(&jobs.Job{IMDBID: "3121722"}, stremioid.Parse("tt3121722")) {
-		t.Fatal("movie requests should reuse an unscoped job")
-	}
-	if !sameStreamTarget(j, stremioid.ID{}) {
-		t.Fatal("requests without a Stremio target keep existing reuse behavior")
-	}
-}
-
-func TestApplyStreamTarget(t *testing.T) {
-	j := &jobs.Job{IMDBID: "old", Season: 12, Episode: 3}
-	applyStreamTarget(j, stremioid.Parse("tt3121722:5:1"))
-	if j.IMDBID != "3121722" || j.Season != 5 || j.Episode != 1 {
-		t.Fatalf("target = imdb %q S%02dE%02d", j.IMDBID, j.Season, j.Episode)
-	}
-}
-
-func TestApplyMovieTargetClearsEpisodeScope(t *testing.T) {
-	j := &jobs.Job{IMDBID: "old", Season: 12, Episode: 3}
-	applyStreamTarget(j, stremioid.Parse("tt0816692"))
-	if j.IMDBID != "0816692" || j.Season != 0 || j.Episode != 0 {
-		t.Fatalf("movie target = imdb %q S%02dE%02d", j.IMDBID, j.Season, j.Episode)
-	}
-}
-
-func TestReusableStreamJobFindsExistingEpisode(t *testing.T) {
-	want := &jobs.Job{ID: "wanted", UserID: "user", IMDBID: "3121722", Season: 5, Episode: 1, Status: jobs.StatusComplete}
-	candidates := []*jobs.Job{
-		{ID: "other-episode", UserID: "user", IMDBID: "3121722", Season: 5, Episode: 2, Status: jobs.StatusComplete},
-		{ID: "other-user", UserID: "other", IMDBID: "3121722", Season: 5, Episode: 1, Status: jobs.StatusComplete},
-		{ID: "failed", UserID: "user", IMDBID: "3121722", Season: 5, Episode: 1, Status: jobs.StatusFailed},
-		want,
-	}
-	if got := reusableStreamJob(candidates, "user", stremioid.Parse("tt3121722:5:1")); got != want {
-		t.Fatalf("reusable job = %+v, want %q", got, want.ID)
-	}
-}
-
 func TestFileEntry(t *testing.T) {
 	e := fileEntry(2, "the.100.s02e01.mkv", 3517219191, "https://beam/link", nil)
 	if e["path"] != "/the.100.s02e01.mkv" {
@@ -258,30 +208,30 @@ func TestMagnetDataFallsBackToJobFilesWithoutManifest(t *testing.T) {
 	}
 }
 
-func TestMagnetDataFiltersSeasonPackToRequestedEpisode(t *testing.T) {
+func TestMagnetDataFiltersSeasonPackUsingCurrentTarget(t *testing.T) {
 	m := manifest.Manifest{
-		InfoHash: "abc", Name: "Paw.Patrol.S05.1080p",
+		InfoHash: "abc", Name: "Example.Show.S05.1080p",
 		Files: []manifest.File{
-			{FileName: "Paw.Patrol.S05E01.mkv", FileSize: 100},
-			{FileName: "Paw.Patrol.S05E02.mkv", FileSize: 200},
-			{FileName: "Paw.Patrol.S12E01.mkv", FileSize: 300},
+			{FileName: "Example.Show.S05E01.mkv", FileSize: 100},
+			{FileName: "Example.Show.S05E02.mkv", FileSize: 200},
+			{FileName: "Example.Show.S12E01.mkv", FileSize: 300},
 		},
 	}
 	data, _ := m.Marshal()
 	h := &Handler{Deps: Deps{Store: fakeStore{manifest: data}}}
-	j := &jobs.Job{InfoHash: "abc", Status: jobs.StatusComplete, Season: 5, Episode: 2}
+	stale := &jobs.Job{InfoHash: "abc", UserID: "u", Status: jobs.StatusComplete, Season: 12, Episode: 1}
 
-	files, _ := h.magnetData(context.Background(), j)["files"].([]map[string]any)
+	files := h.magnetDataForTarget(context.Background(), stale, stremioid.Parse("tt3121722:5:2"))["files"].([]map[string]any)
 	if len(files) != 1 {
 		t.Fatalf("files = %d, want one S05E02 file", len(files))
 	}
-	if files[0]["name"] != "Paw.Patrol.S05E02.mkv" {
+	if files[0]["name"] != "Example.Show.S05E02.mkv" {
 		t.Fatalf("name = %v, want S05E02", files[0]["name"])
 	}
 	if files[0]["index"] != 1 {
 		t.Fatalf("index = %v, want original manifest index 1", files[0]["index"])
 	}
-	if link, _ := files[0]["link"].(string); !strings.Contains(link, "abc/file_1/Paw.Patrol.S05E02.mkv") {
+	if link, _ := files[0]["link"].(string); !strings.Contains(link, "abc/file_1/Example.Show.S05E02.mkv") {
 		t.Fatalf("link = %q, want original file_1 key", link)
 	}
 }

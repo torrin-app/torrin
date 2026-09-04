@@ -136,29 +136,29 @@ func cleanNzbName(s string) string {
 }
 
 func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans.Plan, contentHash, name string, size int64, body []byte) (string, int, string) {
+	if existing, err := h.Jobs.GetByUserInfoHash(ctx, user.ID, contentHash); err == nil && existing != nil {
+		return stStatus(existing.Status), 0, ""
+	}
+
 	if manifest.Playable(ctx, h.Store, contentHash) {
 		mName, mSize, files := h.manifestMeta(ctx, contentHash)
 		if mName != "" {
 			name = mName
 		}
 		job := &jobs.Job{UserID: user.ID, InfoHash: contentHash, Name: name, FileSize: mSize, Source: jobs.SourceUsenet, Status: jobs.StatusComplete, Files: files}
-		if err := h.Jobs.Create(ctx, job); err != nil {
+		if _, err := h.Jobs.CreateOnce(ctx, job); err != nil {
 			return "", 500, "could not start this download"
 		}
 		return "downloaded", 0, ""
 	}
 
-	if existing, err := h.Jobs.GetByInfoHash(ctx, contentHash); err == nil && existing != nil &&
-		existing.Status != jobs.StatusFailed && existing.Status != jobs.StatusEvicted {
-		if existing.UserID == user.ID {
-			return stStatus(existing.Status), 0, ""
-		}
+	if existing, err := h.Jobs.GetReusableByInfoHash(ctx, contentHash); err == nil && existing != nil {
 		linked := &jobs.Job{UserID: user.ID, InfoHash: contentHash, Name: existing.Name, Source: jobs.SourceUsenet, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node}
 		active := existing.Status.Active()
 		if active && !h.Slots.Acquire(ctx, user.ID, plan) {
 			return "", 429, "slot limit reached"
 		}
-		if err := h.Jobs.Create(ctx, linked); err != nil {
+		if _, err := h.Jobs.CreateOnce(ctx, linked); err != nil {
 			if active {
 				h.Slots.Release(user.ID)
 			}
@@ -185,14 +185,16 @@ func (h *Handler) ensureNewzJob(ctx context.Context, user *auth.User, plan plans
 	}
 	h.Users.SetJobNZB(ctx, contentHash, body)
 	job := &jobs.Job{UserID: user.ID, InfoHash: contentHash, Name: name, FileSize: size, Source: jobs.SourceUsenet, Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority}
-	err := h.Jobs.Create(ctx, job)
+	created, err := h.Jobs.CreateOnce(ctx, job)
 	h.Slots.Release(user.ID)
 	if err != nil {
 		return "", 500, "could not start this download"
 	}
-	job.Node = cluster.TargetNode(context.Background(), h.Jobs, string(jobs.SourceUsenet), job.MaxBytes)
-	h.Jobs.Update(context.Background(), job)
-	h.Bus.Publish(events.JobAssigned, events.Assigned{JobID: job.ID, InfoHash: job.InfoHash, Source: string(jobs.SourceUsenet), MaxBytes: job.MaxBytes, Node: job.Node})
+	if created {
+		job.Node = cluster.TargetNode(context.Background(), h.Jobs, string(jobs.SourceUsenet), job.MaxBytes)
+		h.Jobs.Update(context.Background(), job)
+		h.Bus.Publish(events.JobAssigned, events.Assigned{JobID: job.ID, InfoHash: job.InfoHash, Source: string(jobs.SourceUsenet), MaxBytes: job.MaxBytes, Node: job.Node})
+	}
 	return "queued", 0, ""
 }
 

@@ -12,6 +12,7 @@ import (
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/stremioid"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
 )
 
@@ -117,28 +118,28 @@ func TestMagnetDataResolvesEvictedCairnDirectly(t *testing.T) {
 func TestMagnetDataFiltersCairnSeasonPackAndPreservesNZBIndex(t *testing.T) {
 	hash := strings.Repeat("d", 40)
 	nzbData := nzb.Generate([]nzb.OutFile{
-		{Name: "Paw.Patrol.S05E01.mkv", Group: "alt.test", Segments: []nzb.Segment{{MessageID: "part-1", Number: 1, Bytes: 100}}},
-		{Name: "Paw.Patrol.S05E02.mkv", Group: "alt.test", Segments: []nzb.Segment{{MessageID: "part-2", Number: 1, Bytes: 200}}},
-		{Name: "Paw.Patrol.S12E01.mkv", Group: "alt.test", Segments: []nzb.Segment{{MessageID: "part-3", Number: 1, Bytes: 300}}},
+		{Name: "Example.Show.S05E01.mkv", Group: "alt.test", Segments: []nzb.Segment{{MessageID: "part-1", Number: 1, Bytes: 100}}},
+		{Name: "Example.Show.S05E02.mkv", Group: "alt.test", Segments: []nzb.Segment{{MessageID: "part-2", Number: 1, Bytes: 200}}},
+		{Name: "Example.Show.S12E01.mkv", Group: "alt.test", Segments: []nzb.Segment{{MessageID: "part-3", Number: 1, Bytes: 300}}},
 	})
 	h := New(Deps{
 		Store:      fakeStore{err: context.DeadlineExceeded, missing: true},
-		Cairns:     fakeCairnRepository{hash: hash, name: "Paw Patrol", nzb: nzbData},
+		Cairns:     fakeCairnRepository{hash: hash, name: "Example Show", nzb: nzbData},
 		CairnStore: fakeStore{manifest: nzbData}, CairnDirect: true,
 	})
-	data := h.magnetData(context.Background(), &jobs.Job{
-		ID: "job-1", UserID: "user-1", InfoHash: hash, Name: "Paw Patrol",
-		Status: jobs.StatusEvicted, Season: 5, Episode: 2,
-	})
+	data := h.magnetDataForTarget(context.Background(), &jobs.Job{
+		ID: "job-1", UserID: "user-1", InfoHash: hash, Name: "Example Show",
+		Status: jobs.StatusEvicted, Season: 12, Episode: 1,
+	}, stremioid.Parse("tt3121722:5:2"))
 	files, _ := data["files"].([]map[string]any)
 	if len(files) != 1 {
 		t.Fatalf("files = %+v, want one S05E02 Cairn file", files)
 	}
-	if files[0]["name"] != "Paw.Patrol.S05E02.mkv" || files[0]["index"] != 1 {
+	if files[0]["name"] != "Example.Show.S05E02.mkv" || files[0]["index"] != 1 {
 		t.Fatalf("file = %+v, want original NZB index 1", files[0])
 	}
 	link, _ := files[0]["link"].(string)
-	if !strings.Contains(link, hash+"/cairn/1/Paw.Patrol.S05E02.mkv") || !strings.Contains(link, "u=user-1") {
+	if !strings.Contains(link, hash+"/cairn/1/Example.Show.S05E02.mkv") || !strings.Contains(link, "u=user-1") {
 		t.Fatalf("link = %q, want user-bound Cairn index 1", link)
 	}
 }

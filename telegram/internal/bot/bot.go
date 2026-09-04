@@ -227,9 +227,14 @@ func (b *Bot) onMedia(ctx *ext.Context, u *ext.Update) error {
 		UserID: userID, InfoHash: cacheKey, Name: name, Source: jobs.SourceTelegram, Node: node,
 		Status: jobs.StatusDownloading, FileSize: doc.Size,
 	}
-	if err := b.Repo.Create(context.Background(), job); err != nil {
+	created, err := jobs.CreateAccountOnce(context.Background(), b.Repo, job)
+	if err != nil {
 		slog.Error("telegram: create job", "err", err)
 		_, _ = ctx.Reply(u, ext.ReplyTextString("❌ Couldn't start that, try again."), nil)
+		return nil
+	}
+	if !created {
+		_, _ = ctx.Reply(u, ext.ReplyTextString("✅ That file is already in your account."), nil)
 		return nil
 	}
 	_, _ = ctx.Reply(u, ext.ReplyTextString("⏳ Downloading "+name+" ..."), nil)

@@ -143,22 +143,6 @@ func (h *Handler) cachedJobFiles(ctx context.Context, infoHash string) (playable
 	return h.cairnJobFiles(ctx, infoHash)
 }
 
-func (h *Handler) warmCachedFiles(ctx context.Context, userID, infoHash string) (string, []map[string]any, bool) {
-	cached, ok := h.warmJobFiles(ctx, infoHash)
-	if !ok {
-		return "", nil, false
-	}
-	return cached.name, h.buildFileEntries(userID, infoHash, cached.node, cached.files), true
-}
-
-func (h *Handler) cairnCachedFiles(ctx context.Context, userID, infoHash string) (string, []map[string]any, bool) {
-	cached, ok := h.cairnJobFiles(ctx, infoHash)
-	if !ok {
-		return "", nil, false
-	}
-	return cached.name, h.buildFileEntries(userID, infoHash, cached.node, cached.files), true
-}
-
 func (h *Handler) cachedFiles(ctx context.Context, userID, infoHash string) (string, []map[string]any, bool) {
 	cached, ok := h.cachedJobFiles(ctx, infoHash)
 	if !ok {

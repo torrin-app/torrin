@@ -250,7 +250,7 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 				if linked.Name == "" {
 					linked.Name = name
 				}
-				if err := s.Jobs.Create(r.Context(), linked); err != nil {
+				if _, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, linked); err != nil {
 					web.WriteError(w, 500, "could not link warm cache")
 					return
 				}
@@ -278,14 +278,18 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 		Source: jobs.SourceUsenet, Status: jobs.StatusPending,
 		MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
-	err := s.Jobs.Create(r.Context(), job)
+	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
 	s.Slots.Release(user.ID)
 	if err != nil {
 		web.WriteError(w, 500, "could not start this download")
 		return
 	}
-	s.assign(job)
-	web.WriteJSON(w, 202, job)
+	if created {
+		s.assign(job)
+		web.WriteJSON(w, http.StatusAccepted, job)
+		return
+	}
+	web.WriteJSON(w, http.StatusOK, job)
 }
 
 func (s *Server) cairnDelete(w http.ResponseWriter, r *http.Request) {

@@ -18,8 +18,22 @@ import (
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
+	"github.com/torrin-app/torrin/shared/safety"
 	"github.com/torrin-app/torrin/shared/urlnorm"
 )
+
+func (s *Server) blockedBySafety(w http.ResponseWriter, r *http.Request, userID string, texts ...string) bool {
+	v := safety.Screen(texts...)
+	if !v.Blocked {
+		return false
+	}
+	if v.Ban {
+		s.Users.BanUser(r.Context(), userID, v.Reason)
+		s.Users.AuditLog(r.Context(), userID, "banned", v.Reason, clientIP(r))
+	}
+	web.WriteError(w, http.StatusForbidden, "content blocked by safety policy")
+	return true
+}
 
 func isWebURL(s string) bool {
 	s = strings.ToLower(strings.TrimSpace(s))
@@ -114,11 +128,14 @@ func (s *Server) serveFromBYOS(w http.ResponseWriter, r *http.Request, infoHash,
 		UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: obj.Name,
 		Source: source, Status: jobs.StatusComplete, Files: obj.Files, FileSize: total,
 	}
-	if err := s.Jobs.Create(r.Context(), job); err != nil {
+	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
+	if err != nil {
 		web.WriteError(w, 500, "could not restore from your storage")
 		return true
 	}
-	s.Bus.Publish(events.ByosRehydrate, events.RehydrateBYOS{JobID: job.ID, UserID: user.ID, InfoHash: infoHash, Node: job.Node})
+	if created {
+		s.Bus.Publish(events.ByosRehydrate, events.RehydrateBYOS{JobID: job.ID, UserID: user.ID, InfoHash: infoHash, Node: job.Node})
+	}
 	job.StreamURLs = s.signStreams(job, r)
 	web.WriteJSON(w, 200, job)
 	return true
@@ -149,7 +166,7 @@ func (s *Server) buildCachedJob(ctx context.Context, infoHash, magnet, userID st
 		Files:    files,
 		FileSize: total,
 	}
-	if err := s.Jobs.Create(ctx, job); err != nil {
+	if _, err := jobs.CreateAccountOnce(ctx, s.Jobs, job); err != nil {
 		return nil, err
 	}
 	return job, nil
