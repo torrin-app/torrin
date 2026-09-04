@@ -107,13 +107,13 @@ func (c *Client) SearchTV(imdbID string, season, episode, offset, limit int) ([]
 		"imdbid": {strings.TrimPrefix(imdbID, "tt")},
 		"season": {strconv.Itoa(season)},
 		"ep":     {strconv.Itoa(episode)},
-		"cat":    {"5000,5040,5045"},
+		"cat":    {"5000,5040,5045,5070"},
 	}, offset, limit)
 }
 
 func (c *Client) SearchQuery(query, categories string, offset, limit int) ([]Result, error) {
 	if categories == "" {
-		categories = "2000,5000"
+		categories = "2000,5000,5070"
 	}
 	return c.query("search", url.Values{
 		"q":   {query},
