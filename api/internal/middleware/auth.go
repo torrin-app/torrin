@@ -26,21 +26,33 @@ func largeUpload(path string) bool {
 	return path == "/api/jobs/nzb" || path == "/api/torrents/upload" || path == "/api/add"
 }
 
-func Auth(store *auth.Store) func(http.Handler) http.Handler {
+func Auth(store *auth.Store, signKey []byte) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !largeUpload(r.URL.Path) {
 				r.Body = http.MaxBytesReader(w, r.Body, 1*1024*1024)
 			}
-			apiKey := extractAPIKey(r)
-			if apiKey == "" {
+			var user *auth.User
+			loginAllowed := false
+			if apiKey := extractAPIKey(r); apiKey != "" {
+				u, la, err := store.ResolveAPIKey(r.Context(), apiKey)
+				if err != nil {
+					web.WriteError(w, 401, "invalid api key")
+					return
+				}
+				user, loginAllowed = u, la
+			} else if sess := sessionToken(r); sess != "" {
+				if uid, ok := auth.VerifySession(signKey, sess); ok {
+					if u, err := store.GetByID(r.Context(), uid); err == nil {
+						user, loginAllowed = u, true
+					}
+				}
+				if user == nil {
+					web.WriteError(w, 401, "invalid or expired session")
+					return
+				}
+			} else {
 				web.WriteError(w, 401, "missing api key, use Authorization: Bearer tr_...")
-				return
-			}
-
-			user, loginAllowed, err := store.ResolveAPIKey(r.Context(), apiKey)
-			if err != nil {
-				web.WriteError(w, 401, "invalid api key")
 				return
 			}
 
@@ -144,4 +156,14 @@ func extractAPIKey(r *http.Request) string {
 		return strings.TrimPrefix(h, "Bearer ")
 	}
 	return r.URL.Query().Get("api_key")
+}
+
+func sessionToken(r *http.Request) string {
+	if h := r.Header.Get("X-Torrin-Session"); h != "" {
+		return h
+	}
+	if c, err := r.Cookie("tr_session"); err == nil {
+		return c.Value
+	}
+	return ""
 }
