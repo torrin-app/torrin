@@ -14,7 +14,7 @@ _lock = threading.Lock()
 def _reveal(url):
     from camoufox.sync_api import Camoufox
 
-    with Camoufox(headless=True, humanize=True) as browser:
+    with Camoufox(headless="virtual", humanize=True) as browser:
         page = browser.new_page(no_viewport=True)
         page.goto(url, wait_until="domcontentloaded", timeout=60000)
         for _ in range(35):
@@ -25,7 +25,7 @@ def _reveal(url):
             if disabled is False:
                 break
         try:
-            page.click(BTN, timeout=5000)
+            page.eval_on_selector(BTN, "el => el.click()")
         except Exception:
             pass
         try:
