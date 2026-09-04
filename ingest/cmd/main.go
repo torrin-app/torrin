@@ -38,6 +38,7 @@ import (
 	"github.com/torrin-app/torrin/shared/service"
 	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/usenet/download"
+	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
 
 func main() {
@@ -220,6 +221,20 @@ func main() {
 		}
 	}); err != nil {
 		fatal("subscribe deleted", err)
+	}
+
+	sysURL, sysKey := env.Get("USENET_INDEXER_URL", ""), env.Get("USENET_INDEXER_KEY", "")
+	if _, err := bus.Respond(b, indexer.SearchSubject, "ingest-usenet-search", func(req indexer.SearchRequest) indexer.SearchResponse {
+		plan, _ := plans.Get(req.PlanID)
+		sources := users.IndexerSources(ctx, req.UserID, plan, sysURL, sysKey)
+		if len(sources) == 0 {
+			return indexer.SearchResponse{Error: "no indexers"}
+		}
+		sctx, cancel := context.WithTimeout(ctx, 25*time.Second)
+		defer cancel()
+		return indexer.SearchResponse{Results: indexer.Search(sctx, sources, req.Params)}
+	}); err != nil {
+		fatal("subscribe search", err)
 	}
 
 	go func() {

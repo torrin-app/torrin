@@ -15,7 +15,7 @@ func (a *alldebrid) linksFrom(ctx context.Context, files []adFile) []Link {
 		if err != nil || u.Link == "" {
 			continue
 		}
-		links = append(links, Link{Name: u.Filename, Size: u.FileSize, URL: u.Link})
+		links = append(links, Link{Name: f.Name, Size: u.FileSize, URL: u.Link})
 	}
 	return links
 }
