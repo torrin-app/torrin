@@ -142,7 +142,7 @@ func (c *Client) get(rawURL string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", useragent.Default)
+	req.Header.Set("User-Agent", useragent.Indexer)
 	return c.httpClient.Do(req)
 }
 

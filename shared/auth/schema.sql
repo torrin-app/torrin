@@ -349,3 +349,12 @@ CREATE TABLE IF NOT EXISTS wallet_ledger (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_ledger_user ON wallet_ledger(user_id, created_at DESC);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS login_otps (
+    user_id    TEXT PRIMARY KEY,
+    code_hash  TEXT NOT NULL,
+    attempts   INT NOT NULL DEFAULT 0,
+    expires_at TIMESTAMPTZ NOT NULL
+);

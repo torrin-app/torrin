@@ -93,9 +93,30 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		wg.Wait()
 	}
 
-	// Tier 1: our shared cache. Fan out (each is a storage round-trip) so a 150-hash
-	// batch doesn't take ~24s and make the client drop the whole thing to uncached.
-	fanOut(uncached(), func(hash string) {
+	// Which of these are cached jobs at all? One batched DB query up front so Tier 1
+	// storage-verifies only real candidates. Probing every hash against the blob store
+	// made a big batch (130+) blow the budget under disk load and return 0 cached.
+	allHashes := make([]string, len(valid))
+	for i, e := range valid {
+		allHashes[i] = e.hash
+	}
+	warmByHash := map[string]*jobs.Job{}
+	if lookup := h.cachedLookup(); lookup != nil {
+		warmByHash, _ = lookup.CachedByHashes(ctx, allHashes)
+	}
+	warmCandidates := func() []string {
+		var hs []string
+		for _, hash := range uncached() {
+			if warmByHash[hash] != nil {
+				hs = append(hs, hash)
+			}
+		}
+		return hs
+	}
+
+	// Tier 1: a cached job on this node — storage-verify the blob is present (catches
+	// eviction). Only the candidates, so the round-trips stay inside the budget.
+	fanOut(warmCandidates(), func(hash string) {
 		cached, ok := h.warmJobFiles(ctx, hash)
 		if !ok {
 			return
@@ -111,25 +132,23 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		mu.Unlock()
 	})
 
-	// Tier 1.5: complete on another node (per-box cache) — the local store can't see it,
-	// so one batched lookup in the shared jobs DB; links route to the job's node.
+	// Tier 1.5: a cached job on another node — the local store can't see it, so trust
+	// the DB row already fetched; links route to the job's node.
 	if still := uncached(); len(still) > 0 {
-		if lookup := h.cachedLookup(); lookup != nil {
-			byHash, _ := lookup.CachedByHashes(ctx, still)
-			mu.Lock()
-			for hash, job := range byHash {
-				if !isWarmNodeJob(hash, job) {
-					continue
-				}
-				name := job.Name
-				if name == "" {
-					name, _ = items[idxOf[hash]]["name"].(string)
-				}
-				selected := jobs.FilesForEpisode(job, job.Files, target.Season, target.Episode)
-				items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(user.ID, hash, job.Node, selected)}
+		mu.Lock()
+		for _, hash := range still {
+			job := warmByHash[hash]
+			if job == nil || !isWarmNodeJob(hash, job) {
+				continue
 			}
-			mu.Unlock()
+			name := job.Name
+			if name == "" {
+				name, _ = items[idxOf[hash]]["name"].(string)
+			}
+			selected := jobs.FilesForEpisode(job, job.Files, target.Season, target.Episode)
+			items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(user.ID, hash, job.Node, selected)}
 		}
+		mu.Unlock()
 	}
 
 	// Tier 1.75: a durable Cairn is immediately playable even when its warm

@@ -159,7 +159,7 @@ func main() {
 	})
 
 	mux := http.NewServeMux()
-	srv.Register(mux, middleware.Auth(users))
+	srv.Register(mux, middleware.Auth(users, []byte(env.Get("SIGNING_KEY", ""))))
 
 	avail := availcache.New(time.Duration(env.Int("AVAIL_CACHE_TTL_MIN", 120)) * time.Minute)
 	if err := avail.SetDB(ctx, jobsRepo.Pool()); err != nil {

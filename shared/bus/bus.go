@@ -56,3 +56,27 @@ func Subscribe[T any](b *Bus, subject string, handler func(T)) (*nats.Subscripti
 		handler(v)
 	})
 }
+
+func (b *Bus) RequestJSON(subject string, payload any, timeout time.Duration) ([]byte, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	msg, err := b.nc.Request(subject, data, timeout)
+	if err != nil {
+		return nil, err
+	}
+	return msg.Data, nil
+}
+
+func Respond[Req any, Resp any](b *Bus, subject, queue string, handler func(Req) Resp) (*nats.Subscription, error) {
+	return b.nc.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
+		var req Req
+		if json.Unmarshal(msg.Data, &req) != nil {
+			return
+		}
+		if data, err := json.Marshal(handler(req)); err == nil {
+			_ = msg.Respond(data)
+		}
+	})
+}

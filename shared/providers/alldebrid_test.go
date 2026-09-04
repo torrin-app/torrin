@@ -122,3 +122,36 @@ func TestAlldebridLibraryFallback(t *testing.T) {
 		t.Fatalf("library item must have an empty Handle so it is never deleted, got %q", res.Handle)
 	}
 }
+
+func TestAlldebridPackUsesFileTreeNames(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v4.1/magnet/status":
+			w.Write([]byte(`{"status":"success","data":{"magnets":[{"id":7,"hash":"ABC","filename":"Dark.Matter.S01","status":"Ready"}]}}`))
+		case "/v4/magnet/files":
+			w.Write([]byte(`{"status":"success","data":{"magnets":[{"files":[{"n":"Dark.Matter.S01","e":[{"n":"Dark.Matter.S01E01.mkv","s":100,"l":"https://ad/l1"},{"n":"Dark.Matter.S01E02.mkv","s":100,"l":"https://ad/l2"}]}]}]}}`))
+		case "/v4/link/unlock":
+			w.Write([]byte(`{"status":"success","data":{"link":"https://ad/dl","filename":"Dark.Matter.S01","filesize":100}}`))
+		default:
+			w.Write([]byte(`{"status":"success","data":{}}`))
+		}
+	}))
+	defer srv.Close()
+	old := adBase
+	adBase = srv.URL
+	defer func() { adBase = old }()
+
+	res, err := NewAllDebrid("key").Fetch(context.Background(), "magnet:x", "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res == nil || len(res.Files) != 2 {
+		t.Fatalf("expected 2 files, got %+v", res)
+	}
+	want := map[string]bool{"Dark.Matter.S01E01.mkv": true, "Dark.Matter.S01E02.mkv": true}
+	for _, f := range res.Files {
+		if !want[f.Name] {
+			t.Fatalf("pack file must be named from the file tree, not the unlock folder name; got %q", f.Name)
+		}
+	}
+}
