@@ -11,12 +11,15 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/cinemeta"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
 
 const usenetMaxPage = 100
+
+var usenetMeta = cinemeta.NewClient()
 
 func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http.Handler) http.Handler) {
 	mux.Handle("GET /api/usenet/search", authMW(http.HandlerFunc(s.usenetSearch)))
@@ -69,6 +72,15 @@ func (s *Server) usenetSearch(w http.ResponseWriter, r *http.Request) {
 	if p.IMDB == "" && p.Query == "" {
 		web.WriteError(w, 400, "provide imdb, q, or imdb+season+ep")
 		return
+	}
+	if p.Title == "" && p.IMDB != "" {
+		ct := "movie"
+		if p.Season > 0 && p.Episode > 0 {
+			ct = "series"
+		}
+		if t, err := usenetMeta.Title(r.Context(), p.IMDB, ct); err == nil && t != "" {
+			p.Title = t
+		}
 	}
 	web.WriteJSON(w, 200, s.usenetResults(r.Context(), user.ID, plan.ID, sources, p))
 }
