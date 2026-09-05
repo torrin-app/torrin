@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.21.0](https://github.com/torrin-app/torrin/compare/v1.20.0...v1.21.0) (2026-09-05)
+
+
+### Features
+
+* **add:** one endpoint that auto-detects magnet, infohash, link or nzb ([#116](https://github.com/torrin-app/torrin/issues/116)) ([052cd82](https://github.com/torrin-app/torrin/commit/052cd82ea6daf27215902fcdd070c389836b3181))
+* **auth:** normalize signup emails and cap free signups per IP ([#113](https://github.com/torrin-app/torrin/issues/113)) ([ad37bca](https://github.com/torrin-app/torrin/commit/ad37bcad31a10135dc11b7daa33b0500361d7d21))
+* **byos:** cold cache tier + persistent availability cache ([#123](https://github.com/torrin-app/torrin/issues/123)) ([da5d33b](https://github.com/torrin-app/torrin/commit/da5d33bedf6cd8777d115c6cd5b8a0c97b705801))
+* **byos:** multi-provider pool, config export, cleanup, encrypted mirror ([#104](https://github.com/torrin-app/torrin/issues/104)) ([5033441](https://github.com/torrin-app/torrin/commit/5033441701d42392769404a424caf0173032c8c6))
+* **cairn:** store archive NZBs in object storage ([#114](https://github.com/torrin-app/torrin/issues/114)) ([4e86a5b](https://github.com/torrin-app/torrin/commit/4e86a5b82f8105575c19aeca59348c9f8bcfe05d))
+* cluster routing, debrid import fallback, download rate limits, and dedicated eviction ([#131](https://github.com/torrin-app/torrin/issues/131)) ([7307849](https://github.com/torrin-app/torrin/commit/730784938162c0eaa71c4df21bfe5308e1da4d76))
+* debrid provider resilience (real error reasons + circuit breaker) ([#109](https://github.com/torrin-app/torrin/issues/109)) ([6dc4d38](https://github.com/torrin-app/torrin/commit/6dc4d38983c4f10e1d31fb40a831d0f6eccb8873))
+* multi-node cache overflow, seeding, cross-seed and RSS ([#117](https://github.com/torrin-app/torrin/issues/117)) ([4071f93](https://github.com/torrin-app/torrin/commit/4071f9374acfee4f9da12ae6c8d86f4fb259a040))
+* multiple API keys and node-scoped archiving ([#118](https://github.com/torrin-app/torrin/issues/118)) ([55ba76c](https://github.com/torrin-app/torrin/commit/55ba76c2b5dfe8ae59f7464911c3197eb0f44a19))
+* Offcloud library import, admin key stats, and immediate torrent delete ([#122](https://github.com/torrin-app/torrin/issues/122)) ([6e03ec6](https://github.com/torrin-app/torrin/commit/6e03ec662c41c1707e7c39cadc46bc918790ee45))
+* Offcloud provider and serving-cache refresh on publish ([#121](https://github.com/torrin-app/torrin/issues/121)) ([b9a5ec0](https://github.com/torrin-app/torrin/commit/b9a5ec0c3fabf48124a45f352b99ba3238e557ef))
+* post new donations to a Discord webhook ([#107](https://github.com/torrin-app/torrin/issues/107)) ([5b284ea](https://github.com/torrin-app/torrin/commit/5b284eac961b492983db320611842be08d79dd15))
+* prepaid wallet with credit top-up and plan purchases ([#124](https://github.com/torrin-app/torrin/issues/124)) ([870962b](https://github.com/torrin-app/torrin/commit/870962b9988da981cd3dfc02ac77f02a04c334b7))
+* reliability, multi-node serving, and usenet improvements ([#127](https://github.com/torrin-app/torrin/issues/127)) ([36ae77a](https://github.com/torrin-app/torrin/commit/36ae77a1b47f9ca99b90b473661013b23db26838))
+* stream cairn archives directly from usenet ([#128](https://github.com/torrin-app/torrin/issues/128)) ([b48a170](https://github.com/torrin-app/torrin/commit/b48a1708f6ac9ae84301f5c366a71bec490aaf8e))
+* stremthru newz store endpoints ([#108](https://github.com/torrin-app/torrin/issues/108)) ([ad4a6a8](https://github.com/torrin-app/torrin/commit/ad4a6a8954944b976ea482667ec917777b6efa80))
+* two-factor authentication and node-scoped storage export ([#119](https://github.com/torrin-app/torrin/issues/119)) ([b133748](https://github.com/torrin-app/torrin/commit/b133748f904607aa1af6ab6ff554fc7b9982cd15))
+* usenet indexer egress, password login, and reliability fixes ([#139](https://github.com/torrin-app/torrin/issues/139)) ([deed168](https://github.com/torrin-app/torrin/commit/deed168b513582813c4968f27546361cb36d5919))
+* **usenet:** multiple indexers per user with pagination ([#111](https://github.com/torrin-app/torrin/issues/111)) ([95b3143](https://github.com/torrin-app/torrin/commit/95b3143d93efe02500eebc61a142f1583530f081))
+* **usenet:** verified, cached indexer search for the addon ([#103](https://github.com/torrin-app/torrin/issues/103)) ([909afb1](https://github.com/torrin-app/torrin/commit/909afb13fc331c867517479239e0c3732acf8f91))
+* **webdav:** folder hierarchy, compliant PROPFIND, browser access ([#101](https://github.com/torrin-app/torrin/issues/101)) ([8169db6](https://github.com/torrin-app/torrin/commit/8169db64006b92c102b68495b1520d4aa382f37e))
+
+
+### Bug Fixes
+
+* **add:** give pasted release URLs a real title ([#136](https://github.com/torrin-app/torrin/issues/136)) ([7e64e16](https://github.com/torrin-app/torrin/commit/7e64e1625248f58ef757ce5aa0e0ed3dc31eca5b))
+* **byos:** copy via operations/copyurl + disable the source stream write timeout ([#134](https://github.com/torrin-app/torrin/issues/134)) ([07faa61](https://github.com/torrin-app/torrin/commit/07faa61271cd5fdda567e63389cd54768a691e01))
+* **byos:** reliable large-file copy to user storage via rclone async copy ([#133](https://github.com/torrin-app/torrin/issues/133)) ([aec6bb4](https://github.com/torrin-app/torrin/commit/aec6bb487ee049181ea1a4b08b63ea3d54f5e144))
+* **byos:** serve warm-cached content from cache, not user storage ([#135](https://github.com/torrin-app/torrin/issues/135)) ([abd1298](https://github.com/torrin-app/torrin/commit/abd129849e3147defc2ac279fb3566de7d84cd6d))
+* dedupe account jobs and scope pack playback ([#137](https://github.com/torrin-app/torrin/issues/137)) ([4c8c81e](https://github.com/torrin-app/torrin/commit/4c8c81e7ffac9104fec1edd34e75ee891709729b))
+* filter Stremio streams by episode ([#130](https://github.com/torrin-app/torrin/issues/130)) ([aee2ccc](https://github.com/torrin-app/torrin/commit/aee2cccdb3956d69c1d8df7f285b0bc0358f4640))
+* **hdencode-solver:** virtual display + JS click for the updated link protector ([#138](https://github.com/torrin-app/torrin/issues/138)) ([e7ec312](https://github.com/torrin-app/torrin/commit/e7ec312b236b8726c2812e608d3d438ca6aa0314))
+* prefer warm cache before Cairn streaming ([#132](https://github.com/torrin-app/torrin/issues/132)) ([da741d3](https://github.com/torrin-app/torrin/commit/da741d3dd1b045c0afd481522450ca0e810ae92f))
+* reject corrupt videos, correct cross-node cache status, gate day passes ([#125](https://github.com/torrin-app/torrin/issues/125)) ([5e23005](https://github.com/torrin-app/torrin/commit/5e230059c21383b71eafb86502f6d4784ab79854))
+* reliability across usenet, archive restore, downloads, storage, telegram + service logging ([#110](https://github.com/torrin-app/torrin/issues/110)) ([dcfc01c](https://github.com/torrin-app/torrin/commit/dcfc01c2ef827b5858bf687903914ec98adddc75))
+* reliability and error-surfacing improvements ([#112](https://github.com/torrin-app/torrin/issues/112)) ([0b3da83](https://github.com/torrin-app/torrin/commit/0b3da8337f0919d34bd69b6047f09e0485dfac95))
+* **usenet:** explicit re-add clears the delete tombstone ([#115](https://github.com/torrin-app/torrin/issues/115)) ([dd031ff](https://github.com/torrin-app/torrin/commit/dd031fff106d5bcc037b0091c47c309d98518854))
+* **usenet:** search the anime category and resolve show title from imdb ([#140](https://github.com/torrin-app/torrin/issues/140)) ([503946c](https://github.com/torrin-app/torrin/commit/503946c7cbab129f4ba5149e2cbe9852e3ea3eb4))
+* **ytdlp:** strip yt-dlp's structural noise from the error reason ([#106](https://github.com/torrin-app/torrin/issues/106)) ([139b697](https://github.com/torrin-app/torrin/commit/139b697268a066fc8355daab71e7a8a89c9c4ad7))
+* **ytdlp:** surface the real yt-dlp reason instead of a generic error ([#105](https://github.com/torrin-app/torrin/issues/105)) ([f06a878](https://github.com/torrin-app/torrin/commit/f06a87810330045611473bae98bc1f7edb76a023))
+
 ## [1.20.0](https://github.com/torrin-app/torrin/compare/v1.19.0...v1.20.0) (2026-08-01)
 
 
