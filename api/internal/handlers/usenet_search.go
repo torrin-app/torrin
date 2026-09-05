@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
+	"github.com/torrin-app/torrin/shared/cairn"
 	"github.com/torrin-app/torrin/shared/cinemeta"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -116,12 +118,26 @@ func parseCachedTarget(raw string) (imdb string, season, episode int) {
 }
 
 func cachedStreamResult(job *jobs.Job, stream jobs.Stream) map[string]any {
+	source := "cache"
+	for _, f := range jobs.FilesForEpisode(job, job.Files, 0, 0) {
+		if f.Index == stream.Index {
+			if _, _, _, direct := cairn.ParseStreamPath(f.Key); direct {
+				source = "cairn"
+			}
+			break
+		}
+	}
 	return map[string]any{
-		"name":       job.Name,
-		"file_name":  stream.FileName,
-		"size":       stream.Size,
-		"info_hash":  job.InfoHash,
-		"signed_url": stream.SignedURL,
+		"stream_source": source,
+		"name":          job.Name,
+		"release_name":  job.Name,
+		"release_size":  job.FileSize,
+		"index":         stream.Index,
+		"media_info":    stream.MediaInfo,
+		"file_name":     stream.FileName,
+		"size":          stream.Size,
+		"info_hash":     job.InfoHash,
+		"signed_url":    stream.SignedURL,
 	}
 }
 
@@ -143,11 +159,14 @@ func (s *Server) usenetCached(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[j.InfoHash] = true
-		for _, st := range s.signStreams(j, r) {
-			if season > 0 && episode > 0 && !episodeMatch(j, st.FileName, season, episode) {
-				continue
+		selected := *j
+		selected.Files = s.EpisodeResolver.Select(r.Context(), imdb, j, j.Files, season, episode)
+		for _, st := range s.signStreams(&selected, r) {
+			result := cachedStreamResult(j, st)
+			if episode > 0 {
+				result["episode_match"] = fmt.Sprintf("tt%s:%d:%d", imdb, season, episode)
 			}
-			out = append(out, cachedStreamResult(j, st))
+			out = append(out, result)
 		}
 	}
 	web.WriteJSON(w, 200, out)

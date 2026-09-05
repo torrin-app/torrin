@@ -87,6 +87,9 @@ func TestCheckMagnetsReportsDirectCairnAsCached(t *testing.T) {
 		t.Fatalf("unexpected check response: %s", w.Body.String())
 	}
 	file := response.Data.Items[0].Files[0]
+	if file["stream_source"] != "cairn" {
+		t.Fatalf("missing Cairn provenance: %+v", file)
+	}
 	link, _ := file["link"].(string)
 	if !strings.Contains(link, hash+"/cairn/0/movie.mkv") || !strings.Contains(link, "u=user-1") || !strings.Contains(link, "enc=1") {
 		t.Errorf("direct cairn link = %q", link)
@@ -159,6 +162,9 @@ func TestWarmCacheWinsOverDirectCairn(t *testing.T) {
 		t.Fatalf("warm result: ok=%v name=%q files=%+v", ok, name, files)
 	}
 	link, _ := files[0]["link"].(string)
+	if files[0]["stream_source"] != "cache" {
+		t.Fatalf("warm provenance %+v", files[0])
+	}
 	if strings.Contains(link, "/cairn/") || !strings.Contains(link, "warm/object") {
 		t.Errorf("warm cache did not win: %q", link)
 	}

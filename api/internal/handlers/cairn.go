@@ -156,7 +156,7 @@ func (s *Server) cachedCairnStreams(r *http.Request, userID, hash string, remote
 			if playable, _ := s.Store.Has(r.Context(), key); playable {
 				files := make([]jobs.File, len(man.Files))
 				for i, f := range man.Files {
-					files[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc}
+					files[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc, MediaInfo: f.MediaInfo}
 				}
 				job := &jobs.Job{UserID: userID, InfoHash: hash, Node: remote.Node, Files: files}
 				return s.signStreams(job, r), true
@@ -171,13 +171,13 @@ func (s *Server) nodeCairnStreams(r *http.Request, hash string, job *jobs.Job) (
 		return nil, false
 	}
 	streams := make([]jobs.Stream, len(job.Files))
-	for i, file := range job.Files {
-		key := manifest.ResolveKey(hash, i, file.Key, file.Name)
+	for i, file := range jobs.FilesForEpisode(job, job.Files, 0, 0) {
+		key := manifest.ResolveKey(hash, file.Index, file.Key, file.Name)
 		if _, _, _, direct := cairn.ParseStreamPath(key); direct {
 			return nil, false
 		}
 		u := s.Store.SignURLNode(job.Node, key, 24*time.Hour) + manifest.StreamQuery(hash, file.Enc)
-		streams[i] = jobs.Stream{FileName: file.Name, Size: file.Size, SignedURL: georoute.URL(r, u)}
+		streams[i] = jobs.Stream{Index: file.Index, MediaInfo: file.MediaInfo, FileName: file.Name, Size: file.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return streams, true
 }
@@ -214,7 +214,7 @@ func (s *Server) directCairnStreams(r *http.Request, userID, hash string) ([]job
 			}
 		}
 		u := s.Store.SignURLNodeUser("", cairn.StreamPath(hash, i, name), userID, 24*time.Hour) + manifest.StreamQuery(hash, enc)
-		streams[i] = jobs.Stream{FileName: name, Size: size, SignedURL: georoute.URL(r, u)}
+		streams[i] = jobs.Stream{Index: i, FileName: name, Size: size, SignedURL: georoute.URL(r, u)}
 	}
 	return streams, nil
 }

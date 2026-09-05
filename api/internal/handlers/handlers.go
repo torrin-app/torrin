@@ -11,6 +11,7 @@ import (
 	"github.com/torrin-app/torrin/shared/billing"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/email"
+	"github.com/torrin-app/torrin/shared/episodes"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/qbit"
@@ -48,28 +49,29 @@ type CairnStore interface {
 }
 
 type Deps struct {
-	Jobs        jobs.Repository
-	JobsPG      *jobs.Postgres
-	CachedJobs  jobs.CachedLookup
-	Users       *auth.Store
-	Cairns      CairnRepository
-	Store       Storage
-	CairnStore  CairnStore
-	CairnCipher *crypto.Stream
-	CairnDirect bool
-	NodeStores  map[string]Storage
-	Bus         Publisher
-	Slots       *middleware.SlotTracker
-	Qbit        *qbit.Client
-	QbitSeed    *qbit.Client
-	Scrape      *scrape.Client
-	Mailer      *email.Client
-	RClone      *rclonerc.Client
-	Bitcart     *billing.BitcartHandler
-	NowPay      *billing.NowPaymentsHandler
-	Bachs       *billing.BachsHandler
-	SignKey     []byte
-	Budget      int64
+	EpisodeResolver *episodes.Resolver
+	Jobs            jobs.Repository
+	JobsPG          *jobs.Postgres
+	CachedJobs      jobs.CachedLookup
+	Users           *auth.Store
+	Cairns          CairnRepository
+	Store           Storage
+	CairnStore      CairnStore
+	CairnCipher     *crypto.Stream
+	CairnDirect     bool
+	NodeStores      map[string]Storage
+	Bus             Publisher
+	Slots           *middleware.SlotTracker
+	Qbit            *qbit.Client
+	QbitSeed        *qbit.Client
+	Scrape          *scrape.Client
+	Mailer          *email.Client
+	RClone          *rclonerc.Client
+	Bitcart         *billing.BitcartHandler
+	NowPay          *billing.NowPaymentsHandler
+	Bachs           *billing.BachsHandler
+	SignKey         []byte
+	Budget          int64
 
 	SeedingEnabled    bool
 	SeedingAllowUsers map[string]bool

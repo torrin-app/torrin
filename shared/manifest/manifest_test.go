@@ -3,6 +3,7 @@ package manifest
 import (
 	"context"
 	"errors"
+	"github.com/torrin-app/torrin/shared/mediainfo"
 	"strings"
 	"testing"
 )
@@ -59,5 +60,16 @@ func TestStreamQueryAlwaysCarriesInfoHash(t *testing.T) {
 	}
 	if got := StreamQuery("short", false); got != "" {
 		t.Errorf("non-infohash must not add ih: got %q", got)
+	}
+}
+
+func TestMetaPreservesMeasuredMediaInfo(t *testing.T) {
+	data, err := (Manifest{Files: []File{{FileName: "movie.mkv", MediaInfo: &mediainfo.Info{Resolution: "2160p", Bitrate: 40000000}}}}).Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, files := Meta(data)
+	if len(files) != 1 || files[0].MediaInfo == nil || files[0].MediaInfo.Bitrate != 40000000 {
+		t.Fatalf("lost media info %+v", files)
 	}
 }
