@@ -20,6 +20,7 @@ import (
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/email"
 	"github.com/torrin-app/torrin/shared/env"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/nodestatus"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -119,6 +120,10 @@ func main() {
 	}
 
 	slots := middleware.NewSlotTracker(jobsRepo)
+	maxQueued := int(env.Int("MAX_QUEUED_DOWNLOADS_PER_USER", 100))
+	slots.Configure(budget, maxQueued)
+	queue := newQueueScheduler(jobsRepo, users, b, budget)
+	slots.SetWake(queue.Wake)
 	bitcart := billing.NewBitcartHandler(
 		env.Get("BITCART_API_URL", ""), env.Get("BITCART_CHECKOUT_URL", ""),
 		env.Get("BITCART_STORE_ID", ""),
@@ -197,7 +202,10 @@ func main() {
 
 	safety.Refresh(ctx, users.GetBlocklist, time.Hour)
 	go walletRenewLoop(ctx, users)
-	go promoteQueued(ctx, jobsRepo, users, b, budget)
+	go queue.Run(ctx)
+	bus.Subscribe(b, events.JobComplete, func(events.Complete) { queue.Wake() })
+	bus.Subscribe(b, events.JobFailed, func(events.Failed) { queue.Wake() })
+	bus.Subscribe(b, events.JobDeleted, func(events.Deleted) { queue.Wake() })
 	go prewarmRetry(ctx, jobsRepo, b, pwMaxBytes, pwMaxActive)
 	go srv.RunRSSWorker(ctx)
 	go metricsSnapshot(ctx, jobsRepo, users)

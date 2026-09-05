@@ -69,6 +69,8 @@ type fakeRepo struct {
 	created  []*jobs.Job
 	budget   int64
 	toGet    *jobs.Job
+	active   int
+	queued   int
 }
 
 func (f *fakeRepo) Create(_ context.Context, j *jobs.Job) error {
@@ -85,8 +87,9 @@ func (f *fakeRepo) GetByInfoHash(context.Context, string) (*jobs.Job, error) {
 	return f.existing, nil
 }
 func (f *fakeRepo) ActiveCount(context.Context, string) (int, error)      { return 0, nil }
-func (f *fakeRepo) DownloadingCount(context.Context, string) (int, error) { return 0, nil }
+func (f *fakeRepo) DownloadingCount(context.Context, string) (int, error) { return f.active, nil }
 func (f *fakeRepo) BudgetUsed(context.Context) (int64, error)             { return f.budget, nil }
+func (f *fakeRepo) QueuedCount(context.Context, string) (int, error)      { return f.queued, nil }
 
 // unused-by-submit stubs (satisfy jobs.Repository)
 func (f *fakeRepo) Update(context.Context, *jobs.Job) error        { return nil }
@@ -108,8 +111,10 @@ func (f *fakeRepo) RecordView(context.Context, string, string) (bool, error)    
 func (f *fakeRepo) SetProgress(context.Context, string, float64, int64) error      { return nil }
 
 func newTestServer(repo *fakeRepo, store *fakeStore, pub *fakePub, budget int64) *Server {
+	slots := middleware.NewSlotTracker(repo)
+	slots.Configure(budget, 100)
 	return New(Deps{
-		Jobs: repo, Store: store, Bus: pub, Slots: middleware.NewSlotTracker(repo), Budget: budget,
+		Jobs: repo, Store: store, Bus: pub, Slots: slots, Budget: budget,
 	})
 }
 
@@ -153,6 +158,37 @@ func TestSubmitMagnet_BudgetGateQueues(t *testing.T) {
 	}
 	if len(pub.published) != 0 {
 		t.Error("queued job should NOT be assigned")
+	}
+}
+
+func TestSubmitMagnet_SlotLimitQueues(t *testing.T) {
+	repo, store, pub := &fakeRepo{active: 8}, &fakeStore{has: false}, &fakePub{}
+	s := newTestServer(repo, store, pub, 1_000_000_000_000)
+	r := httptest.NewRequest("POST", "/api/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserContextKey, &auth.User{ID: "u1", PlanID: "pro", ExpiresAt: time.Now().Add(time.Hour)}))
+	w := httptest.NewRecorder()
+
+	s.submitMagnet(w, r, testHash, "magnet:x", "", jobs.SourceTorrent, true)
+
+	if w.Code != 202 || len(repo.created) != 1 || repo.created[0].Status != jobs.StatusQueued {
+		t.Fatalf("code=%d created=%+v, want one queued job", w.Code, repo.created)
+	}
+	if len(pub.published) != 0 {
+		t.Fatal("slot-limited job must not be assigned")
+	}
+}
+
+func TestSubmitMagnet_QueueFullRejects(t *testing.T) {
+	repo, store, pub := &fakeRepo{active: 8, queued: 100}, &fakeStore{has: false}, &fakePub{}
+	s := newTestServer(repo, store, pub, 1_000_000_000_000)
+	r := httptest.NewRequest("POST", "/api/jobs", nil)
+	r = r.WithContext(context.WithValue(r.Context(), middleware.UserContextKey, &auth.User{ID: "u1", PlanID: "pro", ExpiresAt: time.Now().Add(time.Hour)}))
+	w := httptest.NewRecorder()
+
+	s.submitMagnet(w, r, testHash, "magnet:x", "", jobs.SourceTorrent, true)
+
+	if w.Code != 429 || len(repo.created) != 0 || len(pub.published) != 0 {
+		t.Fatalf("code=%d created=%d assigned=%d, want queue-full rejection", w.Code, len(repo.created), len(pub.published))
 	}
 }
 

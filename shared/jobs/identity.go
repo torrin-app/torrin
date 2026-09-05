@@ -34,15 +34,15 @@ func insertJob(ctx context.Context, db jobExecer, j *Job) (bool, error) {
 	ct, err := db.Exec(ctx, `
 		INSERT INTO jobs (id, user_id, info_hash, name, magnet, source, status, error,
 			files, selected_idxs, imdb_id, title_norm, season, episode, file_size, max_bytes, priority,
-			node, created_at, updated_at, seed)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+			node, created_at, updated_at, seed, budget_gated, input_key)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
 		ON CONFLICT (user_id, (lower(info_hash)))
 		WHERE user_id NOT IN ('', 'system', 'prewarm') AND info_hash<>'' AND seed=false
 			AND status NOT IN ('failed', 'evicted')
 		DO NOTHING`,
 		j.ID, j.UserID, j.InfoHash, j.Name, j.Magnet, string(j.Source), string(j.Status),
 		j.Error, files, idxs, j.IMDBID, titleNormFromName(j.Name), j.Season, j.Episode, j.FileSize, j.MaxBytes, j.Priority,
-		j.Node, j.CreatedAt, j.UpdatedAt, j.Seed)
+		j.Node, j.CreatedAt, j.UpdatedAt, j.Seed, j.BudgetGated, j.InputKey)
 	return ct.RowsAffected() == 1, err
 }
 
@@ -74,16 +74,34 @@ func (p *Postgres) CreateOnce(ctx context.Context, j *Job) (created bool, err er
 	if err := prepareCreate(j); err != nil {
 		return false, err
 	}
-	created, err = insertJob(ctx, p.pool, j)
-	if err != nil || created || !hasLiveUserIdentity(j) {
-		return created, err
+	if !hasLiveUserIdentity(j) {
+		return insertJob(ctx, p.pool, j)
 	}
-	existing, err := p.GetByUserInfoHash(ctx, j.UserID, j.InfoHash)
+	tx, err := p.pool.Begin(ctx)
 	if err != nil {
 		return false, err
 	}
-	*j = *existing
-	return false, nil
+	defer tx.Rollback(ctx)
+	// Share admission's per-user lock so cache hits and retries cannot race
+	// the queue's identity/capacity decision.
+	if err := lockAdmission(ctx, tx, j.UserID, false); err != nil {
+		return false, err
+	}
+	created, err = insertJob(ctx, tx, j)
+	if err != nil {
+		return false, err
+	}
+	if !created {
+		existing, err := liveAccountJobTx(ctx, tx, j)
+		if err != nil {
+			return false, err
+		}
+		if existing == nil {
+			return false, ErrNotFound
+		}
+		*j = *existing
+	}
+	return created, tx.Commit(ctx)
 }
 
 type createOnceRepository interface {

@@ -78,10 +78,12 @@ func (p *Postgres) Update(ctx context.Context, j *Job) error {
 	ct, err := p.pool.Exec(ctx, `
 		UPDATE jobs SET user_id=$2, info_hash=$3, name=$4, magnet=$5, source=$6,
 			status=$7, error=$8, files=$9, selected_idxs=$10, imdb_id=$11,
-			title_norm=$12, season=$13, episode=$14, file_size=$15, max_bytes=$16, priority=$17, node=$18, updated_at=$19, seed=$20
+			title_norm=$12, season=$13, episode=$14, file_size=$15, max_bytes=$16, priority=$17, node=$18, updated_at=$19, seed=$20,
+			budget_gated=$21, input_key=$22
 		WHERE id=$1`,
 		j.ID, j.UserID, j.InfoHash, j.Name, j.Magnet, string(j.Source), string(j.Status),
-		j.Error, files, idxs, j.IMDBID, titleNormFromName(j.Name), j.Season, j.Episode, j.FileSize, j.MaxBytes, j.Priority, j.Node, j.UpdatedAt, j.Seed)
+		j.Error, files, idxs, j.IMDBID, titleNormFromName(j.Name), j.Season, j.Episode, j.FileSize, j.MaxBytes, j.Priority, j.Node, j.UpdatedAt, j.Seed,
+		j.BudgetGated, j.InputKey)
 	if err != nil {
 		return err
 	}
@@ -93,7 +95,7 @@ func (p *Postgres) Update(ctx context.Context, j *Job) error {
 
 const cols = `id, user_id, info_hash, name, magnet, source, status, error,
 	files, selected_idxs, imdb_id, season, episode, file_size, max_bytes, priority,
-	created_at, updated_at, progress, dl_speed, node, seed`
+	created_at, updated_at, progress, dl_speed, node, seed, budget_gated, input_key`
 
 func (p *Postgres) Requeue(ctx context.Context, id string) error {
 	ct, err := p.pool.Exec(ctx,
@@ -166,7 +168,7 @@ func (p *Postgres) ListByUserBefore(ctx context.Context, userID string, before t
 }
 
 func (p *Postgres) ListByStatus(ctx context.Context, status Status) ([]*Job, error) {
-	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE status=$1 ORDER BY priority DESC, created_at ASC`, string(status))
+	return p.query(ctx, `SELECT `+cols+` FROM jobs WHERE status=$1 ORDER BY priority DESC, created_at ASC, id ASC`, string(status))
 }
 
 func (p *Postgres) ListByIMDB(ctx context.Context, imdbID string) ([]*Job, error) {
@@ -244,14 +246,14 @@ func (p *Postgres) Delete(ctx context.Context, id string) error {
 func (p *Postgres) ActiveCount(ctx context.Context, userID string) (int, error) {
 	var n int
 	err := p.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status IN `+concurrencyStates, userID).Scan(&n)
+		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND seed=false AND status IN `+concurrencyStates, userID).Scan(&n)
 	return n, err
 }
 
 func (p *Postgres) DownloadingCount(ctx context.Context, userID string) (int, error) {
 	var n int
 	err := p.pool.QueryRow(ctx,
-		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND status IN `+downloadingStates, userID).Scan(&n)
+		`SELECT COUNT(*) FROM jobs WHERE user_id=$1 AND seed=false AND status IN `+downloadingStates, userID).Scan(&n)
 	return n, err
 }
 
@@ -259,7 +261,7 @@ func (p *Postgres) BudgetUsed(ctx context.Context) (int64, error) {
 	var total int64
 	err := p.pool.QueryRow(ctx,
 		`SELECT COALESCE(SUM(CASE WHEN file_size > 0 THEN file_size ELSE 5000000000 END), 0)
-		 FROM jobs WHERE status IN `+activeStates).Scan(&total)
+		 FROM jobs WHERE status IN `+budgetStates).Scan(&total)
 	return total, err
 }
 
@@ -298,7 +300,7 @@ func scan(s scanner) (*Job, error) {
 	var files, idxs []byte
 	err := s.Scan(&j.ID, &j.UserID, &j.InfoHash, &j.Name, &j.Magnet, &source, &status,
 		&j.Error, &files, &idxs, &j.IMDBID, &j.Season, &j.Episode, &j.FileSize, &j.MaxBytes, &j.Priority,
-		&j.CreatedAt, &j.UpdatedAt, &j.Progress, &j.Speed, &j.Node, &j.Seed)
+		&j.CreatedAt, &j.UpdatedAt, &j.Progress, &j.Speed, &j.Node, &j.Seed, &j.BudgetGated, &j.InputKey)
 	if err != nil {
 		return nil, err
 	}

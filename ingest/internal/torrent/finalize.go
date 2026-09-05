@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/ingest/internal/jobrun"
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/events"
@@ -96,6 +97,8 @@ func (r *Runner) fail(ctx context.Context, job *jobs.Job, reason string) {
 	job.Status = jobs.StatusFailed
 	job.Error = reason
 	r.repo.Update(ctx, job)
+	jobrun.FailActiveSiblings(ctx, r.repo, job, reason)
+	r.bus.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: reason})
 }
 
 func (r *Runner) failDelete(ctx context.Context, job *jobs.Job, hash string, t *qbit.Torrent, reason string) {

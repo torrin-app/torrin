@@ -269,8 +269,8 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 403, "you can only restore your own cairn archives")
 		return
 	}
-	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
-		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
+	if over, _ := s.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+		web.WriteError(w, 429, "monthly download limit reached, resets on the 1st")
 		return
 	}
 	job := &jobs.Job{
@@ -278,18 +278,15 @@ func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {
 		Source: jobs.SourceUsenet, Status: jobs.StatusPending,
 		MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
-	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
-	s.Slots.Release(user.ID)
+	disposition, err := s.Slots.Admit(r.Context(), job, plan, false)
 	if err != nil {
-		web.WriteError(w, 500, "could not start this download")
+		writeQueueError(w, err, s.Slots.MaxQueued())
 		return
 	}
-	if created {
+	if disposition == jobs.AdmissionAdmitted {
 		s.assign(job)
-		web.WriteJSON(w, http.StatusAccepted, job)
-		return
 	}
-	web.WriteJSON(w, http.StatusOK, job)
+	web.WriteJSON(w, admissionStatus(disposition), job)
 }
 
 func (s *Server) cairnDelete(w http.ResponseWriter, r *http.Request) {

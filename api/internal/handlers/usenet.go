@@ -182,24 +182,25 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 			IMDBID: existing.IMDBID,
 		}
 		activeLink := linked.Status.Active()
-		if activeLink && !s.Slots.Acquire(r.Context(), user.ID, plan) {
-			web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
-			return
-		}
-		if _, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, linked); err != nil {
-			if activeLink {
-				s.Slots.Release(user.ID)
+		responseStatus := http.StatusOK
+		if activeLink {
+			disposition, err := s.Slots.Admit(r.Context(), linked, plan, true)
+			if err != nil {
+				writeQueueError(w, err, s.Slots.MaxQueued())
+				return
 			}
+			if disposition == jobs.AdmissionAdmitted {
+				s.assign(linked)
+			}
+			responseStatus = admissionStatus(disposition)
+		} else if err := s.Jobs.Create(r.Context(), linked); err != nil {
 			web.WriteError(w, 500, "could not start this download")
 			return
-		}
-		if activeLink {
-			s.Slots.Release(user.ID)
 		}
 		if !linked.Status.Active() {
 			linked.StreamURLs = s.signStreams(linked, r)
 		}
-		web.WriteJSON(w, 200, linked)
+		web.WriteJSON(w, responseStatus, linked)
 		return
 	}
 
@@ -207,40 +208,26 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		web.WriteError(w, 429, "monthly download limit reached, resets on the 1st")
 		return
 	}
-	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
-		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
-		return
-	}
 	if err := s.Store.Put(r.Context(), nzb.StorageKey(hash), bytes.NewReader(body), "application/x-nzb"); err != nil {
-		s.Slots.Release(user.ID)
 		web.WriteError(w, 500, "failed to store nzb")
 		return
 	}
 	s.Users.SetJobNZB(r.Context(), hash, body)
 
-	status := jobs.StatusPending
-	if used, _ := s.Jobs.BudgetUsed(r.Context()); s.Budget-used < 1_000_000_000 {
-		status = jobs.StatusQueued
-	}
 	job := &jobs.Job{
 		UserID: user.ID, InfoHash: hash, Name: name, FileSize: size,
-		Source: jobs.SourceUsenet, Status: status, IMDBID: imdb,
+		Source: jobs.SourceUsenet, IMDBID: imdb,
 		MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
-	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
-	s.Slots.Release(user.ID)
+	disposition, err := s.Slots.Admit(r.Context(), job, plan, true)
 	if err != nil {
-		web.WriteError(w, 500, "could not start this download")
+		writeQueueError(w, err, s.Slots.MaxQueued())
 		return
 	}
-	if created && status == jobs.StatusPending {
+	if disposition == jobs.AdmissionAdmitted {
 		s.assign(job)
 	}
-	responseStatus := http.StatusOK
-	if created {
-		responseStatus = http.StatusAccepted
-	}
-	web.WriteJSON(w, responseStatus, job)
+	web.WriteJSON(w, admissionStatus(disposition), job)
 }
 
 func (s *Server) setUsenetCreds(w http.ResponseWriter, r *http.Request) {

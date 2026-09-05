@@ -30,7 +30,13 @@ var statuser Statuser
 func SetStatuser(s Statuser) { statuser = s }
 
 func Assign(ctx context.Context, pub Publisher, sizer Sizer, repo jobs.Repository, job *jobs.Job) {
-	job.Node = TargetNode(ctx, sizer, string(job.Source), job.MaxBytes)
+	if job.InputKey != "" {
+		// Staged upload inputs live with the primary API/store mount. Keep the
+		// corresponding work on that node so the ingest runner can recover it.
+		job.Node = primaryNode()
+	} else {
+		job.Node = TargetNode(ctx, sizer, string(job.Source), job.MaxBytes)
+	}
 	repo.Update(ctx, job)
 	pub.Publish(events.JobAssigned, events.Assigned{
 		JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,

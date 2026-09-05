@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/plans"
 )
@@ -115,6 +116,10 @@ func (h *Handler) removeNewz(w http.ResponseWriter, r *http.Request, user *auth.
 		return
 	}
 	h.Jobs.Delete(r.Context(), job.ID)
+	if job.Status.Active() && job.Status != jobs.StatusQueued {
+		h.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node, UserID: job.UserID})
+	}
+	h.Slots.Wake()
 	stJSON(w, 200, map[string]any{"data": map[string]any{"id": id}})
 }
 

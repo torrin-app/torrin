@@ -33,11 +33,14 @@ func (s Status) Active() bool {
 
 var activeStates = sqlInList(activeStatuses)
 
-var concurrencyStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing}
+var concurrencyStatuses = []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing}
 var concurrencyStates = sqlInList(concurrencyStatuses)
 
 var downloadingStatuses = []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing}
 var downloadingStates = sqlInList(downloadingStatuses)
+
+var budgetStatuses = []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing, StatusSeeding}
+var budgetStates = sqlInList(budgetStatuses)
 
 func sqlInList(ss []Status) string {
 	out := "("
@@ -72,6 +75,8 @@ type Job struct {
 	Source       Source    `json:"source"`
 	Status       Status    `json:"status"`
 	Seed         bool      `json:"seed,omitempty"`
+	BudgetGated  bool      `json:"-"`
+	InputKey     string    `json:"-"`
 	Error        string    `json:"error,omitempty"`
 	Files        []File    `json:"files,omitempty"`
 	SelectedIdxs []int     `json:"selected_indexes,omitempty"`
@@ -87,6 +92,21 @@ type Job struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 	StreamURLs   []Stream  `json:"stream_urls,omitempty"`
+}
+
+// ConsumesDownloadSlot reports whether a job reserves one of the user's
+// normal download slots. Queued work and private-seed work are deliberately
+// excluded: private torrents are governed by the separate seed-slot limit.
+func (j *Job) ConsumesDownloadSlot() bool {
+	if j == nil || j.Seed {
+		return false
+	}
+	switch j.Status {
+	case StatusPending, StatusDownloading, StatusProcessing, StatusPublishing:
+		return true
+	default:
+		return false
+	}
 }
 
 type File struct {

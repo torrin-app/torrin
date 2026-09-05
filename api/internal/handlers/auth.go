@@ -77,6 +77,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	web.WriteJSON(w, 200, map[string]any{
 		"user_id": user.ID, "email": user.Email, "plan": plan,
 		"active_slots": s.Slots.ActiveSlots(r.Context(), user.ID), "expires_at": user.ExpiresAt,
+		"queued_downloads": s.Slots.Queued(r.Context(), user.ID), "max_queued_downloads": s.Slots.MaxQueued(),
 		"paused": user.IsPaused(), "remaining_days": user.RemainingDays,
 		"pause_count": user.PauseCount, "max_pauses": 3,
 		"recurrence": user.Recurrence,

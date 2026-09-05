@@ -125,6 +125,19 @@ func process(ctx context.Context, repo jobs.Repository, users *auth.Store, reg *
 		jobrun.Fail(ctx, repo, b, job, failure.Blocked)
 		return
 	}
+	if job.Source == jobs.SourceTorrent && job.InputKey != "" {
+		if tr == nil {
+			jobrun.Fail(ctx, repo, b, job, failure.EngineDown)
+			return
+		}
+		if err := tr.StartFile(jobCtx, job); err != nil {
+			tr.Release(job.InfoHash)
+			jobrun.Fail(ctx, repo, b, job, failure.Wrap(failure.AddFailed, "add torrent file: %v", err))
+			return
+		}
+		tr.Release(job.InfoHash)
+		return
+	}
 
 	handled, err := dr.Run(jobCtx, job)
 	if tr != nil {

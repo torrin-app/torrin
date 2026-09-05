@@ -29,8 +29,30 @@ func TestActiveStatesSQL(t *testing.T) {
 	if activeStates != "('pending','queued','downloading','processing','publishing','seeding')" {
 		t.Errorf("activeStates drifted: %s", activeStates)
 	}
+	if concurrencyStates != "('pending','downloading','processing','publishing')" {
+		t.Errorf("concurrencyStates drifted: %s", concurrencyStates)
+	}
 	if downloadingStates != "('pending','downloading','processing','publishing')" {
 		t.Errorf("downloadingStates drifted: %s", downloadingStates)
+	}
+	if budgetStates != "('pending','downloading','processing','publishing','seeding')" {
+		t.Errorf("budgetStates drifted: %s", budgetStates)
+	}
+}
+
+func TestConsumesDownloadSlot(t *testing.T) {
+	for _, st := range []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing} {
+		if !(&Job{Status: st}).ConsumesDownloadSlot() {
+			t.Errorf("%s should consume a download slot", st)
+		}
+		if (&Job{Status: st, Seed: true}).ConsumesDownloadSlot() {
+			t.Errorf("seed job in %s must not consume a download slot", st)
+		}
+	}
+	for _, st := range []Status{StatusQueued, StatusSeeding, StatusComplete, StatusFailed, StatusEvicted} {
+		if (&Job{Status: st}).ConsumesDownloadSlot() {
+			t.Errorf("%s must not consume a download slot", st)
+		}
 	}
 }
 

@@ -120,27 +120,21 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 			created = append(created, h)
 			continue
 		}
+		if over, _ := s.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+			errs = append(errs, h+": monthly download limit reached")
+			continue
+		}
 		job := &jobs.Job{
 			UserID: user.ID, InfoHash: h, Magnet: mag, Source: jobs.SourceTorrent,
 			Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 		}
-		hasSlot := s.Slots.Acquire(r.Context(), user.ID, plan)
-		if !hasSlot {
-			job.Status = jobs.StatusQueued
-		}
-		wasCreated, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
+		disposition, err := s.Slots.Admit(r.Context(), job, plan, true)
 		if err != nil {
-			if hasSlot {
-				s.Slots.Release(user.ID)
-			}
 			errs = append(errs, h+": "+err.Error())
 			continue
 		}
-		if hasSlot {
-			s.Slots.Release(user.ID)
-			if wasCreated {
-				s.assign(job)
-			}
+		if disposition == jobs.AdmissionAdmitted {
+			s.assign(job)
 		}
 		created = append(created, h)
 	}

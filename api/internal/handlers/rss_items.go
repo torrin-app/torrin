@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -92,19 +93,17 @@ func (s *Server) rssSubmit(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 		s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
 		return false, false
 	}
-	if !s.Slots.Acquire(ctx, user.ID, plan) {
-		return false, true
-	}
-	created, err := jobs.CreateAccountOnce(ctx, s.Jobs, job)
-	s.Slots.Release(user.ID)
+	disposition, err := s.Slots.Admit(ctx, job, plan, false)
 	if err != nil {
-		return false, false
+		return false, errors.Is(err, jobs.ErrQueueFull)
+	}
+	if disposition == jobs.AdmissionAdmitted {
+		s.assign(job)
 	}
 	s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
-	if !created {
+	if disposition == jobs.AdmissionExisting {
 		return false, false
 	}
-	s.assign(job)
 	slog.Info("rss: auto-added "+kind, "feed", feed.Name, "title", job.Name, "hash", job.InfoHash)
 	return true, false
 }
@@ -140,11 +139,7 @@ func (s *Server) rssUsenet(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 		s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
 		return false, false
 	}
-	if !s.Slots.Acquire(ctx, user.ID, plan) {
-		return false, true
-	}
 	if err := s.Store.Put(ctx, nzb.StorageKey(hash), bytes.NewReader(data), "application/x-nzb"); err != nil {
-		s.Slots.Release(user.ID)
 		return false, false
 	}
 	s.Users.SetJobNZB(ctx, hash, data)
@@ -160,16 +155,17 @@ func (s *Server) rssUsenet(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 		}
 		job.Files = append(job.Files, jobs.File{Index: i, Name: f.Subject, Size: fsize})
 	}
-	created, err := jobs.CreateAccountOnce(ctx, s.Jobs, job)
-	s.Slots.Release(user.ID)
+	disposition, err := s.Slots.Admit(ctx, job, plan, false)
 	if err != nil {
-		return false, false
+		return false, errors.Is(err, jobs.ErrQueueFull)
+	}
+	if disposition == jobs.AdmissionAdmitted {
+		s.assign(job)
 	}
 	s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
-	if !created {
+	if disposition == jobs.AdmissionExisting {
 		return false, false
 	}
-	s.assign(job)
 	slog.Info("rss: auto-added usenet", "feed", feed.Name, "title", name, "hash", hash)
 	return true, false
 }

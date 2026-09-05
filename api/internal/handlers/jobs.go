@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -88,53 +89,45 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 			Source: source, Status: existing.Status, Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
 		activeLink := linked.Status.Active()
-		if activeLink && !s.Slots.Acquire(r.Context(), user.ID, plan) {
-			web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
-			return
-		}
-		if _, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, linked); err != nil {
-			if activeLink {
-				s.Slots.Release(user.ID)
+		responseStatus := http.StatusOK
+		if activeLink {
+			disposition, err := s.Slots.Admit(r.Context(), linked, plan, budgetGate)
+			if err != nil {
+				writeQueueError(w, err, s.Slots.MaxQueued())
+				return
 			}
+			if disposition == jobs.AdmissionAdmitted {
+				s.assign(linked)
+			}
+			responseStatus = admissionStatus(disposition)
+		} else if err := s.Jobs.Create(r.Context(), linked); err != nil {
 			web.WriteError(w, 500, "could not start this download")
 			return
-		}
-		if activeLink {
-			s.Slots.Release(user.ID)
 		}
 		if !linked.Status.Active() {
 			linked.StreamURLs = s.signStreams(linked, r)
 		}
-		web.WriteJSON(w, 200, linked)
+		web.WriteJSON(w, responseStatus, linked)
 		return
 	}
 
 	// 2b. Re-hydrate from a Cairn usenet archive instead of re-leeching the source.
 	if s.Users != nil {
 		if _, _, ok := s.Users.GetCairnArchive(r.Context(), infoHash); ok {
-			if !s.Slots.Acquire(r.Context(), user.ID, plan) {
-				web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
-				return
-			}
 			job := &jobs.Job{
 				UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: name,
 				Source: jobs.SourceUsenet, Status: jobs.StatusPending,
 				MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 			}
-			created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
-			s.Slots.Release(user.ID)
+			disposition, err := s.Slots.Admit(r.Context(), job, plan, budgetGate)
 			if err != nil {
-				web.WriteError(w, 500, "could not start this download")
+				writeQueueError(w, err, s.Slots.MaxQueued())
 				return
 			}
-			if created {
+			if disposition == jobs.AdmissionAdmitted {
 				s.assign(job)
 			}
-			responseStatus := http.StatusOK
-			if created {
-				responseStatus = http.StatusAccepted
-			}
-			web.WriteJSON(w, responseStatus, job)
+			web.WriteJSON(w, admissionStatus(disposition), job)
 			return
 		}
 	}
@@ -144,41 +137,26 @@ func (s *Server) submitMagnet(w http.ResponseWriter, r *http.Request, infoHash, 
 		return
 	}
 
-	// 3. New download, monthly quota + slot limit.
+	// 3. New download, monthly quota + durable queue admission.
 	if s.Users != nil {
 		if over, _ := s.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
 			web.WriteError(w, 429, "monthly download limit reached, resets on the 1st")
 			return
 		}
 	}
-	if !s.Slots.Acquire(r.Context(), user.ID, plan) {
-		web.WriteError(w, 429, slotMsg(s, r, user.ID, plan.MaxConcurrent))
-		return
-	}
-	status := jobs.StatusPending
-	if budgetGate {
-		if used, _ := s.Jobs.BudgetUsed(r.Context()); s.Budget-used < 1_000_000_000 {
-			status = jobs.StatusQueued
-		}
-	}
 	job := &jobs.Job{
 		UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Name: name,
-		Source: source, Status: status, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
+		Source: source, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
 	}
-	created, err := jobs.CreateAccountOnce(r.Context(), s.Jobs, job)
-	s.Slots.Release(user.ID)
+	disposition, err := s.Slots.Admit(r.Context(), job, plan, budgetGate)
 	if err != nil {
-		web.WriteError(w, 500, "could not start this download")
+		writeQueueError(w, err, s.Slots.MaxQueued())
 		return
 	}
-	if created && status == jobs.StatusPending {
+	if disposition == jobs.AdmissionAdmitted {
 		s.assign(job)
 	}
-	responseStatus := http.StatusOK
-	if created {
-		responseStatus = http.StatusAccepted
-	}
-	web.WriteJSON(w, responseStatus, job)
+	web.WriteJSON(w, admissionStatus(disposition), job)
 }
 
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
@@ -272,21 +250,15 @@ func (s *Server) recheckJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) requeue(w http.ResponseWriter, r *http.Request, job *jobs.Job, userID string, plan plans.Plan) {
-	if !s.Slots.Acquire(r.Context(), userID, plan) {
-		web.WriteError(w, 429, slotMsg(s, r, userID, plan.MaxConcurrent))
-		return
-	}
-	job.Status = jobs.StatusPending
-	job.Error = ""
-	job.CreatedAt = time.Now().UTC()
-	err := s.JobsPG.Requeue(r.Context(), job.ID)
-	s.Slots.Release(userID)
+	disposition, updated, err := s.Slots.Readmit(r.Context(), job.ID, plan)
 	if err != nil {
-		web.WriteError(w, 500, "failed to requeue job")
+		writeQueueError(w, err, s.Slots.MaxQueued())
 		return
 	}
-	s.assign(job)
-	web.WriteJSON(w, 202, job)
+	if disposition == jobs.AdmissionAdmitted {
+		s.assign(updated)
+	}
+	web.WriteJSON(w, admissionStatus(disposition), updated)
 }
 
 func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
@@ -315,23 +287,26 @@ func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.Jobs.Delete(r.Context(), job.ID)
-	if job.Status.Active() {
+	if job.InputKey != "" {
+		s.Store.Delete(r.Context(), job.InputKey)
+	}
+	if job.Status.Active() && job.Status != jobs.StatusQueued {
 		s.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node, UserID: job.UserID})
 	}
+	s.Slots.Wake()
 	if job.Source == jobs.SourceUsenet && s.Users != nil {
 		s.Users.TombstoneUsenet(r.Context(), user.ID, job.InfoHash, time.Now().Add(usenetDeleteTombstone))
 		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) == 0 {
 			s.Users.ClearJobNZB(r.Context(), job.InfoHash)
 		}
 	}
-	qb := s.Qbit
-	if job.Seed {
-		qb = s.QbitSeed
-	}
-	if job.Status.Active() && job.Source == jobs.SourceTorrent && qb != nil {
+	// Normal in-flight torrents are cancelled by the ingest subscriber so it
+	// can meter partial bytes before removing qBittorrent state. Seed downloads
+	// may use a separate engine and still need direct cleanup here.
+	if job.Seed && job.Status.Active() && job.Status != jobs.StatusQueued && job.Source == jobs.SourceTorrent && s.QbitSeed != nil {
 		if sibs, _ := s.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(sibs) == 0 {
-			if qb.Login() == nil {
-				qb.Delete(job.InfoHash)
+			if s.QbitSeed.Login() == nil {
+				s.QbitSeed.Delete(job.InfoHash)
 			}
 		}
 	}
@@ -342,6 +317,10 @@ func (s *Server) assign(job *jobs.Job) {
 	cluster.Assign(context.Background(), s.Bus, s.JobsPG, s.Jobs, job)
 }
 
-func slotMsg(s *Server, r *http.Request, userID string, max int) string {
-	return fmt.Sprintf("slot limit reached (%d/%d)", s.Slots.ActiveSlots(r.Context(), userID), max)
+func writeQueueError(w http.ResponseWriter, err error, max int) {
+	if errors.Is(err, jobs.ErrQueueFull) {
+		web.WriteError(w, 429, fmt.Sprintf("download queue full (%d/%d)", max, max))
+		return
+	}
+	web.WriteError(w, 500, "could not queue this download")
 }
