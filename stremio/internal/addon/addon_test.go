@@ -207,7 +207,7 @@ func TestByLibraryPrefersUserBYOSOverCairnWithoutWarmCopy(t *testing.T) {
 	}
 	r := httptest.NewRequest(http.MethodGet, "/stream/series/tt1234567:5:2", nil)
 	link := streamLink(t, s.byLibrary(r, "series", stremioid.Parse("tt1234567:5:2"), "user-5", true))
-	if !strings.Contains(link, "user://box2/blobs/byos-episode?u=user-5") || !strings.Contains(link, "byos=1") {
+	if !strings.Contains(link, "user://box2/"+hash+"/file_0/Show.S05E02.mkv?u=user-5") || !strings.Contains(link, "byos=1") {
 		t.Fatalf("BYOS link = %q", link)
 	}
 }

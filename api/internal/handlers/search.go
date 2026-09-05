@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -41,14 +42,15 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 			return false
 		}
 		var files []searchFile
-		for _, f := range j.Files {
+		for _, f := range s.EpisodeResolver.Select(r.Context(), imdb, j, j.Files, season, episode) {
 			if f.Name == "" {
 				continue
 			}
-			if wantEpisode && !episodeMatch(j, f.Name, season, episode) {
-				continue
+			file := searchFile{ReleaseName: j.Name, ReleaseSize: j.FileSize, FileName: f.Name, Index: f.Index, Size: f.Size, MediaInfo: f.MediaInfo}
+			if wantEpisode && imdb != "" {
+				file.EpisodeMatch = fmt.Sprintf("tt%s:%d:%d", imdb, season, episode)
 			}
-			files = append(files, searchFile{FileName: f.Name, Index: f.Index, Size: f.Size, MediaInfo: f.MediaInfo})
+			files = append(files, file)
 		}
 		if len(files) == 0 {
 			return false
@@ -106,10 +108,13 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 }
 
 type searchFile struct {
-	FileName  string          `json:"file_name"`
-	Index     int             `json:"index"`
-	Size      int64           `json:"size,omitempty"`
-	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
+	ReleaseSize  int64           `json:"release_size,omitempty"`
+	ReleaseName  string          `json:"release_name,omitempty"`
+	EpisodeMatch string          `json:"episode_match,omitempty"`
+	FileName     string          `json:"file_name"`
+	Index        int             `json:"index"`
+	Size         int64           `json:"size,omitempty"`
+	MediaInfo    *mediainfo.Info `json:"media_info,omitempty"`
 }
 
 type searchResult struct {

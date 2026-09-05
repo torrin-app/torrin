@@ -81,19 +81,19 @@ func (s *Server) signStreams(job *jobs.Job, r *http.Request) []jobs.Stream {
 		}
 	}
 	out := make([]jobs.Stream, len(job.Files))
-	for i, f := range job.Files {
-		key := manifest.ResolveKey(job.InfoHash, i, f.Key, f.Name)
+	for i, f := range jobs.FilesForEpisode(job, job.Files, 0, 0) {
+		key := manifest.ResolveKey(job.InfoHash, f.Index, f.Key, f.Name)
 		var u string
 		if byos {
 			u = s.Store.SignURLNodeUser(job.Node, key, job.UserID, 24*time.Hour) + "&byos=1"
-			u += "&bk=" + url.QueryEscape(manifest.Key(job.InfoHash, i, f.Name))
+			u += "&bk=" + url.QueryEscape(manifest.Key(job.InfoHash, f.Index, f.Name))
 		} else if _, _, _, ok := cairn.ParseStreamPath(key); ok {
 			u = s.Store.SignURLNodeUser("", key, job.UserID, 24*time.Hour)
 		} else {
 			u = s.Store.SignURLNode(node, key, 24*time.Hour)
 		}
 		u += manifest.StreamQuery(job.InfoHash, f.Enc)
-		out[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
+		out[i] = jobs.Stream{Index: f.Index, MediaInfo: f.MediaInfo, FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
 	return out
 }

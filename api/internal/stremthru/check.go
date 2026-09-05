@@ -50,6 +50,9 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 			items = append(items, map[string]any{"hash": hash, "magnet": m, "status": "unknown", "name": displayName(m), "files": []any{}})
 			continue
 		}
+		if _, exists := idxOf[hash]; exists {
+			continue
+		}
 		idxOf[hash] = len(items)
 		items = append(items, map[string]any{"hash": hash, "magnet": magnet.Build(hash, displayName(m)), "status": "unknown", "name": displayName(m), "files": []any{}})
 		valid = append(valid, entry{hash, m})
@@ -60,6 +63,7 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	byok := plans.CanBYOK(user.PlanID)
 
 	var mu sync.Mutex
+	copyMatches := map[string]string{}
 	setStatus := func(hash, status string) {
 		mu.Lock()
 		if idx, ok := idxOf[hash]; ok && items[idx]["status"] == "unknown" {
@@ -114,69 +118,69 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		return hs
 	}
 
-	// Tier 1: a cached job on this node — storage-verify the blob is present (catches
-	// eviction). Only the candidates, so the round-trips stay inside the budget.
-	fanOut(warmCandidates(), func(hash string) {
-		cached, ok := h.warmJobFiles(ctx, hash)
-		if !ok {
+	// A miss applies only to this copy. Continue through other storage and upstream tiers.
+	setCached := func(hash string, cached playableJobFiles, job *jobs.Job) {
+		if job == nil {
+			job = &jobs.Job{Name: cached.name}
+		}
+		selected, match := h.EpisodeResolver.Assess(ctx, target.IMDBID, job, cached.files, target.Season, target.Episode)
+		mu.Lock()
+		defer mu.Unlock()
+		if len(selected) == 0 {
+			// Any ambiguous copy prevents a definitive rejection of available files.
+			if previous := copyMatches[hash]; previous == "" || match == "unknown" {
+				copyMatches[hash] = match
+			}
 			return
 		}
 		name := cached.name
-		selected := jobs.FilesForEpisode(nil, cached.files, target.Season, target.Episode)
-		files := h.buildFileEntries(user.ID, hash, cached.node, selected)
-		mu.Lock()
 		if name == "" {
 			name, _ = items[idxOf[hash]]["name"].(string)
 		}
-		items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": files}
-		mu.Unlock()
-	})
-
-	// Tier 1.5: a cached job on another node — the local store can't see it, so trust
-	// the DB row already fetched; links route to the job's node.
-	if still := uncached(); len(still) > 0 {
-		mu.Lock()
-		for _, hash := range still {
-			job := warmByHash[hash]
-			if job == nil || !isWarmNodeJob(hash, job) {
-				continue
+		cached.name = name
+		items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "private": cached.byos,
+			"files": h.playableEntries(user.ID, hash, cached, selected, target)}
+		if job.FileSize > 0 {
+			for _, file := range items[idxOf[hash]]["files"].([]map[string]any) {
+				file["release_size"] = job.FileSize
 			}
-			name := job.Name
-			if name == "" {
-				name, _ = items[idxOf[hash]]["name"].(string)
-			}
-			selected := jobs.FilesForEpisode(job, job.Files, target.Season, target.Episode)
-			items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(user.ID, hash, job.Node, selected)}
 		}
-		mu.Unlock()
+		if target.IsEpisode() {
+			items[idxOf[hash]]["episode_status"] = "match"
+			items[idxOf[hash]]["episode_sid"] = r.URL.Query().Get("sid")
+		}
 	}
-
-	// Tier 1.75: a durable Cairn is immediately playable even when its warm
-	// cache copy was evicted. Prefer local and cross-node warm copies above.
-	fanOut(uncached(), func(hash string) {
-		cached, ok := h.cairnJobFiles(ctx, hash)
-		if !ok {
-			return
+	fanOut(warmCandidates(), func(hash string) {
+		if cached, ok := h.warmJobFiles(ctx, hash); ok {
+			setCached(hash, cached, warmByHash[hash])
 		}
-		name := cached.name
-		selected := jobs.FilesForEpisode(nil, cached.files, target.Season, target.Episode)
-		files := h.buildFileEntries(user.ID, hash, cached.node, selected)
-		mu.Lock()
-		if name == "" {
-			name, _ = items[idxOf[hash]]["name"].(string)
-		}
-		items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": files}
-		mu.Unlock()
 	})
+	for _, hash := range uncached() {
+		job := warmByHash[hash]
+		if isWarmNodeJob(hash, job) {
+			setCached(hash, playableJobFiles{name: job.Name, files: job.Files, node: job.Node}, job)
+		}
+	}
+	fanOut(uncached(), func(hash string) {
+		if cached, ok := h.cairnJobFiles(ctx, hash); ok {
+			setCached(hash, cached, nil)
+		}
+	})
+
+	for hash, o := range h.privateCopies(ctx, user.ID, uncached()) {
+		setCached(hash, playableJobFiles{name: o.Name, files: o.Files, byos: true}, privateJob(o))
+	}
 
 	// Tier 1b: known release links (hdencode/scene-rls) are fetchable via AD + unrar.
 	// Tier 2: system AD library (torrin's own shared pool), fast DB lookup.
 	fanOut(uncached(), func(hash string) {
-		if pURL, _, _, _ := h.Jobs.ReleaseLink(ctx, hash); pURL != "" {
-			setStatus(hash, "acceleratable")
-			return
+		if h.Jobs != nil {
+			if pURL, _, _, _ := h.Jobs.ReleaseLink(ctx, hash); pURL != "" {
+				setStatus(hash, "acceleratable")
+				return
+			}
 		}
-		if h.Users.IsInADLibrary(ctx, hash) {
+		if h.Users != nil && h.Users.IsInADLibrary(ctx, hash) {
 			setStatus(hash, "acceleratable")
 		}
 	})
@@ -185,6 +189,21 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		h.liveCacheCheck(ctx, user, byok, still, setStatus)
 	}
 
+	if target.IsEpisode() {
+		for _, e := range valid {
+			item := items[idxOf[e.hash]]
+			if item["episode_status"] == "match" {
+				continue
+			}
+			item["episode_sid"] = r.URL.Query().Get("sid")
+			item["episode_status"] = "unknown"
+			if item["status"] == "unknown" && copyMatches[e.hash] == "no_match" {
+				item["episode_status"] = "no_match"
+				item["episode_scope"] = "available_files"
+				item["reason"] = "episode_not_found"
+			}
+		}
+	}
 	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items}})
 }
 
@@ -206,7 +225,7 @@ func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool
 		if h.SysRDKey != "" {
 			checks = append(checks, pk{"real-debrid", h.SysRDKey})
 		}
-		if byok {
+		if byok && h.Users != nil {
 			if k, _ := h.Users.GetRDKey(ctx, user.ID); k != "" {
 				checks = append(checks, pk{"real-debrid", k})
 			}
@@ -226,7 +245,7 @@ func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool
 		}
 	}
 
-	if byok {
+	if byok && h.Users != nil {
 		// Tier 4: the user's Premiumize cache, checked directly.
 		run(func() {
 			if k, _ := h.Users.GetPMKey(ctx, user.ID); k != "" {
@@ -240,7 +259,10 @@ func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool
 		// Tier 5: the user's TorBox cache, checked directly.
 		run(func() {
 			if k, _ := h.Users.GetTBKey(ctx, user.ID); k != "" {
-				for hash := range providers.TorBoxCached(ctx, k, hashes) {
+				for hash, cached := range providers.TorBoxCached(ctx, k, hashes) {
+					if !cached {
+						continue
+					}
 					setStatus(hash, "acceleratable")
 				}
 			}

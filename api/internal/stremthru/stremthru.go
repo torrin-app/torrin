@@ -3,6 +3,7 @@ package stremthru
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/torrin-app/torrin/shared/cairn"
 	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/crypto"
+	"github.com/torrin-app/torrin/shared/episodes"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -43,20 +45,22 @@ type cairnStore interface {
 }
 
 type Deps struct {
-	Users       *auth.Store
-	Jobs        *jobs.Postgres
-	CachedJobs  jobs.CachedLookup
-	Store       store
-	Cairns      cairnRepository
-	CairnStore  cairnStore
-	CairnCipher *crypto.Stream
-	CairnDirect bool
-	Slots       *middleware.SlotTracker
-	Bus         *bus.Bus
-	TC          *torrentclaw.Client
-	Qbit        *qbit.Client
-	SysADKey    string
-	SysRDKey    string
+	EpisodeResolver *episodes.Resolver
+	Users           *auth.Store
+	Jobs            *jobs.Postgres
+	CachedJobs      jobs.CachedLookup
+	BYOS            byosLookup
+	Store           store
+	Cairns          cairnRepository
+	CairnStore      cairnStore
+	CairnCipher     *crypto.Stream
+	CairnDirect     bool
+	Slots           *middleware.SlotTracker
+	Bus             *bus.Bus
+	TC              *torrentclaw.Client
+	Qbit            *qbit.Client
+	SysADKey        string
+	SysRDKey        string
 }
 
 type Handler struct {
@@ -157,32 +161,53 @@ func (h *Handler) magnetDataForTarget(ctx context.Context, j *jobs.Job, target s
 		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339), "private": false,
 		"files": []map[string]any{},
 	}
-	if cached, ok := h.cachedJobFiles(ctx, j.InfoHash); ok {
-		m["status"] = "downloaded"
-		m["size"] = cached.size
-		files := jobs.FilesForEpisode(j, cached.files, target.Season, target.Episode)
-		m["files"] = h.buildFileEntries(j.UserID, j.InfoHash, cached.node, files)
+	// Select before committing to a storage source: a warm subset must not
+	// shadow a matching Cairn or owner-scoped BYOS copy.
+	tryCopy := func(cached playableJobFiles, job *jobs.Job) bool {
+		if cached.name == "" {
+			cached.name = job.Name
+		}
+		files := h.EpisodeResolver.Select(ctx, target.IMDBID, job, cached.files, target.Season, target.Episode)
+		if len(files) == 0 {
+			return false
+		}
+		m["status"], m["size"], m["private"] = "downloaded", cached.size, cached.byos
+		m["files"] = h.playableEntries(j.UserID, j.InfoHash, cached, files, target)
 		if cached.name != "" {
 			m["name"] = cached.name
 		}
-	} else if j.Status == jobs.StatusComplete || j.Status == jobs.StatusSeeding {
-		files := j.Files
-		if _, _, mf := h.manifestMeta(ctx, j.InfoHash); mf != nil {
-			files = mf
+		return true
+	}
+	for _, lookup := range []func(context.Context, string) (playableJobFiles, bool){h.warmJobFiles, h.nodeJobFiles, h.cairnJobFiles} {
+		if cached, ok := lookup(ctx, j.InfoHash); ok && tryCopy(cached, j) {
+			return m
 		}
-		files = jobs.FilesForEpisode(j, files, target.Season, target.Episode)
-		m["files"] = h.buildFileEntries(j.UserID, j.InfoHash, j.Node, files)
+	}
+	if o := h.privateCopies(ctx, j.UserID, []string{j.InfoHash})[j.InfoHash]; o != nil {
+		var size int64
+		for _, f := range o.Files {
+			size += f.Size
+		}
+		if tryCopy(playableJobFiles{name: o.Name, files: o.Files, size: size, byos: true}, privateJob(o)) {
+			return m
+		}
+	}
+	if j.Status == jobs.StatusComplete || j.Status == jobs.StatusSeeding {
+		files := h.EpisodeResolver.Select(ctx, target.IMDBID, j, j.Files, target.Season, target.Episode)
+		m["files"] = h.buildFileEntries(j.UserID, j.InfoHash, j.Node, files, target)
+	}
+	if target.IsEpisode() && len(m["files"].([]map[string]any)) == 0 && m["status"] == "downloaded" {
+		m["status"] = "unknown"
+		m["reason"] = "episode_not_found"
 	}
 	return m
 }
 
-func (h *Handler) buildFileEntries(userID, hash, node string, files []jobs.File) []map[string]any {
+func (h *Handler) buildFileEntries(userID, hash, node string, files []jobs.File, targets ...stremioid.ID) []map[string]any {
+	files = jobs.FilesForEpisode(nil, files, 0, 0)
 	out := make([]map[string]any, len(files))
 	for i, f := range files {
 		index := f.Index
-		if index == 0 && i > 0 {
-			index = i
-		}
 		key := manifest.ResolveKey(hash, index, f.Key, f.Name)
 		link := ""
 		if _, _, _, ok := cairn.ParseStreamPath(key); ok {
@@ -192,6 +217,17 @@ func (h *Handler) buildFileEntries(userID, hash, node string, files []jobs.File)
 		}
 		link += manifest.StreamQuery(hash, f.Enc)
 		out[i] = fileEntry(index, f.Name, f.Size, link, f.MediaInfo)
+		if len(f.Episodes) > 0 {
+			out[i]["episodes"] = f.Episodes
+		}
+		out[i]["stream_source"] = "cache"
+		if _, _, _, direct := cairn.ParseStreamPath(key); direct {
+			out[i]["stream_source"] = "cairn"
+		}
+		if len(targets) > 0 && targets[0].IsEpisode() {
+			t := targets[0]
+			out[i]["episode_match"] = fmt.Sprintf("tt%s:%d:%d", t.IMDBID, t.Season, t.Episode)
+		}
 	}
 	return out
 }

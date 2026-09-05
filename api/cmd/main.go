@@ -16,10 +16,12 @@ import (
 	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/billing"
 	"github.com/torrin-app/torrin/shared/bus"
+	"github.com/torrin-app/torrin/shared/cinemeta"
 	"github.com/torrin-app/torrin/shared/cluster"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/email"
 	"github.com/torrin-app/torrin/shared/env"
+	"github.com/torrin-app/torrin/shared/episodes"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/nodestatus"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -137,8 +139,10 @@ func main() {
 		slog.Warn("node status db init failed", "err", err)
 	}
 	cluster.SetStatuser(nodeStat)
+	episodeResolver := episodes.New(cinemeta.NewClient())
 	srv := handlers.New(handlers.Deps{
-		Jobs: jobsRepo, JobsPG: jobsRepo, Users: users, Store: store, NodeStores: nodeStores,
+		EpisodeResolver: episodeResolver,
+		Jobs:            jobsRepo, JobsPG: jobsRepo, Users: users, Store: store, NodeStores: nodeStores,
 		CairnStore: cairnStore, CairnCipher: cairnCipher, CairnDirect: env.Get("USENET_HOST", "") != "", Bus: b,
 		Slots: slots, Qbit: qb, QbitSeed: qbSeed, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
 		RClone: rc, Bitcart: bitcart, NowPay: nowpay, Bachs: bachs, SignKey: []byte(env.Get("SIGNING_KEY", "")),
@@ -173,7 +177,8 @@ func main() {
 		tc.SetCache(avail)
 	}
 	stremthru.New(stremthru.Deps{
-		Users: users, Jobs: jobsRepo, Store: store, Cairns: users, CairnStore: cairnStore,
+		EpisodeResolver: episodeResolver,
+		Users:           users, Jobs: jobsRepo, Store: store, Cairns: users, CairnStore: cairnStore,
 		CairnCipher: cairnCipher, CairnDirect: env.Get("USENET_HOST", "") != "", Slots: slots, Bus: b,
 		TC: tc, Qbit: qb, SysADKey: env.Get("AD_API_KEY", ""), SysRDKey: env.Get("RD_API_KEY", ""),
 	}).Register(mux)

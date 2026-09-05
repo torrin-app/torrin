@@ -13,6 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/cairn"
 	"github.com/torrin-app/torrin/shared/cinemeta"
+	"github.com/torrin-app/torrin/shared/episodes"
 	"github.com/torrin-app/torrin/shared/georoute"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -21,10 +22,11 @@ import (
 )
 
 type Server struct {
-	users *auth.Store
-	jobs  jobRepository
-	store streamStore
-	meta  titleResolver
+	users           *auth.Store
+	jobs            jobRepository
+	store           streamStore
+	meta            titleResolver
+	episodeResolver *episodes.Resolver
 }
 
 type jobRepository interface {
@@ -47,7 +49,7 @@ type titleResolver interface {
 }
 
 func New(users *auth.Store, j *jobs.Postgres, store *storage.Client) *Server {
-	return &Server{users: users, jobs: j, store: store, meta: cinemeta.NewClient()}
+	return &Server{users: users, jobs: j, store: store, meta: cinemeta.NewClient(), episodeResolver: episodes.New(cinemeta.NewClient())}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -119,7 +121,7 @@ func (s *Server) byHash(r *http.Request, infoHash, userID string) []map[string]a
 	if err == nil {
 		man, parseErr := manifest.Parse(data)
 		if parseErr == nil && len(man.Files) > 0 {
-			return s.entries(r, infoHash, userID, "", false, manifestFiles(man))
+			return s.entries(r, infoHash, userID, "", false, manifestFiles(man), man.Name)
 		}
 		if parseErr != nil {
 			slog.Warn("stremio: bad manifest", "hash", infoHash, "err", parseErr)
@@ -128,7 +130,7 @@ func (s *Server) byHash(r *http.Request, infoHash, userID string) []map[string]a
 
 	if warm, ok := s.cachedJobs(r.Context(), []string{infoHash})[infoHash]; ok {
 		if files := jobs.FilesForEpisode(warm, warm.Files, 0, 0); len(files) > 0 {
-			return s.entries(r, infoHash, userID, warm.Node, false, files)
+			return s.entries(r, infoHash, userID, warm.Node, false, files, warm.Name)
 		}
 	}
 	candidates, _ := s.jobs.ListByInfoHash(r.Context(), infoHash)
@@ -138,7 +140,7 @@ func (s *Server) byHash(r *http.Request, infoHash, userID string) []map[string]a
 		}
 		files := jobs.FilesForEpisode(candidate, candidate.Files, 0, 0)
 		if hasCairnFile(infoHash, files) {
-			return s.entries(r, infoHash, userID, "", false, files)
+			return s.entries(r, infoHash, userID, "", false, files, candidate.Name)
 		}
 	}
 	return nil
@@ -174,7 +176,9 @@ func (s *Server) byLibrary(r *http.Request, contentType string, id stremioid.ID,
 			if _, exists := grouped[j.InfoHash]; !exists {
 				order = append(order, j.InfoHash)
 			}
-			grouped[j.InfoHash] = append(grouped[j.InfoHash], libraryCandidate{job: j, byos: fromBYOS})
+			copy := *j
+			copy.Files = s.episodeResolver.Select(ctx, id.IMDBID, j, j.Files, id.Season, id.Episode)
+			grouped[j.InfoHash] = append(grouped[j.InfoHash], libraryCandidate{job: &copy, byos: fromBYOS})
 		}
 	}
 
@@ -199,8 +203,8 @@ func (s *Server) byLibrary(r *http.Request, contentType string, id stremioid.ID,
 	var out []map[string]any
 	for _, hash := range order {
 		if warm := warmByHash[hash]; warm != nil {
-			if files := libraryFiles(warm, id); len(files) > 0 {
-				out = append(out, s.entries(r, hash, userID, warm.Node, false, files)...)
+			if files := s.episodeResolver.Select(ctx, id.IMDBID, warm, warm.Files, id.Season, id.Episode); len(files) > 0 {
+				out = append(out, s.entries(r, hash, userID, warm.Node, false, files, warm.Name)...)
 				continue
 			}
 		}
@@ -208,7 +212,7 @@ func (s *Server) byLibrary(r *http.Request, contentType string, id stremioid.ID,
 		if !ok {
 			continue
 		}
-		out = append(out, s.entries(r, hash, userID, selected.job.Node, selected.byos, files)...)
+		out = append(out, s.entries(r, hash, userID, selected.job.Node, selected.byos, files, selected.job.Name)...)
 	}
 	return out
 }
@@ -238,7 +242,7 @@ func selectLibraryCandidate(candidates []libraryCandidate, id stremioid.ID, pref
 func manifestFiles(man *manifest.Manifest) []jobs.File {
 	files := make([]jobs.File, len(man.Files))
 	for i, file := range man.Files {
-		files[i] = jobs.File{Index: i, Name: file.FileName, Size: file.FileSize, Key: file.DirectURL, Enc: file.Enc}
+		files[i] = jobs.File{Index: i, Name: file.FileName, Size: file.FileSize, Key: file.DirectURL, Enc: file.Enc, MediaInfo: file.MediaInfo}
 	}
 	return files
 }
@@ -251,16 +255,6 @@ func hasCairnFile(infoHash string, files []jobs.File) bool {
 		}
 	}
 	return false
-}
-
-func (s *Server) entries(r *http.Request, infoHash, userID, node string, byos bool, files []jobs.File) []map[string]any {
-	out := make([]map[string]any, len(files))
-	for i, file := range files {
-		key := manifest.ResolveKey(infoHash, file.Index, file.Key, file.Name)
-		streamURL := s.streamURL(r, infoHash, key, userID, node, byos, file.Enc)
-		out[i] = entry(file.Name, streamURL, infoHash, file.Size)
-	}
-	return out
 }
 
 func (s *Server) cachedJobs(ctx context.Context, hashes []string) map[string]*jobs.Job {

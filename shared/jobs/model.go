@@ -96,6 +96,14 @@ type File struct {
 	Key       string          `json:"key,omitempty"`
 	Enc       bool            `json:"enc,omitempty"`
 	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
+	Episodes  []EpisodeRef    `json:"episodes,omitempty"`
+}
+
+// EpisodeRef identifies a catalog episode contained in a file. A combined
+// episode has several refs; its filename and storage index remain unchanged.
+type EpisodeRef struct {
+	Season  int `json:"season"`
+	Episode int `json:"episode"`
 }
 
 func (j *Job) FileSizes() []int64 {
@@ -107,7 +115,9 @@ func (j *Job) FileSizes() []int64 {
 }
 
 type Stream struct {
-	FileName  string `json:"file_name"`
-	Size      int64  `json:"size,omitempty"`
-	SignedURL string `json:"signed_url,omitempty"`
+	Index     int             `json:"index"`
+	MediaInfo *mediainfo.Info `json:"media_info,omitempty"`
+	FileName  string          `json:"file_name"`
+	Size      int64           `json:"size,omitempty"`
+	SignedURL string          `json:"signed_url,omitempty"`
 }

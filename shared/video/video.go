@@ -7,6 +7,7 @@ import (
 
 var exts = map[string]bool{
 	".mkv": true, ".mp4": true, ".avi": true, ".mov": true,
+	".m2ts": true, ".mpeg": true, ".mpg": true,
 	".wmv": true, ".ts": true, ".webm": true, ".m4v": true, ".flv": true,
 }
 

@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"github.com/torrin-app/torrin/shared/mediainfo"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/torrin-app/torrin/shared/jobs"
@@ -57,5 +60,18 @@ func TestCachedStreamResultIncludesPlaybackMetadata(t *testing.T) {
 	}
 	if got["signed_url"] != stream.SignedURL {
 		t.Fatalf("unexpected cached stream URL: %#v", got)
+	}
+}
+
+func TestSignSelectedFileKeepsIndexAndMediaInfo(t *testing.T) {
+	s := &Server{Deps: Deps{Store: &fakeStore{}}}
+	info := &mediainfo.Info{Resolution: "1080p"}
+	j := &jobs.Job{InfoHash: strings.Repeat("a", 40), Files: []jobs.File{{Index: 7, Name: "Show.S02E08.mkv", Size: 123, MediaInfo: info}}}
+	streams := s.signStreams(j, httptest.NewRequest("GET", "/", nil))
+	if len(streams) != 1 || streams[0].Index != 7 || streams[0].MediaInfo != info {
+		t.Fatalf("streams %+v", streams)
+	}
+	if !strings.Contains(streams[0].SignedURL, "/file_7/") {
+		t.Fatalf("lost storage index: %s", streams[0].SignedURL)
 	}
 }

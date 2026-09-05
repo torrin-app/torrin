@@ -16,6 +16,7 @@ type playableJobFiles struct {
 	size  int64
 	files []jobs.File
 	node  string
+	byos  bool
 }
 
 func (h *Handler) nodeForInfoHash(ctx context.Context, infoHash string) string {

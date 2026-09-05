@@ -84,7 +84,7 @@ func Meta(data []byte) (name string, size int64, files []jobs.File) {
 	}
 	files = make([]jobs.File, len(m.Files))
 	for i, f := range m.Files {
-		files[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc}
+		files[i] = jobs.File{Index: i, Name: f.FileName, Size: f.FileSize, Key: f.DirectURL, Enc: f.Enc, MediaInfo: f.MediaInfo}
 		size += f.FileSize
 	}
 	return m.Name, size, files

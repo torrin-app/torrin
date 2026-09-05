@@ -63,9 +63,30 @@ type metaResp struct {
 	Name    string `json:"name"`
 	Runtime string `json:"runtime"`
 	Videos  []struct {
-		Season  int `json:"season"`
-		Episode int `json:"episode"`
+		Season  int    `json:"season"`
+		Episode int    `json:"episode"`
+		Name    string `json:"name"`
 	} `json:"videos"`
+}
+
+type Episode struct {
+	Season int
+	Number int
+	Name   string
+}
+
+func (c *Client) Episodes(ctx context.Context, imdbID string) ([]Episode, error) {
+	m, err := c.meta(ctx, imdbID, "series")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Episode, 0, len(m.Videos))
+	for _, v := range m.Videos {
+		if v.Season >= 0 && v.Episode > 0 {
+			out = append(out, Episode{Season: v.Season, Number: v.Episode, Name: v.Name})
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) meta(ctx context.Context, imdbID, contentType string) (*metaResp, error) {
