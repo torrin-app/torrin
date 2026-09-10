@@ -56,6 +56,7 @@ func (s *Server) adminSetPlan(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 500, "user operation failed")
 		return
 	}
+	s.Slots.Wake()
 	web.WriteJSON(w, 200, map[string]string{"status": "ok"})
 }
 
@@ -76,6 +77,7 @@ func (s *Server) adminUnbanUser(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 500, "user operation failed")
 		return
 	}
+	s.Slots.Wake()
 	web.WriteJSON(w, 200, map[string]string{"status": "unbanned"})
 }
 

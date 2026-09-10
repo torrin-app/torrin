@@ -34,9 +34,11 @@ func (s *Server) stats(w http.ResponseWriter, r *http.Request) {
 		"stats": st,
 		"plan":  plan,
 		"limits": map[string]any{
-			"max_concurrent":    plan.MaxConcurrent,
-			"max_torrent_bytes": plan.MaxTorrentBytes,
-			"active_slots":      s.Slots.ActiveSlots(r.Context(), user.ID),
+			"max_concurrent":       plan.MaxConcurrent,
+			"max_torrent_bytes":    plan.MaxTorrentBytes,
+			"active_slots":         s.Slots.ActiveSlots(r.Context(), user.ID),
+			"queued_downloads":     s.Slots.Queued(r.Context(), user.ID),
+			"max_queued_downloads": s.Slots.MaxQueued(),
 		},
 	})
 }

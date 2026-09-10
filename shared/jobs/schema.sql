@@ -28,11 +28,17 @@ ALTER TABLE jobs ADD COLUMN IF NOT EXISTS dl_speed BIGINT NOT NULL DEFAULT 0;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS node TEXT NOT NULL DEFAULT '';
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS season INT NOT NULL DEFAULT 0;
 ALTER TABLE jobs ADD COLUMN IF NOT EXISTS episode INT NOT NULL DEFAULT 0;
+-- Default true preserves the policy of jobs that were already queued before
+-- this column existed. New writes always provide an explicit value.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS budget_gated BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS input_key TEXT NOT NULL DEFAULT '';
 
 CREATE INDEX IF NOT EXISTS idx_jobs_info_hash ON jobs(info_hash);
 CREATE INDEX IF NOT EXISTS idx_jobs_user_id ON jobs(user_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_user_created ON jobs(user_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_status_priority ON jobs(status, priority DESC, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_jobs_queue_order ON jobs(priority DESC, created_at ASC, id ASC) WHERE status='queued';
+CREATE INDEX IF NOT EXISTS idx_jobs_user_status ON jobs(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_jobs_imdb_id ON jobs(imdb_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_title_norm ON jobs(title_norm);
 

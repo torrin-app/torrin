@@ -47,6 +47,10 @@ func Parse(data []byte) (*Meta, error) {
 
 func XSeedKey(infoHash string) string { return "xseed/" + infoHash + ".torrent" }
 
+func InputKey(userID, slug string) string {
+	return "torrent-input/" + userID + "/" + slug + ".torrent"
+}
+
 func (m *Meta) Sizes() []int64 {
 	out := make([]int64, len(m.Files))
 	for i, f := range m.Files {

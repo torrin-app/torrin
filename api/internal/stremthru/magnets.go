@@ -3,10 +3,12 @@ package stremthru
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html"
 	"net/http"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/magnet"
@@ -107,19 +109,18 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 			linked.IMDBID = target.IMDBID
 		}
 		activeLink := existing.Status.Active()
-		if activeLink && !h.Slots.Acquire(r.Context(), user.ID, plan) {
-			stError(w, 429, "slot limit reached")
-			return
-		}
-		if _, err := h.Jobs.CreateOnce(r.Context(), linked); err != nil {
-			if activeLink {
-				h.Slots.Release(user.ID)
+		if activeLink {
+			disposition, err := h.Slots.Admit(r.Context(), linked, plan, false)
+			if err != nil {
+				stQueueError(w, err)
+				return
 			}
+			if disposition == jobs.AdmissionAdmitted {
+				h.assign(linked)
+			}
+		} else if err := h.Jobs.Create(r.Context(), linked); err != nil {
 			stError(w, 500, "could not create download")
 			return
-		}
-		if activeLink {
-			h.Slots.Release(user.ID)
 		}
 		stJSON(w, 200, map[string]any{"data": h.magnetDataForTarget(r.Context(), linked, target)})
 		return
@@ -135,11 +136,6 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		stError(w, 429, "hourly download limit reached, try later or upgrade")
 		return
 	}
-	if !cached && !h.Slots.Acquire(r.Context(), user.ID, plan) {
-		stError(w, 429, "slot limit reached")
-		return
-	}
-
 	name := displayName(req.Magnet)
 	if hdTitle != "" {
 		name = hdTitle
@@ -156,17 +152,18 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		}
 		job.FileSize, job.Files, job.Node = cache.size, cache.files, cache.node
 	}
-	created, err := h.Jobs.CreateOnce(r.Context(), job)
-	if err != nil {
-		if !cached {
-			h.Slots.Release(user.ID)
+	if cached {
+		if err := h.Jobs.Create(r.Context(), job); err != nil {
+			stError(w, 500, "could not create download")
+			return
 		}
-		stError(w, 500, "could not create download")
-		return
-	}
-	if !cached {
-		h.Slots.Release(user.ID)
-		if created {
+	} else {
+		disposition, err := h.Slots.Admit(r.Context(), job, plan, false)
+		if err != nil {
+			stQueueError(w, err)
+			return
+		}
+		if disposition == jobs.AdmissionAdmitted {
 			h.assign(job)
 		}
 	}
@@ -192,14 +189,15 @@ func (h *Handler) deleteMagnet(w http.ResponseWriter, r *http.Request, user *aut
 			return
 		}
 	}
-	active := job.Status.Active()
+	active := job.Status.Active() && job.Status != jobs.StatusQueued
 	h.Jobs.Delete(r.Context(), id)
-	if active && h.Qbit != nil {
-		if siblings, _ := h.Jobs.ListByInfoHash(r.Context(), job.InfoHash); len(siblings) == 0 {
-			h.Qbit.Login()
-			h.Qbit.Delete(job.InfoHash)
-		}
+	if job.InputKey != "" {
+		h.Store.Delete(r.Context(), job.InputKey)
 	}
+	if active {
+		h.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node, UserID: job.UserID})
+	}
+	h.Slots.Wake()
 	w.WriteHeader(204)
 }
 
@@ -213,6 +211,14 @@ func coldPullBlocked(ctx context.Context, c coldPullChecker, userID string, perH
 }
 
 func displayName(m string) string { return magnet.DisplayName(m) }
+
+func stQueueError(w http.ResponseWriter, err error) {
+	if errors.Is(err, jobs.ErrQueueFull) {
+		stError(w, 429, "download queue full")
+		return
+	}
+	stError(w, 500, "could not queue download")
+}
 
 func (h *Handler) canUsenet(ctx context.Context, user *auth.User) bool {
 	plan, _ := plans.Get(user.PlanID)

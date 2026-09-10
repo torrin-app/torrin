@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/torrin-app/torrin/ingest/internal/jobrun"
 	"github.com/torrin-app/torrin/ingest/internal/publish"
 	"github.com/torrin-app/torrin/ingest/internal/screen"
 	"github.com/torrin-app/torrin/shared/bus"
@@ -44,6 +45,7 @@ func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
 			job.Status = jobs.StatusFailed
 			job.Error = err.Error()
 			r.repo.Update(ctx, job)
+			jobrun.FailActiveSiblings(ctx, r.repo, job, err.Error())
 			r.bus.Publish(events.JobFailed, events.Failed{JobID: job.ID, Reason: err.Error()})
 		}
 	}()

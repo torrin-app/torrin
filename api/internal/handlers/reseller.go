@@ -168,6 +168,7 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 500, "could not activate plan")
 		return
 	}
+	s.Slots.Wake()
 	s.Users.AuditLog(r.Context(), user.ID, "code_redeemed", "code="+code, clientIP(r))
 	web.WriteJSON(w, 200, map[string]any{"plan_id": rc.PlanID, "expires_at": expiresAt})
 }

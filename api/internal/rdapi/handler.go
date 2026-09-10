@@ -2,6 +2,7 @@ package rdapi
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/cluster"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/keyed"
 	"github.com/torrin-app/torrin/shared/manifest"
@@ -123,19 +125,18 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 			Files: existing.Files, FileSize: existing.FileSize, Node: existing.Node,
 		}
 		active := existing.Status.Active()
-		if active && !h.Slots.Acquire(r.Context(), user.ID, plan) {
-			writeRDError(w, 503, 20, "slot limit reached")
-			return
-		}
-		if _, err := h.Jobs.CreateOnce(r.Context(), linked); err != nil {
-			if active {
-				h.Slots.Release(user.ID)
+		if active {
+			disposition, err := h.Slots.Admit(r.Context(), linked, plan, false)
+			if err != nil {
+				rdQueueError(w, err)
+				return
 			}
+			if disposition == jobs.AdmissionAdmitted {
+				h.assign(linked)
+			}
+		} else if err := h.Jobs.Create(r.Context(), linked); err != nil {
 			writeRDError(w, 500, 20, "could not create download")
 			return
-		}
-		if active {
-			h.Slots.Release(user.ID)
 		}
 		writeJSON(w, 201, map[string]any{"id": linked.ID, "uri": "/rest/1.0/torrents/info/" + linked.ID})
 		return
@@ -151,10 +152,6 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 			return
 		}
 	}
-	if !cached && !h.Slots.Acquire(r.Context(), user.ID, plan) {
-		writeRDError(w, 503, 20, "slot limit reached")
-		return
-	}
 	job := &jobs.Job{
 		UserID: user.ID, InfoHash: infoHash, Magnet: magnet, Source: jobs.SourceTorrent,
 		Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
@@ -163,21 +160,30 @@ func (h *Handler) addMagnet(w http.ResponseWriter, r *http.Request, user *auth.U
 		job.Status = jobs.StatusComplete
 		job.Name, job.FileSize, job.Files = h.manifestMeta(r.Context(), infoHash)
 	}
-	created, err := h.Jobs.CreateOnce(r.Context(), job)
-	if err != nil {
-		if !cached {
-			h.Slots.Release(user.ID)
+	if cached {
+		if err := h.Jobs.Create(r.Context(), job); err != nil {
+			writeRDError(w, 500, 20, "could not create download")
+			return
 		}
-		writeRDError(w, 500, 20, "could not create download")
-		return
-	}
-	if !cached {
-		h.Slots.Release(user.ID)
-		if created {
+	} else {
+		disposition, err := h.Slots.Admit(r.Context(), job, plan, false)
+		if err != nil {
+			rdQueueError(w, err)
+			return
+		}
+		if disposition == jobs.AdmissionAdmitted {
 			h.assign(job)
 		}
 	}
 	writeJSON(w, 201, map[string]any{"id": job.ID, "uri": "/rest/1.0/torrents/info/" + job.ID})
+}
+
+func rdQueueError(w http.ResponseWriter, err error) {
+	if errors.Is(err, jobs.ErrQueueFull) {
+		writeRDError(w, 503, 20, "download queue full")
+		return
+	}
+	writeRDError(w, 500, 20, "could not queue download")
 }
 
 func (h *Handler) ownedJob(w http.ResponseWriter, r *http.Request, user *auth.User) (*jobs.Job, bool) {
@@ -213,10 +219,15 @@ func (h *Handler) deleteTorrent(w http.ResponseWriter, r *http.Request, user *au
 	if !ok {
 		return
 	}
-	if job.Status.Active() && h.Qbit != nil && h.Qbit.Login() == nil {
-		h.Qbit.Delete(job.InfoHash)
-	}
+	active := job.Status.Active() && job.Status != jobs.StatusQueued
 	h.Jobs.Delete(r.Context(), job.ID)
+	if job.InputKey != "" {
+		h.Store.Delete(r.Context(), job.InputKey)
+	}
+	if active {
+		h.Bus.Publish(events.JobDeleted, events.Deleted{JobID: job.ID, InfoHash: job.InfoHash, Source: string(job.Source), Node: job.Node, UserID: job.UserID})
+	}
+	h.Slots.Wake()
 	w.WriteHeader(204)
 }
 

@@ -68,6 +68,17 @@ func (r *Runner) Start(job *jobs.Job, bytesPerSec int64) error {
 	return r.qb.AddMagnet(job.Magnet, bytesPerSec)
 }
 
+func (r *Runner) StartFile(ctx context.Context, job *jobs.Job) error {
+	data, err := r.store.GetBytes(ctx, job.InputKey)
+	if err != nil {
+		return fmt.Errorf("read staged torrent: %w", err)
+	}
+	if err := r.qb.Login(); err != nil {
+		return err
+	}
+	return r.qb.AddTorrentFile(data, r.category)
+}
+
 func (r *Runner) Run(ctx context.Context) {
 	t := time.NewTicker(r.interval)
 	defer t.Stop()

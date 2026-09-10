@@ -87,7 +87,7 @@ func (s *Store) AdminListUsers(ctx context.Context, q, plan string, limit, offse
 	}
 	query := `
 		SELECT u.id, u.email, u.plan_id, u.expires_at, u.created_at, u.banned,
-			(SELECT COUNT(*) FROM jobs j WHERE j.user_id=u.id AND j.status IN ('pending','queued','downloading','processing','publishing')),
+			(SELECT COUNT(*) FROM jobs j WHERE j.user_id=u.id AND j.seed=false AND j.status IN ('pending','downloading','processing','publishing')),
 			(SELECT COUNT(*) FROM referrals r WHERE r.referrer_id=u.id AND r.paid=TRUE),
 			EXISTS(SELECT 1 FROM rd_credentials WHERE user_id=u.id),
 			EXISTS(SELECT 1 FROM ad_credentials WHERE user_id=u.id),

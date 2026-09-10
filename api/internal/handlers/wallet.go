@@ -46,6 +46,7 @@ func (s *Server) walletBuyPlan(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 402, "insufficient balance, top up your wallet")
 		return
 	}
+	s.Slots.Wake()
 	web.WriteJSON(w, 200, map[string]any{"status": "ok"})
 }
 

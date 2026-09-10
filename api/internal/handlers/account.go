@@ -8,6 +8,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/web"
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/events"
 	"github.com/torrin-app/torrin/shared/jobs"
 )
 
@@ -50,6 +51,7 @@ func (s *Server) resumeSub(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, err.Error())
 		return
 	}
+	s.Slots.Wake()
 	web.WriteJSON(w, 200, map[string]any{"paused": false, "expires_at": newExpiry})
 }
 
@@ -74,15 +76,22 @@ func (s *Server) deleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	userJobs, _ := jobs.ListAll(r.Context(), s.Jobs, user.ID)
 	for _, j := range userJobs {
-		qb := s.Qbit
-		if j.Seed {
-			qb = s.QbitSeed
+		if j.InputKey != "" {
+			s.Store.Delete(r.Context(), j.InputKey)
 		}
-		if j.Status.Active() && j.Source == jobs.SourceTorrent && qb != nil && qb.Login() == nil {
-			qb.Delete(j.InfoHash)
+		active := j.Status.Active() && j.Status != jobs.StatusQueued
+		if active && !j.Seed {
+			s.Bus.Publish(events.JobDeleted, events.Deleted{
+				JobID: j.ID, InfoHash: j.InfoHash, Source: string(j.Source),
+				Node: j.Node, UserID: j.UserID,
+			})
+		}
+		if active && j.Seed && j.Source == jobs.SourceTorrent && s.QbitSeed != nil && s.QbitSeed.Login() == nil {
+			s.QbitSeed.Delete(j.InfoHash)
 		}
 		s.Jobs.Delete(r.Context(), j.ID)
 	}
+	s.Slots.Wake()
 	s.Users.AuditLog(r.Context(), user.ID, "account_deleted", "", clientIP(r))
 	s.Users.DeleteUser(r.Context(), user.ID)
 	slog.Info("account deleted", "user", user.ID)

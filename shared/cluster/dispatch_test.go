@@ -74,6 +74,20 @@ func TestAssign(t *testing.T) {
 	}
 }
 
+func TestAssignKeepsStagedInputOnPrimaryNode(t *testing.T) {
+	t.Setenv("EVICTION_CAP_BYTES", "1000")
+	t.Setenv("PRIMARY_NODE_ID", "box1")
+	t.Setenv("CLUSTER_NODES", "box2:2000")
+	pub, repo := &fakePub{}, &fakeRepo{}
+	job := &jobs.Job{ID: "j1", InfoHash: "h", Source: jobs.SourceTorrent, MaxBytes: 100, InputKey: "torrent-input/u/h.torrent"}
+
+	Assign(context.Background(), pub, mapSizer{"": 950}, repo, job)
+
+	if job.Node != "box1" {
+		t.Fatalf("staged input routed away from primary node: %q", job.Node)
+	}
+}
+
 func TestTargetNode(t *testing.T) {
 	ctx := context.Background()
 

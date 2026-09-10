@@ -307,6 +307,16 @@ func (p *Publisher) complete(ctx context.Context, node, infoHash, name string, f
 		return err
 	}
 	for _, sib := range siblings {
+		// Failed/evicted history is not the account's live identity. Reviving
+		// it can conflict with a newer canonical user/hash row.
+		if sib.Status == jobs.StatusFailed || sib.Status == jobs.StatusEvicted {
+			continue
+		}
+		// Queued downloads have not claimed a node: they can reuse the newly
+		// published cache without taking a slot or launching another download.
+		if sib.Status == jobs.StatusQueued && !sib.Seed {
+			sib.Node = node
+		}
 		if sib.Node != node {
 			continue
 		}

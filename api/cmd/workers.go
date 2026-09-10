@@ -16,50 +16,126 @@ import (
 	"github.com/torrin-app/torrin/shared/providers"
 )
 
-func promoteQueued(ctx context.Context, repo *jobs.Postgres, users *auth.Store, b *bus.Bus, budget int64) {
-	t := time.NewTicker(15 * time.Second)
-	defer t.Stop()
-	for range t.C {
-		queued, err := repo.ListByStatus(ctx, jobs.StatusQueued)
-		if err != nil {
-			continue
-		}
-		for _, job := range queued {
-			if used, _ := repo.BudgetUsed(ctx); budget-used < 5_000_000_000 {
-				break
-			}
-			if !userDownloadSlotFree(ctx, repo, users, job.UserID) {
-				continue
-			}
-			job.Status = jobs.StatusPending
-			job.Node = cluster.TargetNode(ctx, repo, string(job.Source), job.MaxBytes)
-			if repo.Update(ctx, job) != nil {
-				continue
-			}
-			b.Publish(events.JobAssigned, events.Assigned{
-				JobID: job.ID, InfoHash: job.InfoHash, Magnet: job.Magnet,
-				Source: string(job.Source), MaxBytes: job.MaxBytes,
-				Node: job.Node,
-			})
-		}
+type queueScheduler struct {
+	repo   *jobs.Postgres
+	users  *auth.Store
+	bus    *bus.Bus
+	budget int64
+	wake   chan struct{}
+}
+
+func newQueueScheduler(repo *jobs.Postgres, users *auth.Store, b *bus.Bus, budget int64) *queueScheduler {
+	return &queueScheduler{repo: repo, users: users, bus: b, budget: budget, wake: make(chan struct{}, 1)}
+}
+
+func (q *queueScheduler) Wake() {
+	select {
+	case q.wake <- struct{}{}:
+	default:
 	}
 }
 
-func userDownloadSlotFree(ctx context.Context, repo jobs.Repository, users *auth.Store, userID string) bool {
-	user, err := users.GetByID(ctx, userID)
-	if err != nil || user == nil {
-		return false
+func (q *queueScheduler) Run(ctx context.Context) {
+	t := time.NewTicker(5 * time.Second)
+	defer t.Stop()
+	q.Wake()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		case <-q.wake:
+		}
+		q.drain(ctx)
 	}
-	planID := user.PlanID
-	if time.Now().After(user.ExpiresAt) {
-		planID = "free"
+}
+
+func (q *queueScheduler) drain(ctx context.Context) {
+	queued, err := q.repo.ListByStatus(ctx, jobs.StatusQueued)
+	if err != nil {
+		return
 	}
-	plan, ok := plans.Get(planID)
+	if q.refreshPriorities(ctx, queued) {
+		queued, err = q.repo.ListByStatus(ctx, jobs.StatusQueued)
+		if err != nil {
+			return
+		}
+	}
+	for _, candidate := range queued {
+		user, plan, ok := q.eligibleUser(ctx, candidate)
+		if !ok {
+			continue
+		}
+		if !queuedSourceEntitled(ctx, q.users, user, plan, candidate) {
+			reason := "your current plan no longer supports this download source"
+			if changed, err := q.repo.FailQueued(ctx, candidate.ID, reason); err == nil && changed {
+				q.bus.Publish(events.JobFailed, events.Failed{JobID: candidate.ID, Reason: reason})
+			}
+			continue
+		}
+		job, err := q.repo.PromoteQueued(ctx, candidate.ID, plan.MaxConcurrent, q.budget)
+		if err != nil || job == nil {
+			continue
+		}
+		cluster.Assign(ctx, q.bus, q.repo, q.repo, job)
+		slog.Info("queue: promoted download", "job", job.ID, "user", job.UserID, "source", job.Source,
+			"wait", time.Since(job.CreatedAt).Round(time.Second))
+	}
+}
+
+// refreshPriorities makes upgrades and downgrades affect already queued work
+// before anything is promoted from the persisted ordering.
+func (q *queueScheduler) refreshPriorities(ctx context.Context, queued []*jobs.Job) bool {
+	changed := false
+	for _, job := range queued {
+		user, err := q.users.GetByID(ctx, job.UserID)
+		if err != nil || user == nil {
+			continue
+		}
+		plan := planForUser(user)
+		if job.Priority == plan.Priority {
+			continue
+		}
+		if updated, err := q.repo.SetQueuedPriority(ctx, job.ID, plan.Priority); err == nil && updated {
+			changed = true
+		}
+	}
+	return changed
+}
+
+func (q *queueScheduler) eligibleUser(ctx context.Context, job *jobs.Job) (*auth.User, plans.Plan, bool) {
+	user, err := q.users.GetByID(ctx, job.UserID)
+	if err != nil || user == nil || user.Banned || user.IsPaused() || time.Now().After(user.ExpiresAt) {
+		return nil, plans.Plan{}, false
+	}
+	plan := planForUser(user)
+	if over, err := q.users.MonthlyQuotaExceeded(ctx, user.ID, plan.MonthlyIngestBytes); err != nil || over {
+		return nil, plans.Plan{}, false
+	}
+	return user, plan, true
+}
+
+func planForUser(user *auth.User) plans.Plan {
+	plan, ok := plans.Get(user.PlanID)
 	if !ok {
-		plan = plans.Free
+		return plans.Free
 	}
-	dc, _ := repo.DownloadingCount(ctx, userID)
-	return dc < plan.MaxConcurrent
+	return plan
+}
+
+func queuedSourceEntitled(ctx context.Context, users *auth.Store, user *auth.User, plan plans.Plan, job *jobs.Job) bool {
+	switch job.Source {
+	case jobs.SourceHoster, jobs.SourceHDEncode, jobs.SourceScenerls:
+		return plan.ID != "free"
+	case jobs.SourceUsenet:
+		if users.HasUserCairn(ctx, user.ID, job.InfoHash) {
+			return true
+		}
+		_, err := users.GetUsenetCreds(ctx, user.ID)
+		return (err == nil && plans.CanBYOK(plan.ID)) || plan.SystemUsenet
+	default:
+		return true
+	}
 }
 
 func startLibrarySync(ctx context.Context, users *auth.Store) {
