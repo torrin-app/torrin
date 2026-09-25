@@ -24,8 +24,10 @@ func validIndexerURL(w http.ResponseWriter, raw string) (string, bool) {
 
 func (s *Server) testIndexer(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL    string `json:"url"`
-		APIKey string `json:"api_key"`
+		URL      string `json:"url"`
+		APIKey   string `json:"api_key"`
+		SearchUA string `json:"search_user_agent"`
+		GrabUA   string `json:"grab_user_agent"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.URL == "" || req.APIKey == "" {
 		web.WriteError(w, 400, "url and api_key required")
@@ -35,7 +37,7 @@ func (s *Server) testIndexer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := indexer.NewClient(url, req.APIKey).SearchQuery("test", "2000", 0, 5); err != nil {
+	if _, err := indexer.NewClientUA(url, req.APIKey, req.SearchUA, req.GrabUA).SearchQuery("test", "2000", 0, 5); err != nil {
 		web.WriteError(w, 502, "indexer connection failed")
 		return
 	}
@@ -46,7 +48,7 @@ func (s *Server) listIndexers(w http.ResponseWriter, r *http.Request) {
 	list, _ := s.Users.ListIndexers(r.Context(), middleware.GetUser(r).ID)
 	out := make([]map[string]any, 0, len(list))
 	for _, e := range list {
-		out = append(out, map[string]any{"id": e.ID, "label": e.Label, "url": e.URL, "enabled": e.Enabled})
+		out = append(out, map[string]any{"id": e.ID, "label": e.Label, "url": e.URL, "enabled": e.Enabled, "search_user_agent": e.SearchUA, "grab_user_agent": e.GrabUA})
 	}
 	web.WriteJSON(w, 200, out)
 }
@@ -58,9 +60,11 @@ func (s *Server) addIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Label  string `json:"label"`
-		URL    string `json:"url"`
-		APIKey string `json:"api_key"`
+		Label    string `json:"label"`
+		URL      string `json:"url"`
+		APIKey   string `json:"api_key"`
+		SearchUA string `json:"search_user_agent"`
+		GrabUA   string `json:"grab_user_agent"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.URL == "" || req.APIKey == "" {
 		web.WriteError(w, 400, "url and api_key required")
@@ -74,7 +78,7 @@ func (s *Server) addIndexer(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 422, "indexer limit reached (max 8)")
 		return
 	}
-	e := &auth.IndexerEntry{UserID: user.ID, Label: req.Label, URL: url, APIKey: req.APIKey}
+	e := &auth.IndexerEntry{UserID: user.ID, Label: req.Label, URL: url, APIKey: req.APIKey, SearchUA: req.SearchUA, GrabUA: req.GrabUA}
 	if err := s.Users.AddIndexer(r.Context(), e); err != nil {
 		web.WriteError(w, 500, "could not save your changes")
 		return
@@ -92,9 +96,11 @@ func (s *Server) editIndexer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Label  string `json:"label"`
-		URL    string `json:"url"`
-		APIKey string `json:"api_key"`
+		Label    string `json:"label"`
+		URL      string `json:"url"`
+		APIKey   string `json:"api_key"`
+		SearchUA string `json:"search_user_agent"`
+		GrabUA   string `json:"grab_user_agent"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.URL == "" {
 		web.WriteError(w, 400, "url required")
@@ -104,7 +110,7 @@ func (s *Server) editIndexer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.Users.UpdateIndexer(r.Context(), id, user.ID, req.Label, url, req.APIKey); err != nil {
+	if err := s.Users.UpdateIndexer(r.Context(), id, user.ID, req.Label, url, req.APIKey, req.SearchUA, req.GrabUA); err != nil {
 		web.WriteError(w, 500, "could not save your changes")
 		return
 	}

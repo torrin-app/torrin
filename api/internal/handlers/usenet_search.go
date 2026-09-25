@@ -98,11 +98,20 @@ func (s *Server) usenetResults(ctx context.Context, userID, planID string, sourc
 				if resp.Results == nil {
 					return []indexer.Result{}
 				}
-				return resp.Results
+				return redactSystemNZB(resp.Results)
 			}
 		}
 	}
-	return indexer.Search(ctx, sources, p)
+	return redactSystemNZB(indexer.Search(ctx, sources, p))
+}
+
+func redactSystemNZB(results []indexer.Result) []indexer.Result {
+	for i := range results {
+		if results[i].Source == "system" {
+			results[i].NZBURL = ""
+		}
+	}
+	return results
 }
 
 func parseCachedTarget(raw string) (imdb string, season, episode int) {
@@ -167,18 +176,22 @@ func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 		NZBURL   string `json:"nzb_url"`
 		Title    string `json:"title"`
 		IMDBID   string `json:"imdb_id"`
+		Category string `json:"category"`
 		Explicit bool   `json:"explicit"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.ID == "" {
 		web.WriteError(w, 400, "id required")
 		return
 	}
+	if req.Source == "system" {
+		req.NZBURL = ""
+	}
 	client := pickSource(sources, req.Source, req.NZBURL)
 	if client == nil {
 		web.WriteError(w, 404, "indexer not found")
 		return
 	}
-	nzbData, err := client.DownloadNZB(&indexer.Result{ID: req.ID, NZBURL: req.NZBURL})
+	nzbData, err := client.DownloadNZB(&indexer.Result{ID: req.ID, NZBURL: req.NZBURL, Category: req.Category})
 	if err != nil {
 		web.WriteError(w, 502, "failed to download NZB")
 		return

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/api/internal/arr"
 	"github.com/torrin-app/torrin/api/internal/handlers"
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/api/internal/rdapi"
@@ -184,6 +185,8 @@ func main() {
 	}).Register(mux)
 
 	rdapi.New(rdapi.Deps{Users: users, Jobs: jobsRepo, Store: store, Qbit: qb, Slots: slots, Bus: b}).Register(mux)
+
+	arr.New(ctx, arr.Deps{Users: users, Jobs: jobsRepo, Store: store, Slots: slots, Bus: b, Qbit: qb, SavePath: env.Get("ARR_SAVE_PATH", "/downloads")}).Register(mux)
 
 	gumroad := billing.NewGumroadHandler(env.Get("GUMROAD_SECRET", ""), env.Get("GUMROAD_SELLER_ID", ""), users)
 	mux.HandleFunc("POST /webhooks/gumroad", gumroad.HandleWebhook)

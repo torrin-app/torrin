@@ -18,7 +18,7 @@ type DB struct {
 	Store *storage.Client
 }
 
-func RunDB(name, defaultPort string, build func(DB) http.Handler) {
+func RunDB(name, defaultPort string, build func(DB) http.Handler, opts ...Option) {
 	ctx := context.Background()
 	dsn := MustEnv("DATABASE_URL")
 	users, err := auth.NewPostgres(ctx, dsn)
@@ -31,7 +31,7 @@ func RunDB(name, defaultPort string, build func(DB) http.Handler) {
 	}
 	store := StoreFromEnv()
 	slog.Info("service started", "service", name)
-	Run(name, defaultPort, build(DB{Users: users, Jobs: jobsRepo, Store: store}))
+	Run(name, defaultPort, build(DB{Users: users, Jobs: jobsRepo, Store: store}), opts...)
 }
 
 func StoreFromEnv() *storage.Client {
