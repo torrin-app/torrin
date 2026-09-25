@@ -18,7 +18,8 @@ const loginAllowedKey contextKey = "login_allowed"
 
 func expiredFreeAllowed(path string) bool {
 	return path == "/api/me" || path == "/api/plans" || path == "/api/stats" ||
-		path == "/api/redeem" || strings.HasPrefix(path, "/api/billing/") ||
+		path == "/api/redeem" || path == "/api/wallet" || path == "/api/wallet/topup" ||
+		path == "/api/wallet/buy-plan" || strings.HasPrefix(path, "/api/billing/") ||
 		strings.HasPrefix(path, "/api/auth/2fa/")
 }
 

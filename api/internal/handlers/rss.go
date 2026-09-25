@@ -175,10 +175,14 @@ func (s *Server) rssSweep(ctx context.Context) {
 				s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
 				continue
 			}
+			itemSrc := src
+			if itemSrc == "" {
+				itemSrc = releaseSourceFor(item.Link)
+			}
 			var added, stop bool
 			switch {
-			case src != "":
-				added, stop = s.rssRelease(ctx, feed, user, plan, item, src)
+			case itemSrc != "":
+				added, stop = s.rssRelease(ctx, feed, user, plan, item, itemSrc)
 			case item.NzbURL != "":
 				added, stop = s.rssUsenet(ctx, feed, user, plan, item)
 			case item.TorrentURL != "":

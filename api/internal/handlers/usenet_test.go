@@ -42,3 +42,15 @@ func TestUsenetEntitled(t *testing.T) {
 		}
 	}
 }
+
+func TestKeepPassword(t *testing.T) {
+	if got := keepPassword("", "stored"); got != "stored" {
+		t.Errorf("blank incoming should keep stored, got %q", got)
+	}
+	if got := keepPassword("new", "stored"); got != "new" {
+		t.Errorf("provided incoming should win, got %q", got)
+	}
+	if got := keepPassword("", ""); got != "" {
+		t.Errorf("both blank should be blank, got %q", got)
+	}
+}
