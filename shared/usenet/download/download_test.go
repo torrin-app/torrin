@@ -139,6 +139,20 @@ func TestFetchSegmentAllMissing(t *testing.T) {
 	}
 }
 
+func TestFetchSegmentPrefersPrimary(t *testing.T) {
+	orig := fetchOne
+	defer func() { fetchOne = orig }()
+	var calls int
+	fetchOne = func(_ context.Context, _ nntpPool.ConnectionPool, _, _ string) ([]byte, error) {
+		calls++
+		return []byte("payload"), nil
+	}
+	data, err := fetchSegment(context.Background(), make([]nntpPool.ConnectionPool, 2), "mid", "grp")
+	if err != nil || string(data) != "payload" || calls != 1 {
+		t.Fatalf("primary hit must not touch the backup: data=%q err=%v calls=%d (want payload, nil, 1)", data, err, calls)
+	}
+}
+
 func TestAcquireSharedRefCount(t *testing.T) {
 	sharedMu.Lock()
 	sharedPools = map[string]*sharedEntry{}
@@ -177,21 +191,21 @@ func TestAcquireSharedRefCount(t *testing.T) {
 	}
 
 	rel2()
-	if got := refs(); got != -1 {
-		t.Fatalf("after last release pool must be removed, refs = %d", got)
+	if got := refs(); got != 0 {
+		t.Fatalf("after last release pool should linger, refs = %d, want 0", got)
 	}
 
 	rel2()
-	if got := refs(); got != -1 {
-		t.Fatal("double release must be a no-op")
+	if got := refs(); got != 0 {
+		t.Fatalf("double release must be a no-op, refs = %d", got)
 	}
 
 	p3, rel3, err := AcquireShared(c)
 	if err != nil {
 		t.Fatalf("re-acquire: %v", err)
 	}
-	if p3 == p1 {
-		t.Fatal("re-acquire after full release must build a fresh pool, not reuse the closed one")
+	if p3 != p1 {
+		t.Fatal("re-acquire within the linger window must reuse the warm pool")
 	}
 	rel3()
 }

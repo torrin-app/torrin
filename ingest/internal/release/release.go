@@ -19,6 +19,7 @@ import (
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/providers"
+	"github.com/torrin-app/torrin/shared/rapidgator"
 	"github.com/torrin-app/torrin/shared/usenet/postproc"
 )
 
@@ -43,13 +44,14 @@ type Runner struct {
 	conns     int
 	http      *http.Client
 	fallback  func(context.Context, *jobs.Job) error
+	rg        *rapidgator.Client
 }
 
-func NewRunner(adKeyFor ADKeyFor, resolvers map[jobs.Source]Resolver, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, conns int, fallback func(context.Context, *jobs.Job) error) *Runner {
+func NewRunner(adKeyFor ADKeyFor, resolvers map[jobs.Source]Resolver, repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, conns int, fallback func(context.Context, *jobs.Job) error, rg *rapidgator.Client) *Runner {
 	if conns < 1 {
 		conns = 1
 	}
-	return &Runner{adKeyFor: adKeyFor, resolvers: resolvers, repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, conns: conns, http: &http.Client{}, fallback: fallback}
+	return &Runner{adKeyFor: adKeyFor, resolvers: resolvers, repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, conns: conns, http: &http.Client{}, fallback: fallback, rg: rg}
 }
 
 func (r *Runner) Handles(src jobs.Source) bool { return r.resolvers[src] != nil }
@@ -211,13 +213,29 @@ func deadLinksErr() error {
 	return fmt.Errorf("%w: %w", failure.DeadLinks, ErrSourceUnavailable)
 }
 
+func (r *Runner) unlock(ctx context.Context, adKey, srcLink string) (string, string, int64, error) {
+	name, dl, size, err := providers.HosterUnlock(ctx, adKey, srcLink)
+	if err == nil {
+		return name, dl, size, nil
+	}
+	if r.rg != nil && rapidgator.IsURL(srcLink) {
+		if n2, d2, s2, e2 := r.rg.DirectLink(ctx, srcLink); e2 == nil {
+			slog.Info("release: alldebrid failed, recovered via rapidgator", "link", srcLink, "ad_err", err)
+			return n2, d2, s2, nil
+		} else {
+			slog.Info("release: rapidgator direct also failed", "link", srcLink, "err", e2)
+		}
+	}
+	return name, dl, size, err
+}
+
 func (r *Runner) fetchMirror(ctx context.Context, adKey, srcLink string, i, n int, dir string, job *jobs.Job) (int64, error) {
 	var lastErr error
 	for attempt := 0; attempt < partAttempts; attempt++ {
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
-		name, dl, size, err := providers.HosterUnlock(ctx, adKey, srcLink)
+		name, dl, size, err := r.unlock(ctx, adKey, srcLink)
 		if err != nil {
 			lastErr = err
 			if providers.DeadLink(err) {
