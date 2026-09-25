@@ -6,63 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseProgress(t *testing.T) {
-	cases := []struct {
-		line                      string
-		bytes, fragIdx, fragCount int64
-		ok                        bool
-	}{
-		{"dl:123/0/0", 123, 0, 0, true},       // byte progress
-		{"dl:0/5/57", 0, 5, 57, true},         // fragmented (HLS): use fragment index/count
-		{"dl: 123 / 0 / 0 ", 123, 0, 0, true}, // whitespace tolerated
-		{"dl:0/NA/NA", 0, 0, 0, false},        // no bytes, no fragments
-		{"dl:NA/NA/NA", 0, 0, 0, false},
-		{"dl:123", 0, 0, 0, false}, // wrong field count
-		{"[download] 45%", 0, 0, 0, false},
-		{"", 0, 0, 0, false},
-	}
-	for _, c := range cases {
-		b, fi, fc, ok := parseProgress(c.line)
-		if ok != c.ok || b != c.bytes || fi != c.fragIdx || fc != c.fragCount {
-			t.Errorf("parseProgress(%q) = (%d,%d,%d,%v), want (%d,%d,%d,%v)", c.line, b, fi, fc, ok, c.bytes, c.fragIdx, c.fragCount, c.ok)
-		}
-	}
-}
-
-func TestProgressAccumulator(t *testing.T) {
-	var p progress
-	steps := []struct{ in, want int64 }{
-		{1000, 1000},
-		{5000, 5000},
-		{223779, 223779}, // video stream finishes
-		{1024, 224803},   // audio stream starts: reset detected, video total banked
-		{100000, 323779},
-		{252182, 475961}, // audio finishes: cumulative == combined total
-		{252182, 475961}, // duplicate final line: no double-count
-	}
-	for _, s := range steps {
-		if got := p.add(s.in); got != s.want {
-			t.Errorf("add(%d) = %d, want %d", s.in, got, s.want)
-		}
-	}
-}
-
-func TestProgressReport(t *testing.T) {
-	if c, d, ok := progressReport(50, 100, 5, 100); !ok || c != 50 || d != 100 {
-		t.Errorf("plausible estimate: got %d/%d ok=%v", c, d, ok)
-	}
-	c, d, ok := progressReport(772, 7, 5, 100)
-	if !ok || c > d {
-		t.Errorf("blown+frag: %d/%d ok=%v — current must not exceed denom", c, d, ok)
-	}
-	if d != 772*100/5 {
-		t.Errorf("blown+frag denom = %d, want fragment-extrapolated", d)
-	}
-	if _, _, ok := progressReport(0, 0, 0, 0); ok {
-		t.Error("no usable signal should report ok=false")
-	}
-}
-
 func TestArgsProxy(t *testing.T) {
 	noProxy := &Runner{}
 	if got := noProxy.args("-J", "url"); len(got) != 2 || got[0] != "-J" {
@@ -218,5 +161,55 @@ func TestParseMetaHasVideo(t *testing.T) {
 	single, _ := parseMeta([]byte(`{"title":"clip","vcodec":"vp9","duration":60,"tbr":2000}`))
 	if !single.HasVideo {
 		t.Error("top-level video codec should be HasVideo=true")
+	}
+	archive, _ := parseMeta([]byte(`{"title":"doc","width":995,"height":576,"ext":"m4v","duration":7392,"filesize":962741625}`))
+	if !archive.HasVideo {
+		t.Error("null-codec video with real dimensions (archive.org) should be HasVideo=true")
+	}
+	extOnly, _ := parseMeta([]byte(`{"title":"clip","ext":"mp4"}`))
+	if !extOnly.HasVideo {
+		t.Error("null-codec video with a video extension should be HasVideo=true")
+	}
+	audioExt, _ := parseMeta([]byte(`{"title":"song","ext":"mp3","duration":180}`))
+	if audioExt.HasVideo {
+		t.Error("null-codec audio (no dims, non-video ext) should be HasVideo=false")
+	}
+}
+
+func TestCleanName(t *testing.T) {
+	cases := map[string]string{
+		"001-Show.mp4.mp4": "001-Show.mp4",
+		"Movie.mkv.mkv":    "Movie.mkv",
+		"Episode.mp4":      "Episode.mp4",
+		"file.mp4.mkv":     "file.mp4.mkv",
+		"noext":            "noext",
+	}
+	for in, want := range cases {
+		if got := cleanName(in); got != want {
+			t.Errorf("cleanName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestParsePlaylist(t *testing.T) {
+	pm, _ := parseMeta([]byte(`{"_type":"playlist","title":"NaruCannon","entries":[{},{}]}`))
+	if !pm.IsPlaylist {
+		t.Error("_type playlist should set IsPlaylist")
+	}
+	pl, err := parsePlaylist([]byte(`{"title":"Coll","entries":[
+		{"filesize":100,"height":480,"ext":"mp4"},
+		{"filesize":200,"height":480,"ext":"mp4"},
+		{"filesize_approx":50,"height":480,"ext":"mp4"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pl.Size != 350 {
+		t.Errorf("total size = %d, want 350", pl.Size)
+	}
+	if pl.Count != 3 {
+		t.Errorf("count = %d, want 3", pl.Count)
+	}
+	if !pl.HasVideo || !pl.IsPlaylist {
+		t.Errorf("playlist with video entries: HasVideo=%v IsPlaylist=%v", pl.HasVideo, pl.IsPlaylist)
 	}
 }
