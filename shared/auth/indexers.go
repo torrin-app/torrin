@@ -14,6 +14,8 @@ type IndexerEntry struct {
 	Label     string    `json:"label"`
 	URL       string    `json:"url"`
 	APIKey    string    `json:"api_key,omitempty"`
+	SearchUA  string    `json:"search_user_agent"`
+	GrabUA    string    `json:"grab_user_agent"`
 	Enabled   bool      `json:"enabled"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -27,7 +29,7 @@ func (s *Store) queryIndexers(ctx context.Context, sql string, args ...any) ([]*
 	var out []*IndexerEntry
 	for rows.Next() {
 		e := &IndexerEntry{}
-		if rows.Scan(&e.ID, &e.UserID, &e.Label, &e.URL, &e.APIKey, &e.Enabled, &e.CreatedAt) == nil {
+		if rows.Scan(&e.ID, &e.UserID, &e.Label, &e.URL, &e.APIKey, &e.SearchUA, &e.GrabUA, &e.Enabled, &e.CreatedAt) == nil {
 			e.APIKey = s.dec(e.APIKey)
 			out = append(out, e)
 		}
@@ -37,19 +39,19 @@ func (s *Store) queryIndexers(ctx context.Context, sql string, args ...any) ([]*
 
 func (s *Store) ListIndexers(ctx context.Context, userID string) ([]*IndexerEntry, error) {
 	return s.queryIndexers(ctx,
-		`SELECT id, user_id, label, url, api_key, enabled, created_at
+		`SELECT id, user_id, label, url, api_key, search_user_agent, grab_user_agent, enabled, created_at
 		 FROM usenet_indexer_list WHERE user_id=$1 ORDER BY created_at`, userID)
 }
 
 func (s *Store) ListEnabledIndexers(ctx context.Context, userID string) ([]*IndexerEntry, error) {
 	return s.queryIndexers(ctx,
-		`SELECT id, user_id, label, url, api_key, enabled, created_at
+		`SELECT id, user_id, label, url, api_key, search_user_agent, grab_user_agent, enabled, created_at
 		 FROM usenet_indexer_list WHERE user_id=$1 AND enabled=true ORDER BY created_at`, userID)
 }
 
 func (s *Store) GetIndexer(ctx context.Context, id, userID string) (*IndexerEntry, error) {
 	list, err := s.queryIndexers(ctx,
-		`SELECT id, user_id, label, url, api_key, enabled, created_at
+		`SELECT id, user_id, label, url, api_key, search_user_agent, grab_user_agent, enabled, created_at
 		 FROM usenet_indexer_list WHERE id=$1 AND user_id=$2`, id, userID)
 	if err != nil || len(list) == 0 {
 		return nil, err
@@ -68,21 +70,21 @@ func (s *Store) AddIndexer(ctx context.Context, e *IndexerEntry) error {
 		e.ID = newID()
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO usenet_indexer_list (id, user_id, label, url, api_key, enabled) VALUES ($1,$2,$3,$4,$5,true)`,
-		e.ID, e.UserID, e.Label, e.URL, s.enc(e.APIKey))
+		`INSERT INTO usenet_indexer_list (id, user_id, label, url, api_key, search_user_agent, grab_user_agent, enabled) VALUES ($1,$2,$3,$4,$5,$6,$7,true)`,
+		e.ID, e.UserID, e.Label, e.URL, s.enc(e.APIKey), e.SearchUA, e.GrabUA)
 	return err
 }
 
-func (s *Store) UpdateIndexer(ctx context.Context, id, userID, label, url, apiKey string) error {
+func (s *Store) UpdateIndexer(ctx context.Context, id, userID, label, url, apiKey, searchUA, grabUA string) error {
 	if apiKey == "" {
 		_, err := s.pool.Exec(ctx,
-			`UPDATE usenet_indexer_list SET label=$1, url=$2, updated_at=now() WHERE id=$3 AND user_id=$4`,
-			label, url, id, userID)
+			`UPDATE usenet_indexer_list SET label=$1, url=$2, search_user_agent=$3, grab_user_agent=$4, updated_at=now() WHERE id=$5 AND user_id=$6`,
+			label, url, searchUA, grabUA, id, userID)
 		return err
 	}
 	_, err := s.pool.Exec(ctx,
-		`UPDATE usenet_indexer_list SET label=$1, url=$2, api_key=$3, updated_at=now() WHERE id=$4 AND user_id=$5`,
-		label, url, s.enc(apiKey), id, userID)
+		`UPDATE usenet_indexer_list SET label=$1, url=$2, api_key=$3, search_user_agent=$4, grab_user_agent=$5, updated_at=now() WHERE id=$6 AND user_id=$7`,
+		label, url, s.enc(apiKey), searchUA, grabUA, id, userID)
 	return err
 }
 
@@ -107,11 +109,11 @@ func (s *Store) IndexerSources(ctx context.Context, userID string, plan plans.Pl
 			if e.URL == "" {
 				continue
 			}
-			sources = append(sources, indexer.Source{ID: e.ID, Label: e.Label, Client: indexer.NewClient(e.URL, e.APIKey)})
+			sources = append(sources, indexer.Source{ID: e.ID, Label: e.Label, Client: indexer.NewClientUA(e.URL, e.APIKey, e.SearchUA, e.GrabUA)})
 		}
 	}
 	if allowSystem && sysURL != "" {
-		sources = append(sources, indexer.Source{ID: "system", Label: "Torrin", Client: indexer.NewClient(sysURL, sysKey)})
+		sources = append(sources, indexer.Source{ID: "system", Label: "Torrin", Client: indexer.NewSystemClient(sysURL, sysKey)})
 	}
 	return sources
 }

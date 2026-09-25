@@ -69,6 +69,27 @@ func TestDavReaddirHidesExcluded(t *testing.T) {
 	}
 }
 
+func TestFindResolvesForRemoval(t *testing.T) {
+	root := buildTree(sample(), nil)
+	var folder *node
+	for _, c := range root.children {
+		if c.hash == "bbbbbbbb2222" {
+			folder = c
+		}
+	}
+	if folder == nil || folder.idx != -1 {
+		t.Fatalf("beta folder should resolve with idx=-1, got %+v", folder)
+	}
+	if got := root.find(segments("/" + folder.name)); got != folder {
+		t.Fatal("folder path did not resolve to the folder node")
+	}
+	child := folder.children[0]
+	got := root.find(segments("/" + folder.name + "/" + child.name))
+	if got == nil || got.hash != "bbbbbbbb2222" || got.idx != child.idx {
+		t.Fatalf("file path must resolve to its (hash, idx) for exclusion, got %+v", got)
+	}
+}
+
 func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
@@ -121,36 +142,20 @@ func (f *fakeRepo) RecordView(_ context.Context, hash, _ string) (bool, error) {
 type fakeSigner struct {
 	last     string
 	lastNode string
+	base     string
 }
 
 func (s *fakeSigner) SignURLNode(node, p string, _ time.Duration) string {
 	s.last, s.lastNode = p, node
-	return "https://beam/" + p
-}
-
-func file(idx int, name string, size int64) jobs.File {
-	return jobs.File{Index: idx, Name: name, Size: size}
-}
-
-func job(name, hash string, files ...jobs.File) *jobs.Job {
-	return &jobs.Job{Name: name, InfoHash: hash, Status: jobs.StatusComplete, UpdatedAt: time.Unix(1700000000, 0), Files: files}
-}
-
-func sample() []*jobs.Job {
-	return []*jobs.Job{
-		job("Alpha 2020", "aaaaaaaa1111", file(0, "alpha.mkv", 100)),
-		job("Beta S01", "bbbbbbbb2222", file(0, "pack/S01E01.mkv", 200), file(1, "pack/S01E01.mkv", 210)),
-		job("Alpha 2020", "cccccccc3333", file(0, "alpha.mkv", 50)),
-		{Name: "Pending", InfoHash: "dddd", Status: jobs.StatusDownloading, Files: []jobs.File{file(0, "x.mkv", 1)}},
+	base := s.base
+	if base == "" {
+		base = "https://beam"
 	}
+	return base + "/" + p
 }
 
-func names(n *node) []string {
-	var out []string
-	for _, c := range n.children {
-		out = append(out, c.name)
-	}
-	return out
+func (s *fakeSigner) SignURLNodeUser(node, p, _ string, _ time.Duration) string {
+	return s.SignURLNode(node, p, 0)
 }
 
 func TestBuildTreeHierarchyAndExclusion(t *testing.T) {
@@ -212,18 +217,30 @@ func TestPropfindFileProps(t *testing.T) {
 	}
 }
 
-func TestGetFileRedirects(t *testing.T) {
-	sig := &fakeSigner{}
+func proxyGet(t *testing.T, sig *fakeSigner, list []*jobs.Job, path string) (*httptest.ResponseRecorder, string, *fakeRepo) {
+	t.Helper()
+	var gotURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotURL = r.URL.String()
+		w.Write([]byte("BYTES"))
+	}))
+	t.Cleanup(srv.Close)
+	sig.base = srv.URL
 	repo := &fakeRepo{}
 	s := &Server{jobs: repo, store: sig}
-	r := httptest.NewRequest(http.MethodGet, "/Alpha%202020/alpha.mkv", nil)
+	r := httptest.NewRequest(http.MethodGet, path, nil)
 	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree(sample(), nil))
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Fatalf("code %d, want 307", w.Code)
+	s.get(w, r, "u1", buildTree(list, nil))
+	return w, gotURL, repo
+}
+
+func TestGetFileProxies(t *testing.T) {
+	w, _, repo := proxyGet(t, &fakeSigner{}, sample(), "/Alpha%202020/alpha.mkv")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d, want 200 (proxied, not redirected)", w.Code)
 	}
-	if loc := w.Header().Get("Location"); !strings.Contains(loc, "aaaaaaaa1111") {
-		t.Errorf("Location = %q", loc)
+	if w.Body.String() != "BYTES" {
+		t.Errorf("body = %q, want proxied bytes", w.Body.String())
 	}
 	if len(repo.viewed) != 1 || repo.viewed[0] != "aaaaaaaa1111" {
 		t.Errorf("view not recorded: %v", repo.viewed)
@@ -235,32 +252,27 @@ func TestGetFileSignsWithNode(t *testing.T) {
 	j := &jobs.Job{Name: "Box2 Movie", InfoHash: hash, Node: "box2", Status: jobs.StatusComplete, UpdatedAt: time.Unix(1700000000, 0),
 		Files: []jobs.File{{Index: 0, Name: "movie.mkv", Size: 100, Key: "blobs/cafe"}}}
 	sig := &fakeSigner{}
-	s := &Server{jobs: &fakeRepo{}, store: sig}
-	r := httptest.NewRequest(http.MethodGet, "/Box2%20Movie/movie.mkv", nil)
-	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree([]*jobs.Job{j}, nil))
-	if w.Code != http.StatusTemporaryRedirect {
-		t.Fatalf("code %d, want 307", w.Code)
+	w, _, _ := proxyGet(t, sig, []*jobs.Job{j}, "/Box2%20Movie/movie.mkv")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d, want 200", w.Code)
 	}
 	if sig.lastNode != "box2" {
-		t.Fatalf("redirect must be signed for the content's node, got node=%q", sig.lastNode)
+		t.Fatalf("stream must be signed for the content's node, got node=%q", sig.lastNode)
 	}
 }
 
-func TestGetEncryptedBlobRedirect(t *testing.T) {
+func TestGetEncryptedBlobProxies(t *testing.T) {
 	hash := strings.Repeat("a", 40)
 	j := &jobs.Job{Name: "Enc Movie", InfoHash: hash, Status: jobs.StatusComplete, UpdatedAt: time.Unix(1700000000, 0),
 		Files: []jobs.File{{Index: 0, Name: "movie.mkv", Size: 100, Key: "blobs/deadbeef", Enc: true}}}
-	s := &Server{jobs: &fakeRepo{}, store: &fakeSigner{}}
-	r := httptest.NewRequest(http.MethodGet, "/Enc%20Movie/movie.mkv", nil)
-	w := httptest.NewRecorder()
-	s.get(w, r, "u1", buildTree([]*jobs.Job{j}, nil))
-	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "blobs/deadbeef") {
-		t.Errorf("Location missing blob key: %q", loc)
+	w, gotURL, _ := proxyGet(t, &fakeSigner{}, []*jobs.Job{j}, "/Enc%20Movie/movie.mkv")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code %d, want 200", w.Code)
 	}
-	if !strings.Contains(loc, "ih="+hash) || !strings.Contains(loc, "enc=1") {
-		t.Errorf("Location missing stream query: %q", loc)
+	for _, want := range []string{"blobs/deadbeef", "ih=" + hash, "enc=1"} {
+		if !strings.Contains(gotURL, want) {
+			t.Errorf("proxied URL missing %q: %q", want, gotURL)
+		}
 	}
 }
 

@@ -40,6 +40,8 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/admin/cache", a(http.HandlerFunc(s.adminCache)))
 	mux.Handle("DELETE /api/admin/cache/{hash}", a(http.HandlerFunc(s.adminEvictCache)))
 	mux.Handle("POST /api/admin/relabel/{hash}", a(http.HandlerFunc(s.adminRelabel)))
+	mux.Handle("GET /api/admin/imdb-corrections", a(http.HandlerFunc(s.adminIMDBCorrections)))
+	mux.Handle("POST /api/admin/imdb-corrections/{id}", a(http.HandlerFunc(s.adminResolveIMDB)))
 	mux.Handle("GET /api/admin/blocklist", a(http.HandlerFunc(s.adminGetBlocklist)))
 	mux.Handle("POST /api/admin/blocklist", a(http.HandlerFunc(s.adminAddBlocklist)))
 	mux.Handle("DELETE /api/admin/blocklist/{term}", a(http.HandlerFunc(s.adminDelBlocklist)))
