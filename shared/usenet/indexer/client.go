@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"cmp"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -18,6 +19,8 @@ import (
 type Client struct {
 	baseURL    string
 	apiKey     string
+	searchUA   string
+	grabUA     string
 	httpClient *http.Client
 }
 
@@ -36,19 +39,29 @@ type Result struct {
 }
 
 func NewClient(baseURL, apiKey string) *Client {
-	return newClient(baseURL, apiKey, false)
+	return newClient(baseURL, apiKey, "", "", false)
+}
+
+func NewClientUA(baseURL, apiKey, searchUA, grabUA string) *Client {
+	return newClient(baseURL, apiKey, searchUA, grabUA, false)
 }
 
 func NewTestClient(baseURL, apiKey string) *Client {
-	return newClient(baseURL, apiKey, true)
+	return newClient(baseURL, apiKey, "", "", true)
 }
 
-func newClient(baseURL, apiKey string, allowLocal bool) *Client {
+func NewSystemClient(baseURL, apiKey string) *Client {
+	return newClient(baseURL, apiKey, "", "", true)
+}
+
+func newClient(baseURL, apiKey, searchUA, grabUA string, allowLocal bool) *Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = safeurl.Dialer(allowLocal)
 	return &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		apiKey:     apiKey,
+		searchUA:   cmp.Or(searchUA, useragent.Indexer),
+		grabUA:     grabUA,
 		httpClient: &http.Client{Timeout: 15 * time.Second, Transport: transport},
 	}
 }
@@ -126,7 +139,7 @@ func (c *Client) DownloadNZB(result *Result) ([]byte, error) {
 	if nzbURL == "" {
 		nzbURL = fmt.Sprintf("%s/api?t=get&id=%s&apikey=%s", c.baseURL, result.ID, c.apiKey)
 	}
-	resp, err := c.get(nzbURL)
+	resp, err := c.get(nzbURL, c.resolveGrabUA(result.Category))
 	if err != nil {
 		return nil, fmt.Errorf("download nzb: %w", err)
 	}
@@ -137,17 +150,24 @@ func (c *Client) DownloadNZB(result *Result) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (c *Client) get(rawURL string) (*http.Response, error) {
+func (c *Client) resolveGrabUA(category string) string {
+	if c.grabUA != "" {
+		return c.grabUA
+	}
+	return useragent.GrabUAForCategory(category)
+}
+
+func (c *Client) get(rawURL, userAgent string) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", useragent.Indexer)
+	req.Header.Set("User-Agent", userAgent)
 	return c.httpClient.Do(req)
 }
 
 func (c *Client) search(params url.Values) ([]Result, error) {
-	resp, err := c.get(fmt.Sprintf("%s/api?%s", c.baseURL, params.Encode()))
+	resp, err := c.get(fmt.Sprintf("%s/api?%s", c.baseURL, params.Encode()), c.searchUA)
 	if err != nil {
 		return nil, fmt.Errorf("indexer request: %w", err)
 	}
