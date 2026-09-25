@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/subosito/gozaru"
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/foldername"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/manifest"
 )
@@ -26,6 +26,7 @@ type node struct {
 	hash     string
 	node     string
 	enc      bool
+	cairn    bool
 	children []*node
 	index    map[string]*node
 }
@@ -63,7 +64,7 @@ func buildTree(list []*jobs.Job, overrides map[string]auth.WebdavOverride) *node
 		if j.Status != jobs.StatusComplete || len(j.Files) == 0 {
 			continue
 		}
-		folder := newDir(unique(folders, folderName(j), short(j.InfoHash)))
+		folder := newDir(foldername.Unique(folders, foldername.Of(j), foldername.Short(j.InfoHash)))
 		folder.mod = j.UpdatedAt
 		folder.hash = j.InfoHash
 		folder.idx = -1
@@ -77,7 +78,7 @@ func buildTree(list []*jobs.Job, overrides map[string]auth.WebdavOverride) *node
 				display = ov.Alias
 			}
 			folder.add(&node{
-				name:   unique(names, display, strconv.Itoa(i)),
+				name:   foldername.Unique(names, display, strconv.Itoa(i)),
 				orig:   orig,
 				alias:  ov.Alias,
 				idx:    i,
@@ -96,37 +97,9 @@ func buildTree(list []*jobs.Job, overrides map[string]auth.WebdavOverride) *node
 	return root
 }
 
-func unique(taken map[string]bool, name, salt string) string {
-	name = gozaru.Sanitize(name)
-	if !taken[name] {
-		taken[name] = true
-		return name
-	}
-	out := name + " [" + salt + "]"
-	for i := 2; taken[out]; i++ {
-		out = name + " [" + salt + "-" + strconv.Itoa(i) + "]"
-	}
-	taken[out] = true
-	return out
-}
-
-func folderName(j *jobs.Job) string {
-	if j.Name != "" {
-		return j.Name
-	}
-	return j.InfoHash
-}
-
 func base(name string) string {
 	if i := strings.LastIndexByte(name, '/'); i >= 0 {
 		return name[i+1:]
 	}
 	return name
-}
-
-func short(h string) string {
-	if len(h) > 8 {
-		return h[:8]
-	}
-	return h
 }

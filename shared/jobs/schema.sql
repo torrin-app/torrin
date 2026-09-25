@@ -267,3 +267,17 @@ WHERE user_id NOT IN ('', 'system', 'prewarm')
   AND status NOT IN ('failed', 'evicted');
 
 END $mig$;
+
+CREATE TABLE IF NOT EXISTS imdb_corrections (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    info_hash     TEXT NOT NULL,
+    proposed_imdb TEXT NOT NULL,
+    note          TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'pending',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at   TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_imdb_corrections_pending
+    ON imdb_corrections(user_id, info_hash) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_imdb_corrections_status ON imdb_corrections(status, created_at);

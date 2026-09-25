@@ -155,16 +155,20 @@ CREATE TABLE IF NOT EXISTS usenet_indexers (
 );
 
 CREATE TABLE IF NOT EXISTS usenet_indexer_list (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT NOT NULL,
-    label      TEXT NOT NULL DEFAULT '',
-    url        TEXT NOT NULL,
-    api_key    TEXT NOT NULL DEFAULT '',
-    enabled    BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                TEXT PRIMARY KEY,
+    user_id           TEXT NOT NULL,
+    label             TEXT NOT NULL DEFAULT '',
+    url               TEXT NOT NULL,
+    api_key           TEXT NOT NULL DEFAULT '',
+    search_user_agent TEXT NOT NULL DEFAULT '',
+    grab_user_agent   TEXT NOT NULL DEFAULT '',
+    enabled           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_usenet_indexer_list_user ON usenet_indexer_list(user_id);
+ALTER TABLE usenet_indexer_list ADD COLUMN IF NOT EXISTS search_user_agent TEXT NOT NULL DEFAULT '';
+ALTER TABLE usenet_indexer_list ADD COLUMN IF NOT EXISTS grab_user_agent   TEXT NOT NULL DEFAULT '';
 INSERT INTO usenet_indexer_list (id, user_id, label, url, api_key, enabled, created_at, updated_at)
 SELECT md5(user_id), user_id, '', url, api_key, TRUE, updated_at, updated_at
 FROM usenet_indexers
