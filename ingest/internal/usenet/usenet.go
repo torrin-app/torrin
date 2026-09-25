@@ -36,11 +36,11 @@ type Runner struct {
 	bus        *bus.Bus
 	ban        screen.BanFunc
 	scratch    string
-	sysCreds   download.Credentials
+	sysCreds   []download.Credentials
 	cipher     *crypto.Stream
 }
 
-func NewRunner(repo jobs.Repository, store, cairnStore *storage.Client, users *auth.Store, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, sysCreds download.Credentials, cipher *crypto.Stream) *Runner {
+func NewRunner(repo jobs.Repository, store, cairnStore *storage.Client, users *auth.Store, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch string, sysCreds []download.Credentials, cipher *crypto.Stream) *Runner {
 	return &Runner{repo: repo, store: store, cairnStore: cairnStore, users: users, pub: pub, bus: b, ban: ban, scratch: scratch, sysCreds: sysCreds, cipher: cipher}
 }
 
@@ -183,8 +183,8 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 
 	credsList, system := r.credsList(ctx, job.UserID)
 	if len(credsList) == 0 {
-		if r.sysCreds.Host != "" && r.users.HasUserCairn(ctx, job.UserID, job.InfoHash) {
-			credsList, system = []download.Credentials{r.sysCreds}, true
+		if len(r.sysCreds) > 0 && r.sysCreds[0].Host != "" && r.users.HasUserCairn(ctx, job.UserID, job.InfoHash) {
+			credsList, system = r.sysCreds, true
 		} else {
 			return nil, failure.UsenetNotSetup
 		}
@@ -326,7 +326,7 @@ func (r *Runner) credsList(ctx context.Context, userID string) ([]download.Crede
 	}
 	if u, err := r.users.GetByID(ctx, userID); err == nil && u != nil {
 		if p, ok := plans.Get(u.PlanID); ok && p.SystemUsenet {
-			return []download.Credentials{r.sysCreds}, true
+			return r.sysCreds, true
 		}
 	}
 	return nil, false

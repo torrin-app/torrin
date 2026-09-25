@@ -32,12 +32,12 @@ import (
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/qbit"
+	"github.com/torrin-app/torrin/shared/rapidgator"
 	"github.com/torrin-app/torrin/shared/rclonerc"
 	"github.com/torrin-app/torrin/shared/safety"
 	"github.com/torrin-app/torrin/shared/scenerls"
 	"github.com/torrin-app/torrin/shared/service"
 	"github.com/torrin-app/torrin/shared/storage"
-	"github.com/torrin-app/torrin/shared/usenet/download"
 	"github.com/torrin-app/torrin/shared/usenet/indexer"
 )
 
@@ -167,14 +167,7 @@ func main() {
 		return sysAD
 	}, repo, pub, b, ban, scratch, dlConns)
 
-	usenetRunner := usenet.NewRunner(repo, store, service.CairnStore(), users, pub, b, ban, scratch, download.Credentials{
-		Host:     os.Getenv("USENET_HOST"),
-		Port:     atoiOr(os.Getenv("USENET_PORT"), 563),
-		Username: os.Getenv("USENET_USER"),
-		Password: os.Getenv("USENET_PASS"),
-		SSL:      os.Getenv("USENET_SSL") != "false",
-		MaxConns: atoiOr(os.Getenv("USENET_MAXCONNS"), 20),
-	}, cipher)
+	usenetRunner := usenet.NewRunner(repo, store, service.CairnStore(), users, pub, b, ban, scratch, usenetProviders(), cipher)
 
 	usenetFallback := release.NewUsenetFallback(users, usenetRunner, env.Get("USENET_INDEXER_URL", ""), env.Get("USENET_INDEXER_KEY", ""))
 
@@ -183,7 +176,8 @@ func main() {
 	}, map[jobs.Source]release.Resolver{
 		jobs.SourceHDEncode: hdclient.NewClient(os.Getenv("HDENCODE_SOLVER_URL")),
 		jobs.SourceScenerls: scenerls.NewClient(),
-	}, repo, pub, b, ban, scratch, dlConns, usenetFallback.Try)
+	}, repo, pub, b, ban, scratch, dlConns, usenetFallback.Try,
+		rapidgator.New(os.Getenv("RAPIDGATOR_USER"), os.Getenv("RAPIDGATOR_PASS")))
 
 	ytdlpRunner := ytdlp.NewRunner(repo, pub, b, ban, scratch, os.Getenv("YTDLP_BIN"), os.Getenv("YTDLP_PROXY"), os.Getenv("YTDLP_FORMAT"))
 	go func() {

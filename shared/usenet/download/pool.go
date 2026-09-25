@@ -53,15 +53,23 @@ func NewPool(c Credentials) (nntpPool.ConnectionPool, error) {
 		MaxConns:              max,
 		HealthCheck:           true,
 		ConnWaitTime:          5 * time.Second,
-		IdleTimeout:           60 * time.Second,
+		IdleTimeout:           poolIdleTimeout,
 		MaxConnErrors:         5,
 		MaxTooManyConnsErrors: 3,
 	}, 0)
 }
 
+const poolIdleTimeout = 5 * time.Minute
+
+var (
+	poolLinger = 5 * time.Minute
+	newPool    = NewPool
+)
+
 type sharedEntry struct {
-	pool nntpPool.ConnectionPool
-	refs int
+	pool  nntpPool.ConnectionPool
+	refs  int
+	timer *time.Timer
 }
 
 var (
@@ -75,12 +83,16 @@ func AcquireShared(c Credentials) (nntpPool.ConnectionPool, func(), error) {
 	defer sharedMu.Unlock()
 	e, ok := sharedPools[key]
 	if !ok {
-		p, err := NewPool(c)
+		p, err := newPool(c)
 		if err != nil {
 			return nil, nil, err
 		}
 		e = &sharedEntry{pool: p}
 		sharedPools[key] = e
+	}
+	if e.timer != nil {
+		e.timer.Stop()
+		e.timer = nil
 	}
 	e.refs++
 	var once sync.Once
@@ -89,10 +101,17 @@ func AcquireShared(c Credentials) (nntpPool.ConnectionPool, func(), error) {
 			sharedMu.Lock()
 			defer sharedMu.Unlock()
 			e.refs--
-			if e.refs == 0 {
-				e.pool.Close()
-				delete(sharedPools, key)
+			if e.refs != 0 {
+				return
 			}
+			e.timer = time.AfterFunc(poolLinger, func() {
+				sharedMu.Lock()
+				defer sharedMu.Unlock()
+				if e.refs == 0 {
+					e.pool.Close()
+					delete(sharedPools, key)
+				}
+			})
 		})
 	}
 	return e.pool, release, nil
