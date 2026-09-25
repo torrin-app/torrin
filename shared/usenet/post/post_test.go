@@ -130,9 +130,9 @@ func TestRandFromIsValidEmail(t *testing.T) {
 
 func TestPostFileSplitsAndBuildsNZB(t *testing.T) {
 	// 3 full parts + a remainder.
-	size := partSize*3 + 1234
+	size := defaultPartSize*3 + 1234
 	data := bytes.Repeat([]byte{0xAB}, size)
-	p := &Poster{cfg: Config{Group: "alt.binaries.boneless"}}
+	p := &Poster{cfg: Config{Group: "alt.binaries.boneless"}, partSize: defaultPartSize}
 
 	var calls int64
 	poster := func(_ context.Context, build func(string) []byte) (string, error) {
@@ -167,7 +167,7 @@ func TestPostArticleRetriesOnDrop(t *testing.T) {
 	dead := &fakeConn{failUntil: 100}
 	live := &fakeConn{}
 	pool := &scriptPool{conns: []nntpConn{dead, live}}
-	p := &Poster{pool: pool}
+	p := &Poster{pool: pool, partSize: defaultPartSize}
 
 	mid, err := p.postArticle(context.Background(), func(string) []byte { return []byte("article") })
 	if err != nil {
@@ -191,7 +191,7 @@ func (c *capConn) Close()                    {}
 
 func TestPostKeepsNameInNzbObfuscatesArticle(t *testing.T) {
 	cap := &capConn{}
-	p := &Poster{cfg: Config{Group: "alt.binaries.test", From: "x@y.com"}, pool: &scriptPool{conns: []nntpConn{cap}}}
+	p := &Poster{cfg: Config{Group: "alt.binaries.test", From: "x@y.com"}, pool: &scriptPool{conns: []nntpConn{cap}}, partSize: defaultPartSize}
 	orig := "Secret.Show.S01E01.1080p.WEB.mkv"
 	nzbBytes, err := p.Post(context.Background(), []FileInput{{
 		Name: orig, Size: 10,

@@ -8,7 +8,7 @@ import (
 	"github.com/madcowfred/yencode"
 )
 
-const partSize = 768000
+const defaultPartSize = 768000
 
 type articleMeta struct {
 	From, Group, MessageID, Date, Subject, Name string

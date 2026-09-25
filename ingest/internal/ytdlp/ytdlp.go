@@ -1,18 +1,19 @@
 package ytdlp
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/torrin-app/torrin/ingest/internal/jobrun"
@@ -36,6 +37,7 @@ type Runner struct {
 	bin     string
 	proxy   string
 	format  string
+	aria2   bool
 }
 
 func NewRunner(repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban screen.BanFunc, scratch, bin, proxy, format string) *Runner {
@@ -45,7 +47,8 @@ func NewRunner(repo jobs.Repository, pub *publish.Publisher, b *bus.Bus, ban scr
 	if format == "" {
 		format = "bv*[vcodec^=avc1]+ba[acodec^=mp4a]/bv*[vcodec^=avc1]+ba/b[vcodec^=avc1]/bv*+ba/b"
 	}
-	return &Runner{repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, bin: bin, proxy: proxy, format: format}
+	_, ariaErr := exec.LookPath("aria2c")
+	return &Runner{repo: repo, pub: pub, bus: b, ban: ban, scratch: scratch, bin: bin, proxy: proxy, format: format, aria2: ariaErr == nil}
 }
 
 func (r *Runner) Run(ctx context.Context, job *jobs.Job, done func()) {
@@ -77,6 +80,9 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 		return failure.Blocked
 	}
 	if job.MaxBytes > 0 && m.Size > job.MaxBytes {
+		if m.IsPlaylist {
+			return failure.Newf("too_large", "this collection is %dGB across %d videos, over your plan limit of %dGB — add a single video instead", m.Size/1e9, m.Count, job.MaxBytes/1e9)
+		}
 		return failure.Newf("too_large", "this video (%dGB) is over your plan limit of %dGB", m.Size/1e9, job.MaxBytes/1e9)
 	}
 	job.FileSize = m.Size
@@ -89,7 +95,7 @@ func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	}
 	defer os.RemoveAll(dir)
 
-	if err := r.download(ctx, job, dir, m.Size); err != nil {
+	if err := r.download(ctx, job, dir, m.Size, m.IsPlaylist); err != nil {
 		return err
 	}
 	files := collectVideos(dir)
@@ -104,27 +110,47 @@ func (r *Runner) probe(ctx context.Context, url string) (*meta, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseMeta(out)
+	m, err := parseMeta(out)
+	if err != nil {
+		return nil, err
+	}
+	if m.IsPlaylist {
+		return r.probePlaylist(ctx, url)
+	}
+	return m, nil
 }
 
-func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total int64) error {
+func (r *Runner) probePlaylist(ctx context.Context, url string) (*meta, error) {
+	out, err := r.capture(ctx, "--flat-playlist", "-J", "--no-warnings", url)
+	if err != nil {
+		return nil, err
+	}
+	return parsePlaylist(out)
+}
+
+func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total int64, playlist bool) error {
+	tmpl, listFlag := "%(title)s.%(ext)s", "--no-playlist"
 	opts := []string{
-		"-o", filepath.Join(dir, "%(title)s.%(ext)s"),
 		"-f", r.format,
 		"--merge-output-format", "mp4",
-		"--no-playlist", "--no-warnings", "--newline", "--restrict-filenames",
+		"--no-warnings", "--newline", "--restrict-filenames",
 		"--concurrent-fragments", "4",
-		"--progress-template", "dl:%(progress.downloaded_bytes)s/%(progress.fragment_index)s/%(progress.fragment_count)s",
 	}
+	if r.aria2 {
+		opts = append(opts, "--downloader", "aria2c", "--downloader-args", "aria2c:-x4 -s4 -k1M")
+	}
+	if playlist {
+		tmpl, listFlag = "%(playlist_index)03d-%(title)s.%(ext)s", "--yes-playlist"
+		opts = append(opts, "--ignore-errors")
+	}
+	opts = append([]string{"-o", filepath.Join(dir, tmpl), listFlag}, opts...)
 	if lim := providers.LimiterFrom(ctx); lim != nil {
 		opts = append(opts, "--limit-rate", strconv.FormatInt(int64(lim.Limit()), 10))
 	}
 	opts = append(opts, job.Magnet)
 	cmd := exec.CommandContext(ctx, r.bin, r.args(opts...)...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Stdout = os.Stderr
 	var errBuf bytes.Buffer
 	cmd.Stderr = io.MultiWriter(os.Stderr, &errBuf)
 	if err := cmd.Start(); err != nil {
@@ -133,48 +159,69 @@ func (r *Runner) download(ctx context.Context, job *jobs.Job, dir string, total 
 
 	dlCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	watchdog := time.AfterFunc(stallTimeout, cancel)
-	defer watchdog.Stop()
-	go func() { <-dlCtx.Done(); _ = cmd.Process.Kill() }()
+	go func() {
+		<-dlCtx.Done()
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
 
 	rep := jobs.ProgressReporter(ctx, r.repo, job.ID)
-	var prog progress
-	sc := bufio.NewScanner(stdout)
-	sc.Buffer(make([]byte, 64*1024), 1<<20)
-	for sc.Scan() {
-		bytes, fragIdx, fragCount, ok := parseProgress(sc.Text())
-		if !ok {
-			continue
-		}
-		watchdog.Reset(stallTimeout)
-
-		cur := prog.add(bytes)
-		if tl := providers.TallyFrom(ctx); tl != nil {
-			tl.Downloaded.Store(cur)
-		}
-		if job.MaxBytes > 0 && cur > job.MaxBytes {
-			cancel()
-			return failure.Newf("too_large", "this download went over your plan limit of %dGB", job.MaxBytes/1e9)
-		}
-
-		if c, d, ok := progressReport(cur, total, fragIdx, fragCount); ok {
-			rep(c, d)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	var last int64
+	stalledAt := time.Now()
+	for {
+		select {
+		case err := <-waitCh:
+			rep(dirSize(dir), total)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if playlist {
+					return nil
+				}
+				if reason := ytdlpReason(errBuf.String()); reason != "" {
+					return failure.Newf("ytdlp", "%s", reason)
+				}
+				return fmt.Errorf("yt-dlp: %w", err)
+			}
+			return nil
+		case <-ticker.C:
+			cur := dirSize(dir)
+			if tl := providers.TallyFrom(ctx); tl != nil {
+				tl.Downloaded.Store(cur)
+			}
+			if job.MaxBytes > 0 && cur > job.MaxBytes {
+				cancel()
+				return failure.Newf("too_large", "this download went over your plan limit of %dGB", job.MaxBytes/1e9)
+			}
+			rep(cur, total)
+			if cur > last {
+				last, stalledAt = cur, time.Now()
+			} else if time.Since(stalledAt) > stallTimeout {
+				cancel()
+				return failure.Newf("interrupted", "download stalled, no progress for %s", stallTimeout)
+			}
 		}
 	}
+}
 
-	if err := cmd.Wait(); err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
+func dirSize(dir string) int64 {
+	var total int64
+	_ = filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			if info, e := d.Info(); e == nil {
+				total += info.Size()
+			}
 		}
-		if dlCtx.Err() != nil {
-			return failure.Newf("interrupted", "download stalled, no progress for %s", stallTimeout)
-		}
-		if reason := ytdlpReason(errBuf.String()); reason != "" {
-			return failure.Newf("ytdlp", "%s", reason)
-		}
-		return fmt.Errorf("yt-dlp: %w", err)
-	}
-	return nil
+		return nil
+	})
+	return total
 }
 
 func (r *Runner) capture(ctx context.Context, extra ...string) ([]byte, error) {
@@ -241,53 +288,6 @@ func (r *Runner) Extractors(ctx context.Context) ([]byte, error) {
 	return json.Marshal(names)
 }
 
-func parseProgress(line string) (bytes, fragIdx, fragCount int64, ok bool) {
-	rest, found := strings.CutPrefix(line, "dl:")
-	if !found {
-		return 0, 0, 0, false
-	}
-	parts := strings.Split(rest, "/")
-	if len(parts) != 3 {
-		return 0, 0, 0, false
-	}
-	bytes = parseNum(parts[0])
-	fragIdx = parseNum(parts[1])
-	fragCount = parseNum(parts[2])
-	return bytes, fragIdx, fragCount, bytes > 0 || fragCount > 0
-}
-
-func parseNum(s string) int64 {
-	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
-	return n
-}
-
-type progress struct {
-	prior int64
-	cur   int64
-}
-
-func (p *progress) add(n int64) int64 {
-	if n < p.cur {
-		p.prior += p.cur
-	}
-	p.cur = n
-	return p.prior + n
-}
-
-func progressReport(cur, total, fragIdx, fragCount int64) (current, denom int64, ok bool) {
-	switch {
-	case total > 0 && cur <= total:
-		return cur, total, true
-	case fragCount > 0 && fragIdx > 0 && cur > 0:
-		return cur, cur * fragCount / fragIdx, true
-	case total > 0:
-		return cur, total, true
-	case fragCount > 0:
-		return fragIdx, fragCount, true
-	}
-	return 0, 0, false
-}
-
 func collectVideos(dir string) []publish.File {
 	entries, _ := os.ReadDir(dir)
 	var out []publish.File
@@ -299,7 +299,16 @@ func collectVideos(dir string) []publish.File {
 		if err != nil {
 			continue
 		}
-		out = append(out, publish.File{Name: e.Name(), Path: filepath.Join(dir, e.Name()), Size: info.Size()})
+		out = append(out, publish.File{Name: cleanName(e.Name()), Path: filepath.Join(dir, e.Name()), Size: info.Size()})
 	}
 	return out
+}
+
+func cleanName(name string) string {
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if video.IsVideo(stem) && strings.EqualFold(filepath.Ext(stem), ext) {
+		return stem
+	}
+	return name
 }

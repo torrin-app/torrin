@@ -28,6 +28,7 @@ const (
 
 type Config struct {
 	Host, Port, Username, Password, Group, From string
+	PartSize, MaxConns                          int
 }
 
 func (c Config) Enabled() bool { return c.Host != "" && c.Username != "" }
@@ -49,8 +50,9 @@ type connGetter interface {
 }
 
 type Poster struct {
-	cfg  Config
-	pool connGetter
+	cfg      Config
+	pool     connGetter
+	partSize int
 }
 
 func New(cfg Config) (*Poster, error) {
@@ -58,14 +60,22 @@ func New(cfg Config) (*Poster, error) {
 	if err != nil {
 		return nil, fmt.Errorf("post port: %w", err)
 	}
+	maxConns := cfg.MaxConns
+	if maxConns <= 0 {
+		maxConns = postMaxConns
+	}
+	partSize := cfg.PartSize
+	if partSize <= 0 {
+		partSize = defaultPartSize
+	}
 	pool, err := download.NewPool(download.Credentials{
 		Host: cfg.Host, Port: port, SSL: true,
-		Username: cfg.Username, Password: cfg.Password, MaxConns: postMaxConns,
+		Username: cfg.Username, Password: cfg.Password, MaxConns: maxConns,
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Poster{cfg: cfg, pool: poolAdapter{pool}}, nil
+	return &Poster{cfg: cfg, pool: poolAdapter{pool}, partSize: partSize}, nil
 }
 
 func (p *Poster) Post(ctx context.Context, files []FileInput) ([]byte, error) {
@@ -99,7 +109,7 @@ type postedFile struct {
 type articlePoster func(ctx context.Context, build func(msgID string) []byte) (string, error)
 
 func (p *Poster) postFile(ctx context.Context, poster articlePoster, from string, fileNum, fileTotal int, f FileInput) (postedFile, error) {
-	total := (f.Size + partSize - 1) / partSize
+	total := (f.Size + int64(p.partSize) - 1) / int64(p.partSize)
 	if total == 0 {
 		total = 1
 	}
@@ -120,7 +130,7 @@ func (p *Poster) postFile(ctx context.Context, poster articlePoster, from string
 	var begin int64
 	var readErr error
 	for part := int64(1); ; part++ {
-		chunk := make([]byte, partSize)
+		chunk := make([]byte, p.partSize)
 		n, rerr := io.ReadFull(src, chunk)
 		if n > 0 {
 			chunk, pnum, pbegin := chunk[:n], part, begin
