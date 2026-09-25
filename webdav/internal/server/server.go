@@ -12,23 +12,36 @@ import (
 	"golang.org/x/net/webdav"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/jobs"
 )
 
-const davAllow = "OPTIONS, GET, HEAD, PROPFIND, PROPPATCH, LOCK, UNLOCK"
+const davAllow = "OPTIONS, GET, HEAD, PROPFIND, PROPPATCH, LOCK, UNLOCK, DELETE"
 
 type urlSigner interface {
 	SignURLNode(node, path string, expiry time.Duration) string
+	SignURLNodeUser(node, path, userID string, expiry time.Duration) string
+}
+
+type blobStore interface {
+	GetBytes(context.Context, string) ([]byte, error)
 }
 
 type Server struct {
-	users *auth.Store
-	jobs  jobs.Repository
-	store urlSigner
+	users      *auth.Store
+	jobs       jobs.Repository
+	store      urlSigner
+	cairnStore blobStore
+	cipher     *crypto.Stream
+	cairns     *cairnCache
 }
 
 func New(users *auth.Store, j jobs.Repository, store urlSigner) *Server {
-	return &Server{users: users, jobs: j, store: store}
+	return &Server{users: users, jobs: j, store: store, cairns: newCairnCache()}
+}
+
+func (s *Server) SetCairn(store blobStore, cipher *crypto.Stream) {
+	s.cairnStore, s.cipher = store, cipher
 }
 
 func (s *Server) Handler() http.Handler {
@@ -65,10 +78,19 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		s.setOverride(sw, r, user.ID)
 		return
 	}
+	if macMetaMethods[r.Method] && isMacMeta(r.URL.Path) {
+		macNoop(sw, r.Method)
+		return
+	}
 	overrides, _ := s.users.WebdavOverrides(r.Context(), user.ID)
 	tree := buildTree(s.completed(r.Context(), user.ID), overrides)
+	s.mergeCairns(r.Context(), user.ID, tree)
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		s.get(sw, r, user.ID, tree)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		s.remove(sw, r, user.ID, tree)
 		return
 	}
 	(&webdav.Handler{
@@ -121,6 +143,19 @@ func (s *Server) setOverride(w http.ResponseWriter, r *http.Request, userID stri
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) remove(w http.ResponseWriter, r *http.Request, userID string, tree *node) {
+	n := tree.find(segments(r.URL.Path))
+	if n == nil || n.hash == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := s.users.SetWebdavOverride(r.Context(), userID, n.hash, n.idx, n.alias, true); err != nil {
+		http.Error(w, "could not remove", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) authenticate(r *http.Request) (*auth.User, error) {
