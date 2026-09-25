@@ -23,6 +23,7 @@ func TestLargeUpload(t *testing.T) {
 func TestExpiredFreeAllowed(t *testing.T) {
 	allow := []string{
 		"/api/me", "/api/plans", "/api/stats", "/api/redeem",
+		"/api/wallet", "/api/wallet/topup", "/api/wallet/buy-plan",
 		"/api/billing/crypto/checkout", "/api/billing/bachs/checkout",
 		"/api/auth/2fa/enroll", "/api/auth/2fa/confirm", "/api/auth/2fa/disable",
 	}
@@ -31,7 +32,7 @@ func TestExpiredFreeAllowed(t *testing.T) {
 			t.Errorf("expired free user should reach %s (to pay)", p)
 		}
 	}
-	deny := []string{"/api/jobs", "/api/usenet/search", "/api/storage/connect", "/api/billing"}
+	deny := []string{"/api/jobs", "/api/usenet/search", "/api/storage/connect", "/api/billing", "/api/wallet/gift"}
 	for _, p := range deny {
 		if expiredFreeAllowed(p) {
 			t.Errorf("%s should be blocked for expired free user", p)

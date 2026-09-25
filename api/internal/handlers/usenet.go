@@ -241,6 +241,11 @@ func (s *Server) setUsenetCreds(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "host required")
 		return
 	}
+	if c.Password == "" {
+		if existing, err := s.Users.GetUsenetCreds(r.Context(), user.ID); err == nil && existing != nil {
+			c.Password = keepPassword(c.Password, existing.Password)
+		}
+	}
 	if err := normalizeAndTest(r.Context(), &c); err != nil {
 		web.WriteError(w, 400, "could not connect to usenet provider, check host/port/login")
 		return
@@ -265,6 +270,13 @@ func (s *Server) testUsenetCreds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	web.WriteJSON(w, 200, map[string]any{"ok": true})
+}
+
+func keepPassword(incoming, stored string) string {
+	if incoming == "" {
+		return stored
+	}
+	return incoming
 }
 
 func normalizeAndTest(ctx context.Context, c *auth.UsenetCreds) error {
