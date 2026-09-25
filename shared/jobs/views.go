@@ -18,12 +18,15 @@ func (p *Postgres) RecordView(ctx context.Context, infoHash, userID string) (boo
 	if err != nil {
 		return false, err
 	}
-	if ct.RowsAffected() == 0 {
-		return false, nil
+	newViewer := ct.RowsAffected() > 0
+	if newViewer {
+		p.pool.Exec(ctx, `UPDATE jobs SET last_accessed_at=now(), access_count=access_count+1, updated_at=now()
+			WHERE info_hash=$1 AND status IN ('complete','seeding')`, infoHash)
+	} else {
+		p.pool.Exec(ctx, `UPDATE jobs SET last_accessed_at=now(), updated_at=now()
+			WHERE info_hash=$1 AND status IN ('complete','seeding')`, infoHash)
 	}
-	p.pool.Exec(ctx, `UPDATE jobs SET last_accessed_at=now(), access_count=access_count+1, updated_at=now()
-		WHERE info_hash=$1 AND status IN ('complete','seeding')`, infoHash)
-	return true, nil
+	return newViewer, nil
 }
 
 func (p *Postgres) GetTotalCachedSize(ctx context.Context, node string) (int64, error) {
@@ -61,6 +64,10 @@ func (p *Postgres) GetEvictionCandidates(ctx context.Context, node string) ([]Ev
 			MAX(CASE WHEN user_id='prewarm' THEN 1 ELSE 0 END) AS is_prewarm
 		FROM jobs
 		WHERE status='complete' AND node=$1
+			AND NOT (
+				EXISTS (SELECT 1 FROM user_cairns uc WHERE uc.info_hash = jobs.info_hash AND uc.created_at > now() - interval '24 hours')
+				AND NOT EXISTS (SELECT 1 FROM cairn_archives ca WHERE ca.info_hash = jobs.info_hash)
+			)
 		GROUP BY info_hash
 		ORDER BY
 			CASE WHEN COALESCE(SUM(access_count),0)=0 THEN 0

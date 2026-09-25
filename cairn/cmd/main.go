@@ -44,6 +44,7 @@ func main() {
 		Host: mustEnv("USENET_POST_HOST"), Port: env.Get("USENET_POST_PORT", "563"),
 		Username: mustEnv("USENET_POST_USER"), Password: mustEnv("USENET_POST_PASS"),
 		Group: env.Get("USENET_POST_GROUP", "alt.binaries.boneless"), From: env.Get("USENET_POST_FROM", ""),
+		PartSize: int(env.Int("USENET_POST_PART_SIZE", 0)), MaxConns: int(env.Int("USENET_POST_MAXCONNS", 0)),
 	})
 	if err != nil {
 		fatal("poster", err)
