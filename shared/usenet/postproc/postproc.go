@@ -140,6 +140,10 @@ func collectVideos(dir string) []File {
 		if err != nil || d.IsDir() || !isVideoFile(path, d.Name()) {
 			return nil
 		}
+		if isSample(path, d.Name()) {
+			slog.Info("postproc: skipping sample", "name", d.Name())
+			return nil
+		}
 		size := int64(0)
 		if info, err := d.Info(); err == nil {
 			size = info.Size()
@@ -148,6 +152,59 @@ func collectVideos(dir string) []File {
 		return nil
 	})
 	return out
+}
+
+const minCompleteRatio = 0.5
+
+func Undersized(files []File, expected int64) bool {
+	if expected <= 0 {
+		return false
+	}
+	var got int64
+	for _, f := range files {
+		got += f.Size
+	}
+	if float64(got) >= float64(expected)*minCompleteRatio {
+		return false
+	}
+	slog.Warn("postproc: assembled result far smaller than nzb", "got_mb", got/1e6, "expected_mb", expected/1e6)
+	return true
+}
+
+func isSample(path, name string) bool {
+	l := strings.ToLower(name)
+	l = strings.TrimSuffix(l, filepath.Ext(l))
+	if hasToken(l, "sample") || hasToken(l, "proof") {
+		return true
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(filepath.Dir(path)), "/") {
+		if strings.EqualFold(seg, "sample") || strings.EqualFold(seg, "proof") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasToken(s, tok string) bool {
+	for i := 0; i+len(tok) <= len(s); {
+		j := strings.Index(s[i:], tok)
+		if j < 0 {
+			return false
+		}
+		j += i
+		beforeOK := j == 0 || !isAlnum(s[j-1])
+		after := j + len(tok)
+		afterOK := after == len(s) || !isAlnum(s[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		i = j + 1
+	}
+	return false
+}
+
+func isAlnum(b byte) bool {
+	return b >= 'a' && b <= 'z' || b >= '0' && b <= '9'
 }
 
 func isVideoFile(path, name string) bool {
