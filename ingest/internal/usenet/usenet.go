@@ -235,6 +235,9 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	if len(files) == 0 {
 		return nil, emptyResultFailure(stalled, missing)
 	}
+	if postproc.Undersized(files, parsed.TotalSize()) {
+		return nil, failure.Incomplete
+	}
 	pubFiles := make([]publish.File, len(files))
 	for i, f := range files {
 		pubFiles[i] = publish.File{Name: f.Name, Path: f.Path, Size: f.Size}
