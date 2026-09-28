@@ -9,6 +9,7 @@ import (
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/billing"
+	"github.com/torrin-app/torrin/shared/comet"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/email"
 	"github.com/torrin-app/torrin/shared/jobs"
@@ -63,6 +64,7 @@ type Deps struct {
 	Qbit        *qbit.Client
 	QbitSeed    *qbit.Client
 	Scrape      *scrape.Client
+	Comet       *comet.Client
 	Mailer      *email.Client
 	RClone      *rclonerc.Client
 	Bitcart     *billing.BitcartHandler
@@ -177,6 +179,7 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	s.registerCairnRoutes(mux, authMW)
 	s.registerUsenetSearchRoutes(mux, authMW)
 	s.registerNewznabRoutes(mux)
+	s.registerTorznabRoutes(mux)
 	s.registerHDEncodeRoutes(mux, authMW)
 	s.registerScenerlsRoutes(mux, authMW)
 	s.registerStorageRoutes(mux, loginMW)
