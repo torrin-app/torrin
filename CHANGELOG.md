@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.22.0](https://github.com/torrin-app/torrin/compare/v1.21.0...v1.22.0) (2026-10-04)
+
+
+### Features
+
+* torznab indexer endpoint ([#147](https://github.com/torrin-app/torrin/issues/147)) ([7363968](https://github.com/torrin-app/torrin/commit/7363968c709a1a5ab6d30fecc243843955300eaa))
+
+
+### Bug Fixes
+
+* **usenet:** skip sample files and reject undersized downloads ([#148](https://github.com/torrin-app/torrin/issues/148)) ([eccb938](https://github.com/torrin-app/torrin/commit/eccb9389e10d0d02dbc8a6f6c874baf5fa655acf))
+
 ## [1.21.0](https://github.com/torrin-app/torrin/compare/v1.20.0...v1.21.0) (2026-09-25)
 
 
