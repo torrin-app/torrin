@@ -75,3 +75,55 @@ func TestCollectVideos(t *testing.T) {
 		t.Errorf("got %+v, want only movie.mkv", got)
 	}
 }
+
+func TestIsSample(t *testing.T) {
+	samples := []string{
+		"lanterns.2026.s01e07.internal.dv.2160p.web.h265-cakes-sample.mkv",
+		"Sample.mkv",
+		"movie-proof.mkv",
+		"rel.sample.mkv",
+	}
+	for _, n := range samples {
+		if !isSample("/x/"+n, n) {
+			t.Errorf("%q should be a sample", n)
+		}
+	}
+	notSamples := []string{
+		"Lanterns.2026.S01E07.iNTERNAL.DV.2160p.WEB.H265-CAKES.mkv",
+		"Free.Samples.2012.1080p.mkv", // "samples" not a bare token
+		"resample.mkv",                // substring, not token
+		"The.Proofreader.mkv",
+	}
+	for _, n := range notSamples {
+		if isSample("/x/"+n, n) {
+			t.Errorf("%q should not be a sample", n)
+		}
+	}
+	if !isSample("/x/Sample/movie.mkv", "movie.mkv") {
+		t.Error("file inside a Sample/ folder should be a sample")
+	}
+}
+
+func TestCollectVideosSkipsSample(t *testing.T) {
+	dir := t.TempDir()
+	touch(t, dir, "The.Movie.2160p.WEB.H265.mkv")
+	touch(t, dir, "the.movie-sample.mkv")
+	got := collectVideos(dir)
+	if len(got) != 1 || got[0].Name != "The.Movie.2160p.WEB.H265.mkv" {
+		t.Fatalf("expected only the real video, got %+v", got)
+	}
+}
+
+func TestUndersized(t *testing.T) {
+	full := []File{{Size: 6_500_000_000}}
+	if Undersized(full, 7_000_000_000) {
+		t.Error("a near-full result should not be flagged undersized")
+	}
+	sample := []File{{Size: 167_000_000}}
+	if !Undersized(sample, 7_000_000_000) {
+		t.Error("a 167MB result from a 7GB nzb should be flagged undersized")
+	}
+	if Undersized(sample, 0) {
+		t.Error("unknown expected size should never flag undersized")
+	}
+}

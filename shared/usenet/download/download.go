@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/Tensai75/nntpPool"
 	"github.com/torrin-app/torrin/shared/failure"
@@ -108,14 +109,59 @@ func isOptional(name string) bool {
 		strings.HasSuffix(l, ".txt") || strings.HasSuffix(l, ".jpg") || strings.HasSuffix(l, ".png")
 }
 
+const retryRounds = 2
+
+var retryBackoff = 5 * time.Second
+
 func downloadFile(ctx context.Context, pools []nntpPool.ConnectionPool, file nzb.File, group string, f *os.File, done *int64, total int64, conns int, onProgress func(done, total int64)) (int64, error) {
+	pending := file.Segments
+	var missing int64
+	for round := 0; ; round++ {
+		failed, perm, fatal := fetchPass(ctx, pools, pending, group, f, done, total, conns, onProgress)
+		if fatal != nil {
+			return 0, fatal
+		}
+		missing += perm
+		if len(failed) == 0 {
+			break
+		}
+		if round >= retryRounds {
+			for _, seg := range failed {
+				missing += seg.Bytes
+				if n := atomic.AddInt64(done, seg.Bytes); onProgress != nil && total > 0 {
+					onProgress(n, total)
+				}
+			}
+			slog.Warn("usenet: segments still failing after retries", "file", filepath.Base(FileName(file)), "segments", len(failed))
+			break
+		}
+		slog.Info("usenet: retrying transient segment failures", "file", filepath.Base(FileName(file)), "segments", len(failed), "round", round+1)
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(retryBackoff):
+		}
+		pending = failed
+	}
+	return missing, nil
+}
+
+func fetchPass(ctx context.Context, pools []nntpPool.ConnectionPool, segs []nzb.Segment, group string, f *os.File, done *int64, total int64, conns int, onProgress func(done, total int64)) ([]nzb.Segment, int64, error) {
 	sem := make(chan struct{}, conns)
 	var wg sync.WaitGroup
 	var fatal error
 	var fatalOnce sync.Once
 	var missing int64
+	var mu sync.Mutex
+	var failed []nzb.Segment
 
-	for _, seg := range file.Segments {
+	bump := func(seg nzb.Segment) {
+		if n := atomic.AddInt64(done, seg.Bytes); onProgress != nil && total > 0 {
+			onProgress(n, total)
+		}
+	}
+
+	for _, seg := range segs {
 		wg.Add(1)
 		sem <- struct{}{}
 		go func(seg nzb.Segment) {
@@ -135,10 +181,7 @@ func downloadFile(ctx context.Context, pools []nntpPool.ConnectionPool, file nzb
 				var dec *decoder.YencResult
 				if dec, err = decoder.Decode(data); err == nil {
 					writeSegment(f, dec)
-					n := atomic.AddInt64(done, seg.Bytes)
-					if onProgress != nil && total > 0 {
-						onProgress(n, total)
-					}
+					bump(seg)
 					return
 				}
 			}
@@ -146,17 +189,21 @@ func downloadFile(ctx context.Context, pools []nntpPool.ConnectionPool, file nzb
 				fatalOnce.Do(func() { fatal = ctx.Err() })
 				return
 			}
-			atomic.AddInt64(&missing, seg.Bytes)
-			if n := atomic.AddInt64(done, seg.Bytes); onProgress != nil && total > 0 {
-				onProgress(n, total)
+			if isArticleMissing(err) {
+				atomic.AddInt64(&missing, seg.Bytes)
+				bump(seg)
+				return
 			}
+			mu.Lock()
+			failed = append(failed, seg)
+			mu.Unlock()
 		}(seg)
 	}
 	wg.Wait()
 	if fatal != nil {
-		return 0, fatal
+		return nil, 0, fatal
 	}
-	return missing, nil
+	return failed, missing, nil
 }
 
 func writeSegment(f *os.File, dec *decoder.YencResult) {
