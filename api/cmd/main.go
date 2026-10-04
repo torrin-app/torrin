@@ -18,6 +18,7 @@ import (
 	"github.com/torrin-app/torrin/shared/billing"
 	"github.com/torrin-app/torrin/shared/bus"
 	"github.com/torrin-app/torrin/shared/cluster"
+	"github.com/torrin-app/torrin/shared/comet"
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/email"
 	"github.com/torrin-app/torrin/shared/env"
@@ -119,6 +120,10 @@ func main() {
 	if u := env.Get("RCLONE_RC_URL", ""); u != "" {
 		rc = rclonerc.New(u)
 	}
+	var cometClient *comet.Client
+	if u := env.Get("COMET_URL", ""); u != "" {
+		cometClient = comet.New(u, env.Get("COMET_SEARCH_KEY", ""))
+	}
 
 	slots := middleware.NewSlotTracker(jobsRepo)
 	maxQueued := int(env.Int("MAX_QUEUED_DOWNLOADS_PER_USER", 100))
@@ -146,7 +151,7 @@ func main() {
 	srv := handlers.New(handlers.Deps{
 		Jobs: jobsRepo, JobsPG: jobsRepo, Users: users, Store: store, NodeStores: nodeStores,
 		CairnStore: cairnStore, CairnCipher: cairnCipher, CairnDirect: env.Get("USENET_HOST", "") != "", Bus: b,
-		Slots: slots, Qbit: qb, QbitSeed: qbSeed, Scrape: scrape.New(), Mailer: mailer, Budget: budget,
+		Slots: slots, Qbit: qb, QbitSeed: qbSeed, Scrape: scrape.New(), Comet: cometClient, Mailer: mailer, Budget: budget,
 		RClone: rc, Bitcart: bitcart, NowPay: nowpay, Bachs: bachs, SignKey: []byte(env.Get("SIGNING_KEY", "")),
 		SeedingEnabled:    env.Get("SEEDING_ENABLED", "") == "true",
 		SeedingAllowUsers: parseAllowUsers(env.Get("SEEDING_ALLOW_USERS", "")),
