@@ -55,33 +55,63 @@ func (c *Cache) SetDB(ctx context.Context, db DB) error {
 }
 
 func (c *Cache) CheckCached(ctx context.Context, prefix string, hashes []string, query func(ctx context.Context, miss []string) map[string]bool) map[string]bool {
+	r := c.CheckCachedDetailed(ctx, prefix, hashes, func(ctx context.Context, miss []string) CheckResult {
+		fresh := query(ctx, miss)
+		if fresh == nil {
+			return Failure(miss, "check_failed")
+		}
+		return CheckResult{Cached: fresh}
+	})
+	if len(r.Cached) == 0 {
+		return nil
+	}
+	return r.Cached
+}
+
+// CheckCachedDetailed deliberately excludes legacy entries, whose false values
+// may have been synthesized from omitted upstream results.
+func (c *Cache) CheckCachedDetailed(ctx context.Context, prefix string, hashes []string, query func(context.Context, []string) CheckResult) CheckResult {
+	prefix = "diagnostics:v2:" + prefix
+	hashes = CanonicalHashes(hashes)
 	result := make(map[string]bool, len(hashes))
 	miss := c.memLookup(prefix, hashes, result)
 	if len(miss) > 0 {
 		miss = c.dbLookup(ctx, prefix, miss, result)
 	}
 	if len(miss) == 0 {
-		return result
+		return CheckResult{Cached: result, Reasons: map[string]string{}}
 	}
 
 	fresh := query(ctx, miss)
-	if fresh == nil {
-		if len(result) == 0 {
-			return nil
+	low := make(map[string]bool, len(fresh.Cached))
+	conflicts := make(map[string]bool)
+	for h, v := range fresh.Cached {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if previous, ok := low[h]; ok && previous != v {
+			conflicts[h] = true
 		}
-		return result
+		low[h] = v
 	}
-	low := make(map[string]bool, len(fresh))
-	for h, v := range fresh {
-		low[strings.ToLower(h)] = v
+	reasons := make(map[string]string, len(fresh.Reasons))
+	for h, reason := range fresh.Reasons {
+		reasons[strings.ToLower(strings.TrimSpace(h))] = SafeReason(reason)
 	}
 	store := make(map[string]bool, len(miss))
+	unresolved := make(map[string]string)
 	for _, lh := range miss {
-		result[lh] = low[lh]
-		store[lh] = low[lh]
+		if conflicts[lh] {
+			unresolved[lh] = "invalid_response"
+		} else if value, ok := low[lh]; ok {
+			result[lh] = value
+			store[lh] = value
+		} else if reason := reasons[lh]; reason != "" {
+			unresolved[lh] = reason
+		} else {
+			unresolved[lh] = "partial_response"
+		}
 	}
 	c.store(ctx, prefix, store)
-	return result
+	return CheckResult{Cached: result, Reasons: unresolved}
 }
 
 func (c *Cache) memLookup(prefix string, hashes []string, result map[string]bool) []string {
@@ -111,29 +141,29 @@ func (c *Cache) dbLookup(ctx context.Context, prefix string, miss []string, resu
 	for i, lh := range miss {
 		keys[i] = prefix + lh
 	}
-	rows, err := db.Query(ctx, `SELECT k, cached FROM debrid_avail_cache WHERE k = ANY($1) AND exp > now()`, keys)
+	rows, err := db.Query(ctx, `SELECT k, cached, exp FROM debrid_avail_cache WHERE k = ANY($1) AND exp > now()`, keys)
 	if err != nil {
 		return miss
 	}
-	l2 := make(map[string]bool)
+	l2 := make(map[string]entry)
 	for rows.Next() {
 		var k string
 		var cached bool
-		if rows.Scan(&k, &cached) == nil {
-			l2[k] = cached
+		var exp time.Time
+		if rows.Scan(&k, &cached, &exp) == nil && time.Now().Before(exp) {
+			l2[k] = entry{val: cached, exp: exp}
 		}
 	}
 	rows.Close()
 	if len(l2) == 0 {
 		return miss
 	}
-	exp := time.Now().Add(c.ttl)
 	var still []string
 	c.mu.Lock()
 	for _, lh := range miss {
 		if cached, ok := l2[prefix+lh]; ok {
-			result[lh] = cached
-			c.mem[prefix+lh] = entry{val: cached, exp: exp}
+			result[lh] = cached.val
+			c.mem[prefix+lh] = cached
 		} else {
 			still = append(still, lh)
 		}

@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/breaker"
 )
 
-const pmBase = "https://www.premiumize.me"
+var pmBase = "https://www.premiumize.me"
 
 type premiumize struct {
 	key  string
@@ -54,30 +54,50 @@ func (p *premiumize) Fetch(ctx context.Context, magnet, infoHash string) (*Resul
 }
 
 func PremiumizeCached(ctx context.Context, pmKey string, hashes []string) map[string]bool {
-	return cachedCheck(ctx, "premiumize", pmKey, hashes, func(ctx context.Context, hs []string) map[string]bool {
+	return legacyCached(PremiumizeCachedDetailed(ctx, pmKey, hashes))
+}
+
+func PremiumizeCachedDetailed(ctx context.Context, pmKey string, hashes []string) availcache.CheckResult {
+	return cachedCheckDetailed(ctx, "premiumize", pmKey, hashes, func(ctx context.Context, hs []string) availcache.CheckResult {
 		p := newPremiumize(pmKey)
 		form := url.Values{}
-		for _, h := range hs {
-			form.Add("items[]", "magnet:?xt=urn:btih:"+h)
+		for _, hash := range hs {
+			form.Add("items[]", "magnet:?xt=urn:btih:"+hash)
 		}
-		body, err := p.post(ctx, "/api/cache/check", form)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, pmBase+"/api/cache/check", nil)
 		if err != nil {
-			return nil
+			return availcache.Failure(hs, "check_failed")
 		}
-		var resp struct {
-			Status   string `json:"status"`
-			Response []bool `json:"response"`
+		req.URL.RawQuery = form.Encode()
+		req.Header.Set("Authorization", "Bearer "+pmKey)
+		body, reason := cacheCheckRequest(ctx, p.http, "premiumize", req)
+		if reason != "" {
+			return availcache.Failure(hs, reason)
 		}
-		if json.Unmarshal(body, &resp) != nil || resp.Status != "success" {
-			return nil
+		var response struct {
+			Status   string            `json:"status"`
+			Response []json.RawMessage `json:"response"`
 		}
-		out := make(map[string]bool, len(hs))
-		for i, h := range hs {
-			if i < len(resp.Response) {
-				out[strings.ToLower(h)] = resp.Response[i]
+		if json.Unmarshal(body, &response) != nil || response.Status == "" {
+			return availcache.Failure(hs, "invalid_response")
+		}
+		if response.Status != "success" {
+			return availcache.Failure(hs, "check_failed")
+		}
+		if response.Response == nil || len(response.Response) > len(hs) {
+			return availcache.Failure(hs, "invalid_response")
+		}
+		result := availcache.Failure(hs, "partial_response")
+		for i, raw := range response.Response {
+			var value *bool
+			if json.Unmarshal(raw, &value) != nil || value == nil {
+				result.Reasons[hs[i]] = "invalid_response"
+				continue
 			}
+			result.Cached[hs[i]] = *value
+			delete(result.Reasons, hs[i])
 		}
-		return out
+		return result
 	})
 }
 

@@ -46,6 +46,29 @@ func (h *Handler) warmJobFiles(ctx context.Context, infoHash string) (playableJo
 	return playableJobFiles{name: name, size: size, files: files, node: h.nodeForInfoHash(ctx, infoHash)}, true
 }
 
+// The checker needs failed storage reads to remain distinct from a missing file.
+func (h *Handler) inspectWarmJobFiles(ctx context.Context, infoHash string) (playableJobFiles, string) {
+	if h.Store == nil {
+		return playableJobFiles{}, "not_configured"
+	}
+	data, err := h.Store.GetBytes(ctx, manifest.Path(infoHash))
+	if err != nil {
+		return playableJobFiles{}, checkFailure(ctx, err, "storage_error")
+	}
+	name, size, files := manifest.Meta(data)
+	if len(files) == 0 {
+		return playableJobFiles{}, "invalid_manifest"
+	}
+	present, err := h.Store.Has(ctx, manifest.ResolveKey(infoHash, 0, files[0].Key, files[0].Name))
+	if err != nil {
+		return playableJobFiles{}, checkFailure(ctx, err, "storage_error")
+	}
+	if !present {
+		return playableJobFiles{}, "missing_file"
+	}
+	return playableJobFiles{name: name, size: size, files: files, node: h.nodeForInfoHash(ctx, infoHash)}, "cached"
+}
+
 func (h *Handler) nodeJobFiles(ctx context.Context, infoHash string) (playableJobFiles, bool) {
 	lookup := h.cachedLookup()
 	if lookup == nil {
@@ -82,25 +105,57 @@ func isWarmNodeJob(infoHash string, job *jobs.Job) bool {
 }
 
 func (h *Handler) cairnJobFiles(ctx context.Context, infoHash string) (playableJobFiles, bool) {
+	cached, reason := h.inspectCairnJobFiles(ctx, infoHash)
+	return cached, reason == "cached"
+}
+
+type checkedCairnRepository interface {
+	LookupCairnArchive(context.Context, string) (string, string, bool, error)
+	LookupCairnNZB(context.Context, string) ([]byte, bool, error)
+}
+
+func (h *Handler) inspectCairnJobFiles(ctx context.Context, infoHash string) (playableJobFiles, string) {
 	if !h.CairnDirect || h.Cairns == nil || h.CairnStore == nil {
-		return playableJobFiles{}, false
+		return playableJobFiles{}, "not_configured"
 	}
-	_, name, archived := h.Cairns.GetCairnArchive(ctx, infoHash)
+	var name string
+	var archived bool
+	checked, supportsErrors := h.Cairns.(checkedCairnRepository)
+	if supportsErrors {
+		var err error
+		_, name, archived, err = checked.LookupCairnArchive(ctx, infoHash)
+		if err != nil {
+			return playableJobFiles{}, checkFailure(ctx, err, "database_error")
+		}
+	} else {
+		_, name, archived = h.Cairns.GetCairnArchive(ctx, infoHash)
+	}
 	if !archived {
-		return playableJobFiles{}, false
+		if supportsErrors {
+			return playableJobFiles{}, "not_cached"
+		}
+		return playableJobFiles{}, "lookup_unverified"
 	}
 	data, err := h.CairnStore.GetBytes(ctx, nzb.StorageKey(infoHash))
 	if err != nil {
-		if fallback, ok := h.Cairns.GetCairnNZB(ctx, infoHash); ok {
+		if supportsErrors {
+			fallback, ok, lookupErr := checked.LookupCairnNZB(ctx, infoHash)
+			if lookupErr != nil {
+				return playableJobFiles{}, checkFailure(ctx, lookupErr, "database_error")
+			}
+			if ok {
+				data, err = fallback, nil
+			}
+		} else if fallback, ok := h.Cairns.GetCairnNZB(ctx, infoHash); ok {
 			data, err = fallback, nil
 		}
 	}
 	if err != nil {
-		return playableJobFiles{}, false
+		return playableJobFiles{}, checkFailure(ctx, err, "storage_error")
 	}
 	parsed, err := nzb.ParseBytes(data)
 	if err != nil || len(parsed.Files) == 0 {
-		return playableJobFiles{}, false
+		return playableJobFiles{}, "invalid_archive"
 	}
 	enc := h.CairnCipher != nil
 	files := make([]jobs.File, len(parsed.Files))
@@ -112,17 +167,17 @@ func (h *Handler) cairnJobFiles(ctx context.Context, infoHash string) (playableJ
 		}
 		fileName = filepath.Base(fileName)
 		if fileName == "." || fileName == "" {
-			return playableJobFiles{}, false
+			return playableJobFiles{}, "invalid_archive"
 		}
 		size := file.Size()
 		if enc {
 			size, err = h.CairnCipher.PlainSize(size)
 			if err != nil {
-				return playableJobFiles{}, false
+				return playableJobFiles{}, "invalid_archive"
 			}
 		}
 		if size < 0 || total > math.MaxInt64-size {
-			return playableJobFiles{}, false
+			return playableJobFiles{}, "invalid_archive"
 		}
 		total += size
 		files[i] = jobs.File{Index: i, Name: fileName, Size: size, Key: cairn.StreamPath(infoHash, i, fileName), Enc: enc}
@@ -130,7 +185,7 @@ func (h *Handler) cairnJobFiles(ctx context.Context, infoHash string) (playableJ
 	if name == "" {
 		name = parsed.Name()
 	}
-	return playableJobFiles{name: name, size: total, files: files}, true
+	return playableJobFiles{name: name, size: total, files: files}, "cached"
 }
 
 func (h *Handler) cachedJobFiles(ctx context.Context, infoHash string) (playableJobFiles, bool) {

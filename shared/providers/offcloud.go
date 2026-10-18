@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/breaker"
 	"github.com/torrin-app/torrin/shared/magnet"
 )
@@ -70,29 +71,47 @@ func (o *offcloud) Fetch(ctx context.Context, magnet, infoHash string) (*Result,
 }
 
 func OffcloudCached(ctx context.Context, key string, hashes []string) map[string]bool {
-	return cachedCheck(ctx, "offcloud", key, hashes, func(ctx context.Context, hs []string) map[string]bool {
+	return legacyCached(OffcloudCachedDetailed(ctx, key, hashes))
+}
+
+func OffcloudCachedDetailed(ctx context.Context, key string, hashes []string) availcache.CheckResult {
+	return cachedCheckDetailed(ctx, "offcloud", key, hashes, func(ctx context.Context, hs []string) availcache.CheckResult {
 		o := newOffcloud(key)
 		urls := make([]string, len(hs))
-		for i, h := range hs {
-			urls[i] = "magnet:?xt=urn:btih:" + h
+		for i, hash := range hs {
+			urls[i] = "magnet:?xt=urn:btih:" + hash
 		}
-		body, err := o.post(ctx, "/api/cache/info", map[string]any{"urls": urls})
+		payload, err := json.Marshal(map[string]any{"urls": urls})
 		if err != nil {
-			return nil
+			return availcache.Failure(hs, "check_failed")
 		}
-		var resp []struct {
-			Cached bool `json:"cached"`
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, ocBase+"/api/cache/info", bytes.NewReader(payload))
+		if err != nil {
+			return availcache.Failure(hs, "check_failed")
 		}
-		if json.Unmarshal(body, &resp) != nil {
-			return nil
+		req.Header.Set("Authorization", "Bearer "+key)
+		req.Header.Set("Content-Type", "application/json")
+		body, reason := cacheCheckRequest(ctx, o.http, "offcloud", req)
+		if reason != "" {
+			return availcache.Failure(hs, reason)
 		}
-		out := make(map[string]bool, len(hs))
-		for i, h := range hs {
-			if i < len(resp) {
-				out[strings.ToLower(h)] = resp[i].Cached
+		var response []json.RawMessage
+		if json.Unmarshal(body, &response) != nil || response == nil || len(response) > len(hs) {
+			return availcache.Failure(hs, "invalid_response")
+		}
+		result := availcache.Failure(hs, "partial_response")
+		for i, raw := range response {
+			var item struct {
+				Cached *bool `json:"cached"`
 			}
+			if json.Unmarshal(raw, &item) != nil || item.Cached == nil {
+				result.Reasons[hs[i]] = "invalid_response"
+				continue
+			}
+			result.Cached[hs[i]] = *item.Cached
+			delete(result.Reasons, hs[i])
 		}
-		return out
+		return result
 	})
 }
 
