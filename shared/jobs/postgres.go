@@ -62,7 +62,15 @@ func (p *Postgres) StoreReleaseLink(ctx context.Context, infoHash, postURL, titl
 }
 
 func (p *Postgres) ReleaseLink(ctx context.Context, infoHash string) (postURL, title, source string, size int64) {
-	p.pool.QueryRow(ctx, `SELECT post_url, COALESCE(title, ''), COALESCE(source, 'hdencode'), COALESCE(size, 0) FROM release_links WHERE info_hash=$1`, infoHash).Scan(&postURL, &title, &source, &size)
+	postURL, title, source, size, _ = p.LookupReleaseLink(ctx, infoHash)
+	return
+}
+
+func (p *Postgres) LookupReleaseLink(ctx context.Context, infoHash string) (postURL, title, source string, size int64, err error) {
+	err = p.pool.QueryRow(ctx, `SELECT post_url, COALESCE(title, ''), COALESCE(source, 'hdencode'), COALESCE(size, 0) FROM release_links WHERE info_hash=$1`, infoHash).Scan(&postURL, &title, &source, &size)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	}
 	return
 }
 

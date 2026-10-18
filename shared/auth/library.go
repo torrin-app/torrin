@@ -83,7 +83,12 @@ func (s *Store) SyncADLibrary(ctx context.Context, entries []LibraryEntry) error
 }
 
 func (s *Store) IsInADLibrary(ctx context.Context, infoHash string) bool {
+	found, _ := s.LookupADLibrary(ctx, infoHash)
+	return found
+}
+
+func (s *Store) LookupADLibrary(ctx context.Context, infoHash string) (bool, error) {
 	var n int
-	s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ad_library WHERE info_hash=$1`, infoHash).Scan(&n)
-	return n > 0
+	err := s.pool.QueryRow(ctx, `SELECT COUNT(*) FROM ad_library WHERE info_hash=$1`, infoHash).Scan(&n)
+	return n > 0, err
 }

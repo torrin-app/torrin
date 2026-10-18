@@ -11,7 +11,7 @@ func TestCheckCachedMemoizes(t *testing.T) {
 	calls := 0
 	q := func(_ context.Context, _ []string) map[string]bool {
 		calls++
-		return map[string]bool{"aabb": true}
+		return map[string]bool{"aabb": true, "ccdd": false}
 	}
 	r1 := c.CheckCached(context.Background(), "p:", []string{"AABB", "CCDD"}, q)
 	if !r1["aabb"] || r1["ccdd"] {

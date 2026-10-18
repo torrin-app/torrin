@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/torrin-app/torrin/shared/auth"
+	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/jobs"
 	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/plans"
@@ -17,6 +18,10 @@ import (
 const checkBudget = 20 * time.Second
 
 func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *auth.User) {
+	var trace *checkTrace
+	if r.URL.Query().Get("diagnostics") == "1" {
+		trace = &checkTrace{byHash: make(map[string]map[string]checkObservation)}
+	}
 	target, validTarget := playbackTarget(r.URL.Query().Get("sid"))
 	if !validTarget {
 		stError(w, 400, "invalid series sid")
@@ -34,6 +39,10 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	}
 	if len(magnets) == 0 {
 		stJSON(w, 200, map[string]any{"data": map[string]any{"items": []any{}}})
+		return
+	}
+	if trace != nil && len(magnets) > 500 {
+		stError(w, http.StatusBadRequest, "too many hashes for diagnostics")
 		return
 	}
 
@@ -102,7 +111,22 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	}
 	warmByHash := map[string]*jobs.Job{}
 	if lookup := h.cachedLookup(); lookup != nil {
-		warmByHash, _ = lookup.CachedByHashes(ctx, allHashes)
+		var err error
+		warmByHash, err = lookup.CachedByHashes(ctx, allHashes)
+		for _, hash := range allHashes {
+			if err != nil {
+				trace.record(hash, "warm_cache", checkFailure(ctx, err, "database_error"))
+				trace.record(hash, "cross_node_cache", checkFailure(ctx, err, "database_error"))
+			} else if warmByHash[hash] == nil {
+				trace.record(hash, "warm_cache", "not_cached")
+				trace.record(hash, "cross_node_cache", "not_cached")
+			}
+		}
+	} else {
+		for _, hash := range allHashes {
+			trace.record(hash, "warm_cache", "not_configured")
+			trace.record(hash, "cross_node_cache", "not_configured")
+		}
 	}
 	warmCandidates := func() []string {
 		var hs []string
@@ -117,12 +141,16 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	// Tier 1: a cached job on this node — storage-verify the blob is present (catches
 	// eviction). Only the candidates, so the round-trips stay inside the budget.
 	fanOut(warmCandidates(), func(hash string) {
-		cached, ok := h.warmJobFiles(ctx, hash)
-		if !ok {
+		cached, reason := h.inspectWarmJobFiles(ctx, hash)
+		trace.record(hash, "warm_cache", reason)
+		if reason != "cached" {
 			return
 		}
 		name := cached.name
 		selected := jobs.FilesForEpisode(nil, cached.files, target.Season, target.Episode)
+		if len(selected) == 0 {
+			trace.record(hash, "warm_cache", "episode_not_in_cached_release")
+		}
 		files := h.buildFileEntries(user.ID, hash, cached.node, selected)
 		mu.Lock()
 		if name == "" {
@@ -138,14 +166,22 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 		mu.Lock()
 		for _, hash := range still {
 			job := warmByHash[hash]
-			if job == nil || !isWarmNodeJob(hash, job) {
+			if job == nil {
 				continue
 			}
+			if !isWarmNodeJob(hash, job) {
+				trace.record(hash, "cross_node_cache", "not_applicable")
+				continue
+			}
+			trace.record(hash, "cross_node_cache", "cached")
 			name := job.Name
 			if name == "" {
 				name, _ = items[idxOf[hash]]["name"].(string)
 			}
 			selected := jobs.FilesForEpisode(job, job.Files, target.Season, target.Episode)
+			if len(selected) == 0 {
+				trace.record(hash, "cross_node_cache", "episode_not_in_cached_release")
+			}
 			items[idxOf[hash]] = map[string]any{"hash": hash, "magnet": magnet.Build(hash, name), "status": "cached", "name": name, "files": h.buildFileEntries(user.ID, hash, job.Node, selected)}
 		}
 		mu.Unlock()
@@ -154,12 +190,16 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	// Tier 1.75: a durable Cairn is immediately playable even when its warm
 	// cache copy was evicted. Prefer local and cross-node warm copies above.
 	fanOut(uncached(), func(hash string) {
-		cached, ok := h.cairnJobFiles(ctx, hash)
-		if !ok {
+		cached, reason := h.inspectCairnJobFiles(ctx, hash)
+		trace.record(hash, "durable_archive", reason)
+		if reason != "cached" {
 			return
 		}
 		name := cached.name
 		selected := jobs.FilesForEpisode(nil, cached.files, target.Season, target.Episode)
+		if len(selected) == 0 {
+			trace.record(hash, "durable_archive", "episode_not_in_cached_release")
+		}
 		files := h.buildFileEntries(user.ID, hash, cached.node, selected)
 		mu.Lock()
 		if name == "" {
@@ -172,90 +212,112 @@ func (h *Handler) checkMagnets(w http.ResponseWriter, r *http.Request, user *aut
 	// Tier 1b: known release links (hdencode/scene-rls) are fetchable via AD + unrar.
 	// Tier 2: system AD library (torrin's own shared pool), fast DB lookup.
 	fanOut(uncached(), func(hash string) {
-		if pURL, _, _, _ := h.Jobs.ReleaseLink(ctx, hash); pURL != "" {
-			setStatus(hash, "acceleratable")
+		if h.Jobs == nil {
+			trace.record(hash, "release_link", "not_configured")
+		} else {
+			pURL, _, _, _, err := h.Jobs.LookupReleaseLink(ctx, hash)
+			if err != nil {
+				trace.record(hash, "release_link", checkFailure(ctx, err, "database_error"))
+			} else if pURL != "" {
+				trace.record(hash, "release_link", "release_link_unverified")
+				setStatus(hash, "acceleratable")
+				return
+			} else {
+				trace.record(hash, "release_link", "not_cached")
+			}
+		}
+		if h.Users == nil {
+			trace.record(hash, "shared_library", "not_configured")
 			return
 		}
-		if h.Users.IsInADLibrary(ctx, hash) {
+		found, err := h.Users.LookupADLibrary(ctx, hash)
+		if err != nil {
+			trace.record(hash, "shared_library", checkFailure(ctx, err, "database_error"))
+			return
+		}
+		if found {
+			trace.record(hash, "shared_library", "acceleratable")
 			setStatus(hash, "acceleratable")
+		} else {
+			trace.record(hash, "shared_library", "not_cached")
 		}
 	})
 
 	if still := uncached(); len(still) > 0 {
-		h.liveCacheCheck(ctx, user, byok, still, setStatus)
+		h.liveCacheCheck(ctx, user, byok, still, setStatus, trace)
 	}
 
+	trace.attach(ctx, items)
 	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items}})
 }
 
-func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool, hashes []string, setStatus func(hash, status string)) {
+func (h *Handler) liveCacheCheck(ctx context.Context, user *auth.User, byok bool, hashes []string, setStatus func(hash, status string), trace *checkTrace) {
 	var wg sync.WaitGroup
-	run := func(fn func()) {
-		wg.Add(1)
-		go func() { defer wg.Done(); fn() }()
-	}
-
-	// Tier 3: live TorrentClaw check across every provider the user can stream from
-	// (system AD/RD + their BYOK). Runs on TorrentClaw's side.
-	if h.TC != nil {
-		type pk struct{ provider, key string }
-		var checks []pk
-		if h.SysADKey != "" {
-			checks = append(checks, pk{"alldebrid", h.SysADKey})
-		}
-		if h.SysRDKey != "" {
-			checks = append(checks, pk{"real-debrid", h.SysRDKey})
-		}
-		if byok {
-			if k, _ := h.Users.GetRDKey(ctx, user.ID); k != "" {
-				checks = append(checks, pk{"real-debrid", k})
-			}
-			if k, _ := h.Users.GetADKey(ctx, user.ID); k != "" {
-				checks = append(checks, pk{"alldebrid", k})
-			}
-		}
-		for _, c := range checks {
-			c := c
-			run(func() {
-				for hash, ok := range h.TC.CheckCache(ctx, c.provider, c.key, hashes) {
-					if ok {
-						setStatus(strings.ToLower(hash), "acceleratable")
-					}
-				}
-			})
+	run := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); fn() }() }
+	mark := func(tier, reason string) {
+		for _, hash := range hashes {
+			trace.record(hash, tier, reason)
 		}
 	}
-
-	if byok {
-		// Tier 4: the user's Premiumize cache, checked directly.
-		run(func() {
-			if k, _ := h.Users.GetPMKey(ctx, user.ID); k != "" {
-				for hash, ok := range providers.PremiumizeCached(ctx, k, hashes) {
-					if ok {
-						setStatus(hash, "acceleratable")
-					}
-				}
-			}
-		})
-		// Tier 5: the user's TorBox cache, checked directly.
-		run(func() {
-			if k, _ := h.Users.GetTBKey(ctx, user.ID); k != "" {
-				for hash := range providers.TorBoxCached(ctx, k, hashes) {
+	apply := func(tier string, result availcache.CheckResult) {
+		for _, hash := range hashes {
+			if cached, known := result.Cached[hash]; known {
+				if cached {
+					trace.record(hash, tier, "acceleratable")
 					setStatus(hash, "acceleratable")
+				} else {
+					trace.record(hash, tier, "not_cached")
 				}
+			} else {
+				reason := result.Reasons[hash]
+				if reason == "" {
+					reason = "partial_response"
+				}
+				trace.record(hash, tier, reason)
 			}
-		})
-		// Tier 6: the user's Offcloud cache, checked directly.
+		}
+	}
+	// System and personal credentials stay distinct; no key material enters diagnostics.
+	tcCheck := func(tier, provider, key string) {
+		if h.TC == nil || key == "" {
+			mark(tier, "not_configured")
+			return
+		}
+		run(func() { apply(tier, h.TC.CheckCacheDetailed(ctx, provider, key, hashes)) })
+	}
+	tcCheck("system_alldebrid", "alldebrid", h.SysADKey)
+	tcCheck("system_real_debrid", "real-debrid", h.SysRDKey)
+	personal := func(tier string, getter func(context.Context, string) (string, error), check func(string)) {
+		if !byok {
+			mark(tier, "plan_not_eligible")
+			return
+		}
+		if h.Users == nil {
+			mark(tier, "not_configured")
+			return
+		}
 		run(func() {
-			if k, _ := h.Users.GetOCKey(ctx, user.ID); k != "" {
-				for hash, ok := range providers.OffcloudCached(ctx, k, hashes) {
-					if ok {
-						setStatus(hash, "acceleratable")
-					}
-				}
+			key, err := getter(ctx, user.ID)
+			if err != nil {
+				mark(tier, checkFailure(ctx, err, "database_error"))
+				return
 			}
+			if key == "" {
+				mark(tier, "not_configured")
+				return
+			}
+			check(key)
 		})
 	}
-
+	if h.TC == nil {
+		mark("personal_alldebrid", "not_configured")
+		mark("personal_real_debrid", "not_configured")
+	} else {
+		personal("personal_alldebrid", h.Users.GetADKey, func(key string) { tcCheck("personal_alldebrid", "alldebrid", key) })
+		personal("personal_real_debrid", h.Users.GetRDKey, func(key string) { tcCheck("personal_real_debrid", "real-debrid", key) })
+	}
+	personal("personal_premiumize", h.Users.GetPMKey, func(key string) { apply("personal_premiumize", providers.PremiumizeCachedDetailed(ctx, key, hashes)) })
+	personal("personal_torbox", h.Users.GetTBKey, func(key string) { apply("personal_torbox", providers.TorBoxCachedDetailed(ctx, key, hashes)) })
+	personal("personal_offcloud", h.Users.GetOCKey, func(key string) { apply("personal_offcloud", providers.OffcloudCachedDetailed(ctx, key, hashes)) })
 	wg.Wait()
 }

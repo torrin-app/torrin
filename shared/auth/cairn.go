@@ -2,7 +2,10 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type CairnItem struct {
@@ -22,14 +25,31 @@ func (s *Store) SetCairnArchive(ctx context.Context, infoHash, nzbKey, name stri
 }
 
 func (s *Store) GetCairnArchive(ctx context.Context, infoHash string) (nzbKey, name string, ok bool) {
-	err := s.pool.QueryRow(ctx, `SELECT nzb_key, name FROM cairn_archives WHERE info_hash = $1`, infoHash).Scan(&nzbKey, &name)
-	return nzbKey, name, err == nil && nzbKey != ""
+	nzbKey, name, ok, _ = s.LookupCairnArchive(ctx, infoHash)
+	return
+}
+
+// LookupCairnArchive preserves the distinction between an absent row and a failed lookup.
+func (s *Store) LookupCairnArchive(ctx context.Context, infoHash string) (nzbKey, name string, ok bool, err error) {
+	err = s.pool.QueryRow(ctx, `SELECT nzb_key, name FROM cairn_archives WHERE info_hash = $1`, infoHash).Scan(&nzbKey, &name)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", "", false, nil
+	}
+	return nzbKey, name, err == nil && nzbKey != "", err
 }
 
 func (s *Store) GetCairnNZB(ctx context.Context, infoHash string) ([]byte, bool) {
+	nzb, ok, _ := s.LookupCairnNZB(ctx, infoHash)
+	return nzb, ok
+}
+
+func (s *Store) LookupCairnNZB(ctx context.Context, infoHash string) ([]byte, bool, error) {
 	var nzb []byte
 	err := s.pool.QueryRow(ctx, `SELECT nzb FROM cairn_archives WHERE info_hash = $1`, infoHash).Scan(&nzb)
-	return nzb, err == nil && len(nzb) > 0
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	return nzb, err == nil && len(nzb) > 0, err
 }
 
 type CairnNZB struct {

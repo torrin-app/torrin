@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/availcache"
 	"github.com/torrin-app/torrin/shared/breaker"
 )
 
@@ -169,26 +170,66 @@ type tbCache struct {
 }
 
 func TorBoxCached(ctx context.Context, tbKey string, hashes []string) map[string]bool {
-	return cachedCheck(ctx, "torbox", tbKey, hashes, func(ctx context.Context, hs []string) map[string]bool {
+	return legacyCached(TorBoxCachedDetailed(ctx, tbKey, hashes))
+}
+
+func TorBoxCachedDetailed(ctx context.Context, tbKey string, hashes []string) availcache.CheckResult {
+	return cachedCheckDetailed(ctx, "torbox", tbKey, hashes, func(ctx context.Context, hs []string) availcache.CheckResult {
 		t := newTorbox(tbKey)
-		body, err := t.get(ctx, checkcachedURL(strings.Join(hs, ",")))
+		waitLimits(ctx, t.limiters)
+		if err := ctx.Err(); err != nil {
+			return availcache.Failure(hs, availcache.ErrorReason(err))
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, checkcachedURL(strings.Join(hs, ",")), nil)
 		if err != nil {
-			return nil
+			return availcache.Failure(hs, "check_failed")
 		}
-		var resp struct {
-			Success bool         `json:"success"`
-			Data    []tbListItem `json:"data"`
+		req.Header.Set("Authorization", "Bearer "+tbKey)
+		body, reason := cacheCheckRequest(ctx, t.http, "torbox", req)
+		if reason != "" {
+			return availcache.Failure(hs, reason)
 		}
-		if json.Unmarshal(body, &resp) != nil {
-			return nil
+		var response struct {
+			Success *bool             `json:"success"`
+			Data    []json.RawMessage `json:"data"`
 		}
-		out := make(map[string]bool, len(resp.Data))
-		for _, d := range resp.Data {
-			if d.Hash != "" {
-				out[strings.ToLower(d.Hash)] = true
+		if json.Unmarshal(body, &response) != nil || response.Success == nil {
+			return availcache.Failure(hs, "invalid_response")
+		}
+		if !*response.Success {
+			return availcache.Failure(hs, "check_failed")
+		}
+		if response.Data == nil {
+			return availcache.Failure(hs, "invalid_response")
+		}
+		// This endpoint returns positive entries only. Its omissions cannot certify
+		// misses without a separate, explicit complete-response contract.
+		result := availcache.Failure(hs, "positive_only_response")
+		requested := make(map[string]bool, len(hs))
+		for _, hash := range hs {
+			requested[hash] = true
+		}
+		malformed := false
+		for _, raw := range response.Data {
+			var item struct {
+				Hash string `json:"hash"`
+			}
+			if json.Unmarshal(raw, &item) != nil || item.Hash == "" {
+				malformed = true
+				continue
+			}
+			hash := strings.ToLower(strings.TrimSpace(item.Hash))
+			if requested[hash] {
+				result.Cached[hash] = true
+				delete(result.Reasons, hash)
 			}
 		}
-		return out
+		if malformed {
+			for hash := range result.Reasons {
+				result.Reasons[hash] = "invalid_response"
+			}
+		}
+		return result
 	})
 }
 
