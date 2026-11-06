@@ -24,6 +24,15 @@ type usenetProviderReq struct {
 	Priority int    `json:"priority"`
 }
 
+func storedProviderPassword(stored []*auth.UsenetProvider, host, username string) string {
+	for _, p := range stored {
+		if p.Host == host && p.Username == username {
+			return p.Password
+		}
+	}
+	return ""
+}
+
 func (r usenetProviderReq) toEntry() *auth.UsenetProvider {
 	return &auth.UsenetProvider{
 		Label: r.Label, Host: r.Host, Port: r.Port, Username: r.Username,
@@ -52,6 +61,10 @@ func (s *Server) testProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Port == 0 {
 		req.Port = 563
+	}
+	if req.Password == "" {
+		stored, _ := s.Users.ListUsenetProviders(r.Context(), middleware.GetUser(r).ID)
+		req.Password = storedProviderPassword(stored, req.Host, req.Username)
 	}
 	c := download.Credentials{Host: req.Host, Port: req.Port, Username: req.Username, Password: req.Password, SSL: req.SSL, MaxConns: 2}
 	if err := download.TestCredentials(r.Context(), c); err != nil {

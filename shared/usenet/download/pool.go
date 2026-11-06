@@ -40,11 +40,27 @@ type Credentials struct {
 
 func NewPool(c Credentials) (nntpPool.ConnectionPool, error) {
 	drainOnce.Do(drainPoolLogs)
+	return nntpPool.New(poolConfig(c, 5), 0)
+}
+
+// NewResilientPool builds a pool for long-lived reuse (the shared read pools
+// and the cairn poster). It sets MaxConnErrors=0 so a transient burst of
+// connection errors can't fatally close the pool for good -- with a non-zero
+// limit the library hits the threshold, sets a fatal error and Close()s the
+// pool, so every later Get returns that cached error until the process
+// restarts (seen wedging cairn posting and cairn playback). 0 keeps it
+// retrying so it self-heals when the provider recovers.
+func NewResilientPool(c Credentials) (nntpPool.ConnectionPool, error) {
+	drainOnce.Do(drainPoolLogs)
+	return nntpPool.New(poolConfig(c, 0), 0)
+}
+
+func poolConfig(c Credentials, maxConnErrors uint32) *nntpPool.Config {
 	max := uint32(c.MaxConns)
 	if max == 0 {
 		max = 10
 	}
-	return nntpPool.New(&nntpPool.Config{
+	return &nntpPool.Config{
 		Host:                  c.Host,
 		Port:                  uint32(c.Port),
 		SSL:                   c.SSL,
@@ -54,16 +70,19 @@ func NewPool(c Credentials) (nntpPool.ConnectionPool, error) {
 		HealthCheck:           true,
 		ConnWaitTime:          5 * time.Second,
 		IdleTimeout:           poolIdleTimeout,
-		MaxConnErrors:         5,
+		MaxConnErrors:         maxConnErrors,
 		MaxTooManyConnsErrors: 3,
-	}, 0)
+	}
 }
 
 const poolIdleTimeout = 5 * time.Minute
 
 var (
 	poolLinger = 5 * time.Minute
-	newPool    = NewPool
+	// Shared pools are long-lived (cached + reused across streams), so they use
+	// the resilient constructor -- a transient provider blip must not fatally
+	// close the pool and wedge all reads until a restart.
+	newPool = NewResilientPool
 )
 
 type sharedEntry struct {

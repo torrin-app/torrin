@@ -8,6 +8,8 @@ import (
 	"github.com/torrin-app/torrin/shared/diskfree"
 )
 
+var statFree = diskfree.Stat
+
 func (e *Engine) StartDiskWatch(ctx context.Context, path string, minFree, reclaimTo int64, interval time.Duration, fleetHasRoom func(context.Context) bool) {
 	if path == "" || minFree <= 0 || interval <= 0 {
 		return
@@ -23,7 +25,7 @@ func (e *Engine) StartDiskWatch(ctx context.Context, path string, minFree, recla
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				free, _, ok := diskfree.Stat(path)
+				free, _, ok := statFree(path)
 				if !ok || free >= minFree {
 					continue
 				}
@@ -41,15 +43,20 @@ func (e *Engine) StartDiskWatch(ctx context.Context, path string, minFree, recla
 func (e *Engine) reclaimToFree(ctx context.Context, path string, target int64) (int64, int64) {
 	var evicted, freed int64
 	e.RunGC(ctx)
-	if free, _, ok := diskfree.Stat(path); ok && free >= target {
+	free, _, ok := statFree(path)
+	if !ok || free >= target {
 		return evicted, freed
 	}
+	need := target - free
 	candidates, err := e.repo.GetEvictionCandidates(ctx, e.node)
 	if err != nil {
 		return evicted, freed
 	}
 	for _, c := range orderForReclaim(candidates) {
-		if free, _, ok := diskfree.Stat(path); ok && free >= target {
+		if freed >= need {
+			break
+		}
+		if f, _, ok := statFree(path); ok && f >= target {
 			break
 		}
 		if c.DaysSinceAccess < e.policy.BudgetGraceDays {

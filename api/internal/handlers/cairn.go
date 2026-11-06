@@ -102,15 +102,10 @@ func (s *Server) cairnList(w http.ResponseWriter, r *http.Request) {
 			out[i].Cached, out[i].StreamSource, out[i].StreamURLs = true, "cache", streams
 			continue
 		}
-		if !item.Archived || !s.CairnDirect {
+		if !item.Archived || !s.CairnDirect || len(item.Files) == 0 {
 			continue
 		}
-		streams, err := s.directCairnStreams(r, user.ID, item.InfoHash)
-		if err != nil {
-			slog.Warn("cairn: direct streams unavailable", "hash", item.InfoHash, "err", err)
-			continue
-		}
-		out[i].Cached, out[i].StreamSource, out[i].StreamURLs = true, "cairn", streams
+		out[i].Cached, out[i].StreamSource, out[i].StreamURLs = true, "cairn", s.cairnStreamsFromLayout(r, user.ID, item.InfoHash, item.Files)
 	}
 	web.WriteJSON(w, 200, map[string]any{"cairns": out})
 }
@@ -182,16 +177,17 @@ func (s *Server) nodeCairnStreams(r *http.Request, hash string, job *jobs.Job) (
 	return streams, true
 }
 
-func (s *Server) directCairnStreams(r *http.Request, userID, hash string) ([]jobs.Stream, error) {
-	data, err := s.CairnStore.GetBytes(r.Context(), nzb.StorageKey(hash))
-	if err != nil {
-		if fallback, ok := s.Cairns.GetCairnNZB(r.Context(), hash); ok {
-			data, err = fallback, nil
-		}
+func (s *Server) cairnStreamsFromLayout(r *http.Request, userID, hash string, files []auth.CairnFile) []jobs.Stream {
+	enc := s.CairnCipher != nil
+	streams := make([]jobs.Stream, len(files))
+	for i, f := range files {
+		u := s.Store.SignURLNodeUser("", cairn.StreamPath(hash, i, f.Name), userID, 24*time.Hour) + manifest.StreamQuery(hash, enc)
+		streams[i] = jobs.Stream{FileName: f.Name, Size: f.Size, SignedURL: georoute.URL(r, u)}
 	}
-	if err != nil {
-		return nil, fmt.Errorf("read nzb: %w", err)
-	}
+	return streams
+}
+
+func (s *Server) cairnLayoutFromNZB(data []byte) ([]auth.CairnFile, error) {
 	parsed, err := nzb.ParseBytes(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse nzb: %w", err)
@@ -199,24 +195,68 @@ func (s *Server) directCairnStreams(r *http.Request, userID, hash string) ([]job
 	if len(parsed.Files) == 0 {
 		return nil, fmt.Errorf("parse nzb: no files")
 	}
-	streams := make([]jobs.Stream, len(parsed.Files))
+	out := make([]auth.CairnFile, len(parsed.Files))
 	for i, file := range parsed.Files {
 		name := file.Filename
 		if name == "" {
 			name = file.Subject
 		}
 		size := file.Size()
-		enc := s.CairnCipher != nil
-		if enc {
+		if s.CairnCipher != nil {
 			size, err = s.CairnCipher.PlainSize(size)
 			if err != nil {
 				return nil, fmt.Errorf("file %d encrypted size: %w", i, err)
 			}
 		}
-		u := s.Store.SignURLNodeUser("", cairn.StreamPath(hash, i, name), userID, 24*time.Hour) + manifest.StreamQuery(hash, enc)
-		streams[i] = jobs.Stream{FileName: name, Size: size, SignedURL: georoute.URL(r, u)}
+		out[i] = auth.CairnFile{Name: name, Size: size}
 	}
-	return streams, nil
+	return out, nil
+}
+
+func (s *Server) RunCairnBackfill(ctx context.Context) {
+	t := time.NewTimer(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		s.cairnBackfillSweep(ctx)
+		t.Reset(30 * time.Minute)
+	}
+}
+
+func (s *Server) cairnBackfillSweep(ctx context.Context) {
+	if s.CairnStore == nil {
+		return
+	}
+	hashes, err := s.Cairns.CairnArchivesMissingFiles(ctx, 500)
+	if err != nil || len(hashes) == 0 {
+		return
+	}
+	filled := 0
+	for _, hash := range hashes {
+		if ctx.Err() != nil {
+			return
+		}
+		data, err := s.CairnStore.GetBytes(ctx, nzb.StorageKey(hash))
+		if err != nil {
+			fb, ok := s.Cairns.GetCairnNZB(ctx, hash)
+			if !ok {
+				continue
+			}
+			data = fb
+		}
+		layout, err := s.cairnLayoutFromNZB(data)
+		if err != nil || len(layout) == 0 {
+			continue
+		}
+		if s.Cairns.SetCairnFiles(ctx, hash, layout) == nil {
+			filled++
+		}
+	}
+	slog.Info("cairn backfill", "filled", filled, "missing", len(hashes))
 }
 
 func (s *Server) cairnRestore(w http.ResponseWriter, r *http.Request) {

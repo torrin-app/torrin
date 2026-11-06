@@ -123,19 +123,28 @@ func planForUser(user *auth.User) plans.Plan {
 	return plan
 }
 
+func hasUsenetCreds(ctx context.Context, users *auth.Store, userID string) bool {
+	if _, err := users.GetUsenetCreds(ctx, userID); err == nil {
+		return true
+	}
+	ps, _ := users.EnabledUsenetProviders(ctx, userID)
+	return len(ps) > 0
+}
+
 func queuedSourceEntitled(ctx context.Context, users *auth.Store, user *auth.User, plan plans.Plan, job *jobs.Job) bool {
 	switch job.Source {
 	case jobs.SourceHoster, jobs.SourceHDEncode, jobs.SourceScenerls:
 		return plan.ID != "free"
 	case jobs.SourceUsenet:
-		if users.HasUserCairn(ctx, user.ID, job.InfoHash) {
-			return true
-		}
-		_, err := users.GetUsenetCreds(ctx, user.ID)
-		return (err == nil && plans.CanBYOK(plan.ID)) || plan.SystemUsenet
+		hasCairn := users.HasUserCairn(ctx, user.ID, job.InfoHash)
+		return usenetJobEntitled(plan, hasCairn, hasUsenetCreds(ctx, users, user.ID))
 	default:
 		return true
 	}
+}
+
+func usenetJobEntitled(plan plans.Plan, hasCairn, hasCreds bool) bool {
+	return hasCairn || (hasCreds && plans.CanBYOK(plan.ID)) || plan.SystemUsenet
 }
 
 func startLibrarySync(ctx context.Context, users *auth.Store) {

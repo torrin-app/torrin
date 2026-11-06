@@ -95,6 +95,36 @@ func TestBuildFileEntries(t *testing.T) {
 	}
 }
 
+func TestMagnetDataLiteNoStoreFetch(t *testing.T) {
+	// The lite list builder must work from the job record without a per-item
+	// store fetch, so a failing store still yields a full downloaded entry.
+	h := &Handler{Deps: Deps{Store: fakeStore{err: context.DeadlineExceeded}}}
+	m := h.magnetDataLite(packJob())
+	if m["status"] != "downloaded" {
+		t.Fatalf("status = %v, want downloaded", m["status"])
+	}
+	files, _ := m["files"].([]map[string]any)
+	if len(files) != 2 {
+		t.Fatalf("got %d files, want 2 built from the job record", len(files))
+	}
+	if m["hash"] != "abc" {
+		t.Errorf("hash = %v", m["hash"])
+	}
+}
+
+func TestMagnetDataLitePending(t *testing.T) {
+	h := &Handler{Deps: Deps{Store: fakeStore{}}}
+	j := packJob()
+	j.Status = jobs.StatusDownloading
+	m := h.magnetDataLite(j)
+	if m["status"] == "downloaded" {
+		t.Error("downloading job must not be marked downloaded")
+	}
+	if files, _ := m["files"].([]map[string]any); len(files) != 0 {
+		t.Error("non-downloaded job should list no files")
+	}
+}
+
 func TestExtractHash(t *testing.T) {
 	h := "0123456789abcdef0123456789abcdef01234567"
 	if got := extractHash("magnet:?xt=urn:btih:" + h + "&dn=x"); got != h {

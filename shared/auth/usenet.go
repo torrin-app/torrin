@@ -48,6 +48,11 @@ func (s *Store) DeleteUsenetCreds(ctx context.Context, userID string) error {
 	return err
 }
 
+func (s *Store) SetUsenetStreaming(ctx context.Context, userID string, on bool) error {
+	_, err := s.pool.Exec(ctx, `UPDATE users SET usenet_streaming=$2 WHERE id=$1`, userID, on)
+	return err
+}
+
 type UsenetIndexer struct {
 	URL    string `json:"url"`
 	APIKey string `json:"api_key,omitempty"`

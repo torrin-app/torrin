@@ -1,5 +1,6 @@
+# Headless Camoufox behind an HTTP endpoint; reveals HDEncode links. Must run in the VPN netns.
 FROM python:3.12-slim
-RUN pip install --no-cache-dir "camoufox==0.5.5" "playwright==1.60.0" \
+RUN pip install --no-cache-dir "camoufox[geoip]==0.5.5" "playwright==1.60.0" \
     && python -m playwright install-deps firefox \
     && python -m camoufox fetch \
     && rm -rf /var/lib/apt/lists/*

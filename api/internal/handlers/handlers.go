@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/torrin-app/torrin/api/internal/middleware"
 	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/billing"
@@ -42,6 +43,8 @@ type CairnRepository interface {
 	DeleteUserCairn(ctx context.Context, userID, infoHash string) error
 	ListUserCairns(ctx context.Context, userID string) ([]auth.CairnItem, error)
 	HasUserCairn(ctx context.Context, userID, infoHash string) bool
+	CairnArchivesMissingFiles(ctx context.Context, limit int) ([]string, error)
+	SetCairnFiles(ctx context.Context, infoHash string, files []auth.CairnFile) error
 }
 
 type CairnStore interface {
@@ -96,6 +99,7 @@ type Deps struct {
 
 type Server struct {
 	Deps
+	wa *webauthn.WebAuthn
 }
 
 func New(d Deps) *Server {
@@ -108,7 +112,7 @@ func New(d Deps) *Server {
 	if d.CairnStore == nil {
 		d.CairnStore = d.Store
 	}
-	return &Server{d}
+	return &Server{Deps: d, wa: newWebAuthn(d.WebBase)}
 }
 
 func (s *Server) storeForNode(node string) Storage {
@@ -142,7 +146,16 @@ func (s *Server) Register(mux *http.ServeMux, authMW func(http.Handler) http.Han
 	mux.HandleFunc("POST /api/auth/login", s.loginPassword)
 	mux.HandleFunc("POST /api/auth/login/key", s.loginKey)
 	mux.HandleFunc("POST /api/auth/login/verify", s.loginVerify)
+	mux.HandleFunc("POST /api/auth/login/passkey/begin", s.passkeyLoginBegin)
+	mux.HandleFunc("POST /api/auth/login/passkey/finish", s.passkeyLoginFinish)
+	mux.Handle("POST /api/auth/passkeys/begin", loginMW(http.HandlerFunc(s.passkeyRegisterBegin)))
+	mux.Handle("POST /api/auth/passkeys/finish", loginMW(http.HandlerFunc(s.passkeyRegisterFinish)))
+	mux.Handle("GET /api/auth/passkeys", loginMW(http.HandlerFunc(s.passkeyList)))
+	mux.Handle("DELETE /api/auth/passkeys/{id}", loginMW(http.HandlerFunc(s.passkeyDelete)))
+	mux.HandleFunc("POST /api/auth/logout", s.logout)
 	mux.Handle("POST /api/auth/password", loginMW(http.HandlerFunc(s.setPassword)))
+	mux.Handle("GET /api/speedtest/ticket", loginMW(http.HandlerFunc(s.speedtestTicket)))
+	mux.Handle("POST /api/usenet/streaming", loginMW(http.HandlerFunc(s.setUsenetStreaming)))
 	mux.Handle("POST /api/billing/crypto/checkout", loginMW(http.HandlerFunc(s.cryptoCheckout)))
 	mux.Handle("POST /api/billing/bachs/checkout", loginMW(http.HandlerFunc(s.bachsCheckout)))
 	mux.Handle("POST /api/billing/bachs/portal", loginMW(http.HandlerFunc(s.bachsPortal)))

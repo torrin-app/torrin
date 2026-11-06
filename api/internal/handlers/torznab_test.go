@@ -70,7 +70,7 @@ func TestDedupeTorrents(t *testing.T) {
 }
 
 func TestMarkCached(t *testing.T) {
-	s := &Server{Deps{CachedJobs: fakeCachedLookup{"abc": {}}}}
+	s := &Server{Deps: Deps{CachedJobs: fakeCachedLookup{"abc": {}}}}
 	in := []comet.Result{{InfoHash: "ABC"}, {InfoHash: "def"}}
 	out := s.markCached(context.Background(), in)
 	if !out[0].Cached {

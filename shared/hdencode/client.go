@@ -140,6 +140,34 @@ func (c *Client) fetch(ctx context.Context, method, u string, body io.Reader) (*
 	return release.FetchDoc(ctx, c.http, method, u, body)
 }
 
+func (c *Client) FetchRaw(ctx context.Context, pageURL string) (string, error) {
+	if c.solverURL == "" {
+		return "", errors.New("hdencode solver not configured")
+	}
+	body, _ := json.Marshal(map[string]string{"url": pageURL})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.solverURL+"/fetch", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.solveHTTP.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("hdencode fetch: %w", stripURL(err))
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Body  string `json:"body"`
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("hdencode solver decode: %w", err)
+	}
+	if out.Error != "" {
+		return "", fmt.Errorf("hdencode solver: %s", out.Error)
+	}
+	return out.Body, nil
+}
+
 func isPost(href string) bool {
 	if !strings.HasPrefix(href, base+"/") {
 		return false

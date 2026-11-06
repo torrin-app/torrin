@@ -88,9 +88,33 @@ func (s *Server) newznabGetNZB(w http.ResponseWriter, r *http.Request) {
 		newznabError(w, 300, "could not fetch nzb")
 		return
 	}
+	// Name the download by the release title (passed from the feed) rather than
+	// the opaque result id, so clients like StremThru don't name the job after a
+	// random-looking hash.
+	name := nzbFilename(q.Get("t"))
+	if name == "" {
+		name = q.Get("id")
+	}
 	w.Header().Set("Content-Type", "application/x-nzb")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+q.Get("id")+`.nzb"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.nzb"`)
 	w.Write(data)
+}
+
+// nzbFilename makes a release title safe to put in a Content-Disposition header
+// (no quotes/slashes/control chars that would break the header or the path).
+func nzbFilename(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.TrimSuffix(name, ".nzb")
+	name = strings.Map(func(r rune) rune {
+		if r == '"' || r == '/' || r == '\\' || r < 0x20 {
+			return -1
+		}
+		return r
+	}, name)
+	if len(name) > 200 {
+		name = name[:200]
+	}
+	return name
 }
 
 func writeNewznabFeed(w http.ResponseWriter, base, apikey string, results []indexer.Result) {
@@ -98,8 +122,8 @@ func writeNewznabFeed(w http.ResponseWriter, base, apikey string, results []inde
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">` + "\n<channel>\n<title>Torrin</title>\n")
 	for _, res := range results {
-		dl := fmt.Sprintf("%s/newznab/getnzb?id=%s&s=%s&c=%s&apikey=%s", base,
-			url.QueryEscape(res.ID), url.QueryEscape(res.Source), url.QueryEscape(res.Category), url.QueryEscape(apikey))
+		dl := fmt.Sprintf("%s/newznab/getnzb?id=%s&s=%s&c=%s&t=%s&apikey=%s", base,
+			url.QueryEscape(res.ID), url.QueryEscape(res.Source), url.QueryEscape(res.Category), url.QueryEscape(res.Title), url.QueryEscape(apikey))
 		size := strconv.FormatInt(res.Size, 10)
 		b.WriteString("<item>\n")
 		b.WriteString("<title>" + esc(res.Title) + "</title>\n")

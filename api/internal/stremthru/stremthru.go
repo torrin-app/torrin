@@ -149,6 +149,22 @@ func (h *Handler) magnetData(ctx context.Context, j *jobs.Job) map[string]any {
 	return h.magnetDataForTarget(ctx, j, stremioid.ID{})
 }
 
+// magnetDataLite builds a list item from the job's own fields without the
+// per-job store/manifest fetches magnetData does, so listing a large library
+// doesn't cost a round-trip per item. Full file resolution happens on getMagnet.
+func (h *Handler) magnetDataLite(j *jobs.Job) map[string]any {
+	m := map[string]any{
+		"id": j.ID, "hash": j.InfoHash, "magnet": magnet.Build(j.InfoHash, j.Name), "name": j.Name, "status": stStatus(j.Status),
+		"size": j.FileSize, "added_at": j.CreatedAt.Format(time.RFC3339), "private": false,
+		"files": []map[string]any{},
+	}
+	if j.Status == jobs.StatusComplete || j.Status == jobs.StatusSeeding {
+		m["status"] = "downloaded"
+		m["files"] = h.buildFileEntries(j.UserID, j.InfoHash, j.Node, j.Files)
+	}
+	return m
+}
+
 // magnetDataForTarget keeps the persisted job as the pack/account record and
 // applies the current playback target only to the response.
 func (h *Handler) magnetDataForTarget(ctx context.Context, j *jobs.Job, target stremioid.ID) map[string]any {

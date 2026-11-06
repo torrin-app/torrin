@@ -7,8 +7,10 @@ import (
 	"hash/crc32"
 	"io"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -28,7 +30,24 @@ func (f fakeCairnStore) GetBytes(context.Context, string) ([]byte, error) {
 
 type fakeCairnFetcher struct {
 	articles map[string][]byte
+	mu       sync.Mutex
 	calls    []string
+}
+
+func (f *fakeCairnFetcher) fetchCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+// sortedCalls returns the fetched message IDs in a stable order; concurrent
+// read-ahead makes the fetch order itself nondeterministic.
+func (f *fakeCairnFetcher) sortedCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]string(nil), f.calls...)
+	sort.Strings(out)
+	return out
 }
 
 type blockingCairnFetcher struct {
@@ -58,7 +77,9 @@ func (f *blockingCairnFetcher) Fetch(ctx context.Context, id, _ string) ([]byte,
 }
 
 func (f *fakeCairnFetcher) Fetch(_ context.Context, id, _ string) ([]byte, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, id)
+	f.mu.Unlock()
 	b, ok := f.articles[id]
 	if !ok {
 		return nil, fmt.Errorf("missing article %s", id)
@@ -105,8 +126,8 @@ func TestServeCairnFullHeadAndRange(t *testing.T) {
 	data := []byte("abcdefghijklmnop")
 	srv, fetch := cairnServer(data, 8, nil)
 	w := do(srv, http.MethodHead, cairnURL(hash, 0, ""), nil)
-	if w.Code != 200 || w.Header().Get("Content-Length") != strconv.Itoa(len(data)) || len(fetch.calls) != 0 {
-		t.Fatalf("head: code=%d len=%q fetches=%v", w.Code, w.Header().Get("Content-Length"), fetch.calls)
+	if w.Code != 200 || w.Header().Get("Content-Length") != strconv.Itoa(len(data)) || fetch.fetchCount() != 0 {
+		t.Fatalf("head: code=%d len=%q fetches=%d", w.Code, w.Header().Get("Content-Length"), fetch.fetchCount())
 	}
 
 	srv, fetch = cairnServer(data, 8, nil)
@@ -114,7 +135,7 @@ func TestServeCairnFullHeadAndRange(t *testing.T) {
 	if w.Code != 200 || !bytes.Equal(w.Body.Bytes(), data) {
 		t.Fatalf("full: code=%d body=%q", w.Code, w.Body.Bytes())
 	}
-	if got := fmt.Sprint(fetch.calls); got != "[part-1 part-2]" {
+	if got := fmt.Sprint(fetch.sortedCalls()); got != "[part-1 part-2]" {
 		t.Fatalf("full fetches = %s", got)
 	}
 
@@ -123,7 +144,7 @@ func TestServeCairnFullHeadAndRange(t *testing.T) {
 	if w.Code != 206 || w.Body.String() != "jklm" || w.Header().Get("Content-Range") != "bytes 9-12/16" {
 		t.Fatalf("range: code=%d cr=%q body=%q", w.Code, w.Header().Get("Content-Range"), w.Body.String())
 	}
-	if got := fmt.Sprint(fetch.calls); got != "[part-2]" {
+	if got := fmt.Sprint(fetch.sortedCalls()); got != "[part-2]" {
 		t.Fatalf("range fetched unrelated articles: %s", got)
 	}
 }
@@ -134,8 +155,8 @@ func TestServeCairnAuthorizationAndFailures(t *testing.T) {
 	fetch := &fakeCairnFetcher{articles: articles}
 	srv := New(&fakeStorage{valid: false}, "*", "", nil)
 	srv.SetCairn(fakeCairnStore{data: nzbData}, fetch)
-	if w := do(srv, http.MethodGet, cairnURL(hash, 0, ""), nil); w.Code != 403 || len(fetch.calls) != 0 {
-		t.Fatalf("bad signature: code=%d fetches=%v", w.Code, fetch.calls)
+	if w := do(srv, http.MethodGet, cairnURL(hash, 0, ""), nil); w.Code != 403 || fetch.fetchCount() != 0 {
+		t.Fatalf("bad signature: code=%d fetches=%d", w.Code, fetch.fetchCount())
 	}
 
 	srv = New(&fakeStorage{valid: true}, "*", "", nil)
@@ -144,14 +165,14 @@ func TestServeCairnAuthorizationAndFailures(t *testing.T) {
 	}
 
 	srv.SetCairn(fakeCairnStore{data: nzbData}, fetch)
-	if w := do(srv, http.MethodGet, cairnURL(hash, 4, ""), nil); w.Code != 404 || len(fetch.calls) != 0 {
-		t.Fatalf("bad index: code=%d fetches=%v", w.Code, fetch.calls)
+	if w := do(srv, http.MethodGet, cairnURL(hash, 4, ""), nil); w.Code != 404 || fetch.fetchCount() != 0 {
+		t.Fatalf("bad index: code=%d fetches=%d", w.Code, fetch.fetchCount())
 	}
 
 	missing := &fakeCairnFetcher{articles: map[string][]byte{}}
 	srv.SetCairn(fakeCairnStore{data: nzbData}, missing)
-	if w := do(srv, http.MethodGet, cairnURL(hash, 0, ""), nil); w.Code != http.StatusBadGateway || len(missing.calls) != 1 {
-		t.Fatalf("missing article: code=%d fetches=%v body=%s", w.Code, missing.calls, w.Body.String())
+	if w := do(srv, http.MethodGet, cairnURL(hash, 0, ""), nil); w.Code != http.StatusBadGateway || missing.fetchCount() < 1 {
+		t.Fatalf("missing article: code=%d fetches=%d body=%s", w.Code, missing.fetchCount(), w.Body.String())
 	}
 
 	srv.SetCairn(fakeCairnStore{data: nzbData}, fetch)

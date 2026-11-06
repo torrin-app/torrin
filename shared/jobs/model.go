@@ -42,6 +42,9 @@ var downloadingStates = sqlInList(downloadingStatuses)
 var budgetStatuses = []Status{StatusPending, StatusDownloading, StatusProcessing, StatusPublishing, StatusSeeding}
 var budgetStates = sqlInList(budgetStatuses)
 
+var viewableStatuses = []Status{StatusPending, StatusQueued, StatusDownloading, StatusProcessing, StatusPublishing, StatusSeeding, StatusComplete}
+var viewableStates = sqlInList(viewableStatuses)
+
 func sqlInList(ss []Status) string {
 	out := "("
 	for i, s := range ss {

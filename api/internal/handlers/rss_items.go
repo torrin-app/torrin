@@ -109,7 +109,7 @@ func (s *Server) rssSubmit(ctx context.Context, feed *auth.RSSFeed, user *auth.U
 }
 
 func (s *Server) rssUsenet(ctx context.Context, feed *auth.RSSFeed, user *auth.User, plan plans.Plan, item rss.Item) (added, stop bool) {
-	if _, err := s.Users.GetUsenetCreds(ctx, user.ID); err != nil && !plan.SystemUsenet {
+	if !s.hasUsenetProvider(ctx, user.ID) && !plan.SystemUsenet {
 		s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
 		return false, false
 	}

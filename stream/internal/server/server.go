@@ -53,6 +53,7 @@ type Server struct {
 	cipher     *crypto.Stream
 	nodeOf     func(ctx context.Context, ih string) string
 	nodeSeen   sync.Map
+	usenet     *usenetBackend
 }
 
 func New(store Storage, corsOrigin, apiURL string, cipher *crypto.Stream) *Server {
@@ -92,6 +93,7 @@ func (s *Server) nodeFromReq(r *http.Request) string {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+	s.registerSpeedtest(mux)
 	mux.HandleFunc("/", s.serve)
 	return mux
 }
@@ -126,6 +128,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.store.Verify(key, expNum, user, sig) {
 		httpError(w, 403, "invalid signature")
+		return
+	}
+	if r.URL.Query().Get("usenet") == "1" {
+		s.serveUsenetStream(w, r, key, user)
 		return
 	}
 	if _, _, _, ok := cairn.ParseStreamPath(key); ok {

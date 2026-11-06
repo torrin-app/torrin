@@ -84,3 +84,20 @@ func TestNewznabFeed(t *testing.T) {
 		}
 	}
 }
+
+func TestNzbFilename(t *testing.T) {
+	cases := map[string]string{
+		"The.Show.S01E01.1080p.WEB-DL": "The.Show.S01E01.1080p.WEB-DL",
+		"  Spaced Name.nzb ":           "Spaced Name",
+		"bad/\\\"name\r\n":             "badname",
+		"":                             "",
+	}
+	for in, want := range cases {
+		if got := nzbFilename(in); got != want {
+			t.Errorf("nzbFilename(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if len(nzbFilename(strings.Repeat("a", 500))) != 200 {
+		t.Error("should cap at 200 chars")
+	}
+}

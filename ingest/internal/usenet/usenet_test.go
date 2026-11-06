@@ -17,6 +17,25 @@ import (
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
 )
 
+func TestTorboxUsenetRef(t *testing.T) {
+	cases := map[string]struct {
+		id int
+		ok bool
+	}{
+		"torbox-usenet:42": {42, true},
+		"torbox-usenet:0":  {0, false},
+		"torbox-usenet:x":  {0, false},
+		"magnet:?xt=foo":   {0, false},
+		"":                 {0, false},
+	}
+	for in, want := range cases {
+		id, ok := torboxUsenetRef(in)
+		if ok != want.ok || id != want.id {
+			t.Fatalf("%q: got (%d,%v) want (%d,%v)", in, id, ok, want.id, want.ok)
+		}
+	}
+}
+
 func TestReasonSurfacesRealError(t *testing.T) {
 	r := &Runner{scratch: "/scratch"}
 	job := &jobs.Job{InfoHash: "abc"}

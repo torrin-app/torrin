@@ -56,6 +56,8 @@ func main() {
 	}
 
 	plans.DayPlansEnabled = env.Get("DAY_PLANS_ENABLED", "true") != "false"
+	plans.LifetimeEnabled = env.Get("LIFETIME_ENABLED", "true") != "false"
+	plans.BlackFridayActive = env.Get("BLACK_FRIDAY_LIFETIME", "false") == "true"
 	auth.QuotaEnforceMonth = env.Get("INGEST_QUOTA_ENFORCE_MONTH", "")
 	middleware.SetProxySecret(env.Get("TRUSTED_PROXY_SECRET", ""))
 
@@ -140,6 +142,7 @@ func main() {
 		env.Get("BACHS_SUB_PRODUCTS", ""),
 		env.Get("API_PUBLIC_URL", ""), env.Get("WEB_URL", ""),
 		env.Get("DONATION_DISCORD_WEBHOOK", ""), users)
+	billing.BachsCheckoutEnabled = env.Get("BACHS_CHECKOUT_ENABLED", "true") != "false"
 	nowpay := billing.NewNowPaymentsHandler(
 		env.Get("NOWPAYMENTS_API_KEY", ""), env.Get("NOWPAYMENTS_IPN_SECRET", ""),
 		env.Get("API_PUBLIC_URL", ""), env.Get("WEB_URL", ""), users)
@@ -227,6 +230,7 @@ func main() {
 	}
 	go prewarmRetry(ctx, jobsRepo, b, pwMaxBytes, pwMaxActive)
 	go srv.RunRSSWorker(ctx)
+	go srv.RunCairnBackfill(ctx)
 	go metricsSnapshot(ctx, jobsRepo, users)
 	startLibrarySync(ctx, users)
 	go func() {

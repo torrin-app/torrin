@@ -54,3 +54,22 @@ func TestKeepPassword(t *testing.T) {
 		t.Errorf("both blank should be blank, got %q", got)
 	}
 }
+
+func TestUsenetConfigured(t *testing.T) {
+	cases := []struct {
+		name      string
+		legacy    bool
+		providers int
+		want      bool
+	}{
+		{"nothing", false, 0, false},
+		{"legacy only", true, 0, true},
+		{"multi-provider only", false, 1, true},
+		{"both", true, 2, true},
+	}
+	for _, c := range cases {
+		if got := usenetConfigured(c.legacy, c.providers); got != c.want {
+			t.Errorf("%s: usenetConfigured(%v,%d)=%v want %v", c.name, c.legacy, c.providers, got, c.want)
+		}
+	}
+}

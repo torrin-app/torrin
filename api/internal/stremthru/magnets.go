@@ -19,7 +19,7 @@ func (h *Handler) listMagnets(w http.ResponseWriter, r *http.Request, user *auth
 	userJobs, _ := jobs.ListAll(r.Context(), h.Jobs, user.ID)
 	items := []map[string]any{}
 	for _, j := range userJobs {
-		items = append(items, h.magnetData(r.Context(), j))
+		items = append(items, h.magnetDataLite(j))
 	}
 	stJSON(w, 200, map[string]any{"data": map[string]any{"items": items, "total_items": len(items)}})
 }

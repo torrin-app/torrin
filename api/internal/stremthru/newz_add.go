@@ -40,17 +40,22 @@ func (h *Handler) addNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 		return
 	}
 
+	contentHash := nzb.Hash(parsed)
+
 	texts := []string{parsed.Name()}
 	for _, f := range parsed.Files {
 		texts = append(texts, f.Subject, f.Filename)
 	}
 	if v := safety.Screen(texts...); v.Blocked {
-		if v.Ban {
-			h.Users.BanUser(r.Context(), user.ID, v.Reason)
-			h.Users.AuditLog(r.Context(), user.ID, "banned", v.Reason, newzIP(r))
+		// A soft flag (not a ban) is overridden when the release hash is allowlisted.
+		if v.Ban || !h.Users.IsHashAllowlisted(r.Context(), contentHash) {
+			if v.Ban {
+				h.Users.BanUser(r.Context(), user.ID, v.Reason)
+				h.Users.AuditLog(r.Context(), user.ID, "banned", v.Reason, newzIP(r))
+			}
+			stError(w, 403, "content blocked by safety policy")
+			return
 		}
-		stError(w, 403, "content blocked by safety policy")
-		return
 	}
 
 	plan, _ := plans.Get(user.PlanID)
@@ -60,11 +65,22 @@ func (h *Handler) addNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 		return
 	}
 
-	contentHash := nzb.Hash(parsed)
-	defer keyed.Lock(contentHash)()
 	id := contentHash
 	if link != "" {
 		id = nzburl.Hash(link)
+	}
+	defer keyed.Lock(id)()
+	if link != "" {
+		// Obfuscated indexers return a freshly re-obfuscated NZB (new message-ids,
+		// so a new content hash) on every fetch. Players re-resolve on buffering, so
+		// dedup on the stable link, not the content hash, or each retry starts a new
+		// download of the same release.
+		if prior, err := h.Jobs.ContentHashByURL(r.Context(), id); err == nil && prior != "" {
+			if existing, err := h.Jobs.GetByUserInfoHash(r.Context(), user.ID, prior); err == nil && existing != nil {
+				stJSON(w, 201, map[string]any{"data": map[string]any{"id": id, "hash": id, "status": stStatus(existing.Status)}})
+				return
+			}
+		}
 		h.Jobs.MapNzbURL(r.Context(), id, contentHash)
 	}
 

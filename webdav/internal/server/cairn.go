@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/torrin-app/torrin/shared/auth"
 	"github.com/torrin-app/torrin/shared/cairn"
 	"github.com/torrin-app/torrin/shared/foldername"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
@@ -39,7 +40,7 @@ type cairnFile struct {
 
 func newCairnCache() *cairnCache { return &cairnCache{m: map[string]cairnEntry{}} }
 
-func (s *Server) mergeCairns(ctx context.Context, userID string, tree *node) {
+func (s *Server) mergeCairns(ctx context.Context, userID string, tree *node, overrides map[string]auth.WebdavOverride) {
 	if s.cairnStore == nil {
 		return
 	}
@@ -53,21 +54,34 @@ func (s *Server) mergeCairns(ctx context.Context, userID string, tree *node) {
 		if cached[fd.hash] {
 			continue
 		}
-		folder := newDir(foldername.Unique(names, fd.name, foldername.Short(fd.hash)))
+		fov := overrides[auth.WebdavKey(fd.hash, -1)]
+		folderName := fd.name
+		if fov.Alias != "" {
+			folderName = fov.Alias
+		}
+		folder := newDir(foldername.Unique(names, folderName, foldername.Short(fd.hash)))
 		folder.hash, folder.idx, folder.mod = fd.hash, -1, fd.mod
+		folder.hidden = fov.Excluded
 		fnames := map[string]bool{}
 		for _, f := range fd.files {
+			ov := overrides[auth.WebdavKey(fd.hash, f.idx)]
+			display := f.name
+			if ov.Alias != "" {
+				display = ov.Alias
+			}
 			folder.add(&node{
-				name:  foldername.Unique(fnames, f.name, strconv.Itoa(f.idx)),
-				orig:  f.name,
-				idx:   f.idx,
-				size:  f.size,
-				mod:   fd.mod,
-				cairn: true,
-				enc:   f.enc,
-				hash:  fd.hash,
-				key:   cairn.StreamPath(fd.hash, f.idx, f.name),
-				etag:  `"cairn-` + fd.hash + "-" + strconv.Itoa(f.idx) + `"`,
+				name:   foldername.Unique(fnames, display, strconv.Itoa(f.idx)),
+				orig:   f.name,
+				alias:  ov.Alias,
+				idx:    f.idx,
+				hidden: ov.Excluded,
+				size:   f.size,
+				mod:    fd.mod,
+				cairn:  true,
+				enc:    f.enc,
+				hash:   fd.hash,
+				key:    cairn.StreamPath(fd.hash, f.idx, f.name),
+				etag:   `"cairn-` + fd.hash + "-" + strconv.Itoa(f.idx) + `"`,
 			})
 		}
 		tree.add(folder)
@@ -90,7 +104,7 @@ func (s *Server) cairnData(ctx context.Context, userID string) []cairnFolder {
 			continue
 		}
 		seen[it.InfoHash] = true
-		if fd, ok := s.buildCairnFolder(ctx, it.InfoHash, it.Name, it.CreatedAt); ok {
+		if fd, ok := s.buildCairnFolder(ctx, it); ok {
 			folders = append(folders, fd)
 		}
 	}
@@ -100,8 +114,20 @@ func (s *Server) cairnData(ctx context.Context, userID string) []cairnFolder {
 	return folders
 }
 
-func (s *Server) buildCairnFolder(ctx context.Context, hash, name string, mod time.Time) (cairnFolder, bool) {
-	data, ok := s.cairnNZB(ctx, hash)
+func (s *Server) buildCairnFolder(ctx context.Context, it auth.CairnItem) (cairnFolder, bool) {
+	enc := s.cipher != nil
+	name := strings.TrimSpace(it.Name)
+	if name == "" {
+		name = foldername.Short(it.InfoHash)
+	}
+	if len(it.Files) > 0 {
+		fd := cairnFolder{hash: it.InfoHash, name: name, mod: it.CreatedAt}
+		for i, f := range it.Files {
+			fd.files = append(fd.files, cairnFile{name: base(f.Name), idx: i, size: f.Size, enc: enc})
+		}
+		return fd, true
+	}
+	data, ok := s.cairnNZB(ctx, it.InfoHash)
 	if !ok {
 		return cairnFolder{}, false
 	}
@@ -109,11 +135,7 @@ func (s *Server) buildCairnFolder(ctx context.Context, hash, name string, mod ti
 	if err != nil || len(parsed.Files) == 0 {
 		return cairnFolder{}, false
 	}
-	enc := s.cipher != nil
-	if name = strings.TrimSpace(name); name == "" {
-		name = foldername.Short(hash)
-	}
-	fd := cairnFolder{hash: hash, name: name, mod: mod}
+	fd := cairnFolder{hash: it.InfoHash, name: name, mod: it.CreatedAt}
 	for i, file := range parsed.Files {
 		fname := base(file.Filename)
 		if fname == "" {

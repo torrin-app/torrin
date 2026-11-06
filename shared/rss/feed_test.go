@@ -8,6 +8,26 @@ import (
 	"github.com/torrin-app/torrin/shared/magnet"
 )
 
+func TestFetchFeedString(t *testing.T) {
+	xml := `<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>
+	<item><title>Example.Show.S01E01.1080p.WEB.H264</title>
+	<link>https://hdencode.org/example-show-s01e01/</link>
+	<guid>https://hdencode.org/example-show-s01e01/</guid></item></channel></rss>`
+	items, err := FetchFeedString(xml)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if items[0].Link != "https://hdencode.org/example-show-s01e01/" {
+		t.Errorf("link = %q", items[0].Link)
+	}
+	if items[0].Title == "" {
+		t.Error("title missing")
+	}
+}
+
 func TestMatchesFilter(t *testing.T) {
 	cases := []struct {
 		title, filter string
@@ -149,5 +169,42 @@ func TestExtractMagnetFromInfoHash(t *testing.T) {
 	}
 	if got := magnet.Hash(extractMagnet(torznab)); got != hash {
 		t.Fatalf("torznab infohash: got %q want %q", got, hash)
+	}
+}
+
+func TestSizeOK(t *testing.T) {
+	f := Filter{SizeMinBytes: 1_000_000_000, SizeMaxBytes: 10_000_000_000} // 1GB..10GB
+	cases := []struct {
+		size int64
+		want bool
+	}{
+		{0, true},             // unknown size -> allow (never silently drop)
+		{500_000_000, false},  // under 1GB
+		{5_000_000_000, true}, // in range
+		{12_000_000_000, false},
+	}
+	for _, c := range cases {
+		if got := f.SizeOK(c.size); got != c.want {
+			t.Errorf("SizeOK(%d)=%v want %v", c.size, got, c.want)
+		}
+	}
+	if !(Filter{}).SizeOK(5_000_000_000) {
+		t.Error("no size filter should allow any size")
+	}
+}
+
+func TestExtractSize(t *testing.T) {
+	encl := &gofeed.Item{Enclosures: []*gofeed.Enclosure{{URL: "x.torrent", Length: "2314659356"}}}
+	if got := extractSize(encl); got != 2314659356 {
+		t.Errorf("enclosure length size = %d", got)
+	}
+	attr := &gofeed.Item{Extensions: ext.Extensions{
+		"newznab": {"attr": []ext.Extension{{Name: "attr", Attrs: map[string]string{"name": "size", "value": "7238898314"}}}},
+	}}
+	if got := extractSize(attr); got != 7238898314 {
+		t.Errorf("newznab size attr = %d", got)
+	}
+	if got := extractSize(&gofeed.Item{Title: "Movie 2021 1080p"}); got != 0 {
+		t.Errorf("no size info should be 0, got %d", got)
 	}
 }
