@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.22.0](https://github.com/torrin-app/torrin/compare/v1.21.0...v1.22.0) (2026-11-06)
+
+
+### Features
+
+* torznab indexer endpoint ([#147](https://github.com/torrin-app/torrin/issues/147)) ([7363968](https://github.com/torrin-app/torrin/commit/7363968c709a1a5ab6d30fecc243843955300eaa))
+* usenet streaming, passkey login, and reliability improvements ([#153](https://github.com/torrin-app/torrin/issues/153)) ([f27cd78](https://github.com/torrin-app/torrin/commit/f27cd78bb2b8f04f80301fe3944c85852435c2fa))
+
+
+### Bug Fixes
+
+* **deploy:** don't bind the rc tunnel to a hardcoded mesh IP on single-box ([#152](https://github.com/torrin-app/torrin/issues/152)) ([c648e25](https://github.com/torrin-app/torrin/commit/c648e2595f87a5dcbefae4da3f4a17148426182e)), closes [#151](https://github.com/torrin-app/torrin/issues/151)
+* **usenet:** skip sample files and reject undersized downloads ([#148](https://github.com/torrin-app/torrin/issues/148)) ([eccb938](https://github.com/torrin-app/torrin/commit/eccb9389e10d0d02dbc8a6f6c874baf5fa655acf))
+
 ## [1.21.0](https://github.com/torrin-app/torrin/compare/v1.20.0...v1.21.0) (2026-09-25)
 
 
