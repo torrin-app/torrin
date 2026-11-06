@@ -20,6 +20,7 @@ func TestBuildTreeOverrides(t *testing.T) {
 	overrides := map[string]auth.WebdavOverride{
 		auth.WebdavKey("bbbbbbbb2222", 0):  {InfoHash: "bbbbbbbb2222", Alias: "Beta.S01E01.mkv"},
 		auth.WebdavKey("bbbbbbbb2222", 1):  {InfoHash: "bbbbbbbb2222", FileIndex: 1, Excluded: true},
+		auth.WebdavKey("bbbbbbbb2222", -1): {InfoHash: "bbbbbbbb2222", FileIndex: -1, Alias: "My Renamed Folder"},
 		auth.WebdavKey("aaaaaaaa1111", -1): {InfoHash: "aaaaaaaa1111", FileIndex: -1, Excluded: true},
 	}
 	root := buildTree(sample(), overrides)
@@ -39,6 +40,9 @@ func TestBuildTreeOverrides(t *testing.T) {
 	beta := byHash("bbbbbbbb2222")
 	if beta == nil {
 		t.Fatal("beta folder missing")
+	}
+	if beta.name != "My Renamed Folder" {
+		t.Fatalf("folder rename not applied: name=%q want %q", beta.name, "My Renamed Folder")
 	}
 	var renamed, hidden bool
 	for _, f := range beta.children {

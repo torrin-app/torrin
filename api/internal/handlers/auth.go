@@ -35,7 +35,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 			req.Ref = c.Value
 		}
 	}
-	trusted := trustedPartner(r.Header.Get("X-Partner-Key"), s.PartnerKey)
+	suppressWelcome, partnerID, trusted := s.partnerRegister(r)
 	if !trusted && s.TurnstileSecret != "" && !verifyTurnstile(r.Context(), s.TurnstileSecret, req.Turnstile, clientIP(r)) {
 		web.WriteError(w, 403, "captcha verification failed, please retry")
 		return
@@ -45,6 +45,12 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if existing, err := s.Users.GetByEmail(r.Context(), req.Email); err == nil && existing != nil {
+		// A partner may safely retry a lost registration: if it created this
+		// account, return it idempotently instead of a 409 with no key.
+		if key, plan, ok := s.Users.AccountForPartner(r.Context(), req.Email, partnerID); ok {
+			web.WriteJSON(w, 200, map[string]any{"api_key": key, "email": req.Email, "plan": plan})
+			return
+		}
 		web.WriteError(w, 409, "account already exists - use your API key to log in")
 		return
 	}
@@ -64,8 +70,11 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	if partnerID != "" {
+		s.Users.SetUserPartner(r.Context(), user.ID, partnerID)
+	}
 	s.Users.AuditLog(r.Context(), user.ID, "account_created", "email="+req.Email, clientIP(r))
-	if s.Mailer != nil {
+	if s.Mailer != nil && !suppressWelcome {
 		go s.Mailer.SendWelcome(user.Email, user.APIKey)
 	}
 	web.WriteJSON(w, 201, map[string]any{"api_key": user.APIKey, "email": user.Email, "plan": user.PlanID})
@@ -83,8 +92,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		"recurrence": user.Recurrence,
 		"seed_used":  s.seedUsage(r.Context(), user), "seed_cap": seedCap(plan, user),
 		"seed_packs": user.SeedSlotPacks, "seed_max_packs": 2,
-		"seeding_allowed": s.seedingAllowed(user),
-		"totp_enabled":    user.TOTPEnabled,
+		"seeding_allowed":  s.seedingAllowed(user),
+		"totp_enabled":     user.TOTPEnabled,
+		"usenet_streaming": user.UsenetStreaming,
 	})
 }
 
@@ -98,6 +108,24 @@ func (s *Server) config(w http.ResponseWriter, _ *http.Request) {
 
 func trustedPartner(header, key string) bool {
 	return key != "" && subtle.ConstantTimeCompare([]byte(header), []byte(key)) == 1
+}
+
+// partnerRegister resolves the X-Partner-Key header for the register flow. A
+// matching operator global key or an active per-partner key is trusted (skips
+// captcha + signup limits); per-partner keys also carry a welcome-email
+// suppression setting for white-label provisioning.
+func (s *Server) partnerRegister(r *http.Request) (suppressWelcome bool, partnerID string, trusted bool) {
+	key := r.Header.Get("X-Partner-Key")
+	if key == "" {
+		return false, "", false
+	}
+	if trustedPartner(key, s.PartnerKey) {
+		return false, "", true
+	}
+	if p, err := s.Users.GetPartnerByKeyHash(r.Context(), auth.HashPartnerKey(key)); err == nil && p != nil {
+		return p.SuppressWelcome, p.ID, true
+	}
+	return false, "", false
 }
 
 var turnstileClient = &http.Client{Timeout: 10 * time.Second}

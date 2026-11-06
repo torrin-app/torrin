@@ -24,7 +24,7 @@ func TestAdminAuth(t *testing.T) {
 	ok := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(200) })
 
 	call := func(adminKey, header string) int {
-		s := &Server{Deps{AdminKey: adminKey}}
+		s := &Server{Deps: Deps{AdminKey: adminKey}}
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/api/admin/stats", nil)
 		if header != "" {
@@ -49,7 +49,7 @@ func TestAdminAuth(t *testing.T) {
 }
 
 func TestAdminWalletRoutesRequireAuth(t *testing.T) {
-	s := &Server{Deps{AdminKey: "secret"}}
+	s := &Server{Deps: Deps{AdminKey: "secret"}}
 	mux := http.NewServeMux()
 	s.registerAdminRoutes(mux)
 	for _, c := range []struct{ method, path string }{

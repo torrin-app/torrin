@@ -1,17 +1,17 @@
 package plans
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 type Plan struct {
 	ID                 string      `json:"id"`
 	Name               string      `json:"name"`
 	DayPrices          map[int]int `json:"day_prices"`
 	MonthlyPrice       int         `json:"monthly_price_cents"`
+	MonthlyFullPrice   int         `json:"monthly_full_price_cents,omitempty"`
 	YearlyPrice        int         `json:"yearly_price_cents"`
+	YearlyFullPrice    int         `json:"yearly_full_price_cents,omitempty"`
 	LifetimePrice      int         `json:"lifetime_price_cents"`
+	LifetimeFullPrice  int         `json:"lifetime_full_price_cents,omitempty"`
 	MaxConcurrent      int         `json:"max_concurrent_jobs"`
 	ColdPullsPerHour   int         `json:"cold_pulls_per_hour"`
 	MaxDownloadMbps    int         `json:"max_download_mbps"`
@@ -224,12 +224,26 @@ func Get(id string) (Plan, bool) {
 var DayPlansEnabled = true
 
 func Listed() map[string]Plan {
-	if DayPlansEnabled {
-		return All
-	}
 	out := make(map[string]Plan, len(All))
 	for id, p := range All {
-		p.DayPrices = nil
+		if !DayPlansEnabled {
+			p.DayPrices = nil
+		}
+		if BlackFridayActive {
+			if bf, ok := blackFridayMonthly[id]; ok && p.MonthlyPrice > 0 {
+				p.MonthlyFullPrice, p.MonthlyPrice = p.MonthlyPrice, bf
+			}
+			if bf, ok := blackFridayYearly[id]; ok && p.YearlyPrice > 0 {
+				p.YearlyFullPrice, p.YearlyPrice = p.YearlyPrice, bf
+			}
+			if bf, ok := blackFridayLifetime[id]; ok && p.LifetimePrice > 0 {
+				p.LifetimeFullPrice, p.LifetimePrice = p.LifetimePrice, bf
+			}
+		}
+		if !LifetimeEnabled {
+			p.LifetimePrice = 0
+			p.LifetimeFullPrice = 0
+		}
 		out[id] = p
 	}
 	return out
@@ -241,63 +255,4 @@ func CanBYOK(planID string) bool {
 
 func IndexerPolicy(plan Plan, systemToggleOn bool) (allowBYO, allowSystem bool) {
 	return CanBYOK(plan.ID), plan.SystemUsenet && systemToggleOn
-}
-
-func PriceCents(planID, billingPeriod string, days int) (int, bool) {
-	plan, ok := All[planID]
-	if !ok {
-		return 0, false
-	}
-	switch billingPeriod {
-	case "lifetime":
-		return plan.LifetimePrice, true
-	case "yearly":
-		return plan.YearlyPrice, true
-	case "days":
-		p, ok := plan.DayPrices[days]
-		return p, ok
-	default:
-		return plan.MonthlyPrice, true
-	}
-}
-
-var lifetimeBumpDate = time.Date(2026, 8, 22, 0, 0, 0, 0, time.UTC)
-
-var preBumpLifetime = map[string]int{
-	"starter":  5382,
-	"standard": 10782,
-	"pro":      21582,
-}
-
-func PriceCentsAt(planID, billingPeriod string, days int, when time.Time) (int, bool) {
-	if billingPeriod == "lifetime" && when.Before(lifetimeBumpDate) {
-		if p, ok := preBumpLifetime[planID]; ok {
-			return p, true
-		}
-	}
-	return PriceCents(planID, billingPeriod, days)
-}
-
-func ValidatePrice(planID, billingPeriod string, priceCents int) bool {
-	plan, ok := All[planID]
-	if !ok {
-		return false
-	}
-	var expected int
-	switch billingPeriod {
-	case "lifetime":
-		expected = plan.LifetimePrice
-	case "yearly":
-		expected = plan.YearlyPrice
-	case "days":
-		for _, p := range plan.DayPrices {
-			if priceCents >= p {
-				return true
-			}
-		}
-		return false
-	default:
-		expected = plan.MonthlyPrice
-	}
-	return priceCents >= expected
 }

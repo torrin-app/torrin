@@ -64,7 +64,11 @@ func parseSubProducts(raw string) map[string]string {
 	return out
 }
 
+var BachsCheckoutEnabled = true
+
 func (b *BachsHandler) Enabled() bool { return b.secretKey != "" && b.productID != "" }
+
+func (b *BachsHandler) CheckoutEnabled() bool { return b.Enabled() && BachsCheckoutEnabled }
 
 func (b *BachsHandler) CreateCheckout(ctx context.Context, email, planID, period string, days int) (string, error) {
 	if period == "monthly" || period == "yearly" {
@@ -229,8 +233,12 @@ func (b *BachsHandler) syncSubscription(ctx context.Context, d bachsEventData) {
 	slog.Info("bachs subscription active", "email", email, "plan", planID, "sub", d.ID, "expires", end.Format("2006-01-02"))
 }
 
+// isDonation is true only for one-off payment-link donations. Subscription
+// cycle (renewal) payments arrive with NO metadata at all, so keying off the
+// absence of a plan field wrongly flagged every renewal as a donation and
+// spammed the Discord webhook. Real donations always carry a payment_link_id.
 func isDonation(meta map[string]string) bool {
-	return meta["plan"] == "" && meta["type"] != "topup"
+	return meta["payment_link_id"] != ""
 }
 
 func stringMap(m map[string]any) map[string]string {

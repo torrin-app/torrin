@@ -23,18 +23,34 @@ type segment struct {
 	end   int64
 }
 
-// Reader exposes one NZB file as a lazy, seekable byte source. It retains only
-// the most recently decoded segment, keeping memory bounded during long streams.
+const (
+	readAhead    = 16
+	maxParallel  = 8
+	maxCachedSeg = 32
+)
+
+// Reader exposes one NZB file as a lazy, seekable byte source. Segments are
+// fetched concurrently with a read-ahead window so cold usenet playback sustains
+// throughput across the connection pool instead of one article at a time. The
+// deep window hides the per-article round trip on high-latency relay paths.
 type Reader struct {
 	ctx     context.Context
 	fetcher ArticleFetcher
 	group   string
 	segs    []segment
 	size    int64
+	sem     chan struct{}
 
 	mu       sync.Mutex
-	cacheIdx int
-	cache    []byte
+	cache    map[int][]byte
+	order    []int
+	inflight map[int]*inflight
+}
+
+type inflight struct {
+	done chan struct{}
+	data []byte
+	err  error
 }
 
 func NewReader(ctx context.Context, file nzb.File, fetcher ArticleFetcher) (*Reader, error) {
@@ -46,7 +62,13 @@ func NewReader(ctx context.Context, file nzb.File, fetcher ArticleFetcher) (*Rea
 	}
 	parts := append([]nzb.Segment(nil), file.Segments...)
 	sort.SliceStable(parts, func(i, j int) bool { return parts[i].Number < parts[j].Number })
-	r := &Reader{ctx: ctx, fetcher: fetcher, cacheIdx: -1}
+	r := &Reader{
+		ctx:      ctx,
+		fetcher:  fetcher,
+		sem:      make(chan struct{}, maxParallel),
+		cache:    map[int][]byte{},
+		inflight: map[int]*inflight{},
+	}
 	if len(file.Groups) > 0 {
 		r.group = file.Groups[0]
 	}
@@ -77,13 +99,18 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		return 0, io.EOF
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	first := sort.Search(len(r.segs), func(i int) bool { return r.segs[i].end > off })
+	end := off + int64(len(p))
+	last := first
+	for last+1 < len(r.segs) && r.segs[last].end < end {
+		last++
+	}
+	r.prefetch(first, last+readAhead)
 
 	written := 0
-	idx := sort.Search(len(r.segs), func(i int) bool { return r.segs[i].end > off })
+	idx := first
 	for written < len(p) && idx < len(r.segs) {
-		data, err := r.load(idx)
+		data, err := r.get(idx)
 		if err != nil {
 			return written, err
 		}
@@ -100,10 +127,75 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	return written, nil
 }
 
-func (r *Reader) load(idx int) ([]byte, error) {
-	if r.cacheIdx == idx {
-		return r.cache, nil
+// prefetch warms [from, to] in the background without blocking the caller, so a
+// seek pulls its landing segment plus the window ahead of the playhead.
+func (r *Reader) prefetch(from, to int) {
+	if from < 0 {
+		from = 0
 	}
+	if to >= len(r.segs) {
+		to = len(r.segs) - 1
+	}
+	for i := from; i <= to; i++ {
+		r.mu.Lock()
+		_, cached := r.cache[i]
+		_, pending := r.inflight[i]
+		r.mu.Unlock()
+		if cached || pending {
+			continue
+		}
+		go r.get(i)
+	}
+}
+
+// get returns the decoded segment, fetching on miss. Concurrent requests for the
+// same segment share one fetch; completed segments are cached.
+func (r *Reader) get(idx int) ([]byte, error) {
+	r.mu.Lock()
+	if d, ok := r.cache[idx]; ok {
+		r.mu.Unlock()
+		return d, nil
+	}
+	if f, ok := r.inflight[idx]; ok {
+		r.mu.Unlock()
+		<-f.done
+		return f.data, f.err
+	}
+	f := &inflight{done: make(chan struct{})}
+	r.inflight[idx] = f
+	r.mu.Unlock()
+
+	r.sem <- struct{}{}
+	data, err := r.fetch(idx)
+	<-r.sem
+
+	r.mu.Lock()
+	delete(r.inflight, idx)
+	if err == nil {
+		r.store(idx, data)
+	}
+	r.mu.Unlock()
+
+	f.data, f.err = data, err
+	close(f.done)
+	return data, err
+}
+
+// store caches a segment under mu, evicting oldest entries past the window.
+func (r *Reader) store(idx int, data []byte) {
+	if _, ok := r.cache[idx]; ok {
+		return
+	}
+	r.cache[idx] = data
+	r.order = append(r.order, idx)
+	for len(r.order) > maxCachedSeg {
+		old := r.order[0]
+		r.order = r.order[1:]
+		delete(r.cache, old)
+	}
+}
+
+func (r *Reader) fetch(idx int) ([]byte, error) {
 	seg := r.segs[idx]
 	raw, err := r.fetcher.Fetch(r.ctx, seg.MessageID, r.group)
 	if err != nil {
@@ -119,6 +211,5 @@ func (r *Reader) load(idx int) ([]byte, error) {
 	if decoded.Begin > 0 && decoded.Begin-1 != seg.start {
 		return nil, fmt.Errorf("decode article %s: begins at %d, want %d", seg.MessageID, decoded.Begin-1, seg.start)
 	}
-	r.cacheIdx, r.cache = idx, decoded.Data
-	return r.cache, nil
+	return decoded.Data, nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/madcowfred/yencode"
@@ -17,17 +18,48 @@ import (
 type fakeFetcher struct {
 	articles map[string][]byte
 	err      error
+	mu       sync.Mutex
 	calls    []string
 	groups   []string
 }
 
 func (f *fakeFetcher) Fetch(_ context.Context, id, group string) ([]byte, error) {
+	f.mu.Lock()
 	f.calls = append(f.calls, id)
 	f.groups = append(f.groups, group)
+	f.mu.Unlock()
 	if f.err != nil {
 		return nil, f.err
 	}
 	return f.articles[id], nil
+}
+
+func (f *fakeFetcher) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+func (f *fakeFetcher) duplicated() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	seen := map[string]bool{}
+	for _, c := range f.calls {
+		if seen[c] {
+			return true
+		}
+		seen[c] = true
+	}
+	return false
+}
+
+func (f *fakeFetcher) lastGroup() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.groups) == 0 {
+		return ""
+	}
+	return f.groups[len(f.groups)-1]
 }
 
 func article(data []byte, part, total int, begin int64) []byte {
@@ -57,7 +89,7 @@ func TestReaderLazySeekAndSegmentCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fetch.calls) != 0 {
+	if fetch.count() != 0 {
 		t.Fatal("constructor fetched an article")
 	}
 
@@ -68,19 +100,57 @@ func TestReaderLazySeekAndSegmentCache(t *testing.T) {
 	if n, err := r.ReadAt(buf[:2], 3); err != nil || n != 2 || string(buf[:2]) != "de" {
 		t.Fatalf("cached read: n=%d err=%v data=%q", n, err, buf[:2])
 	}
-	if len(fetch.calls) != 1 {
-		t.Fatalf("same segment fetched %d times", len(fetch.calls))
-	}
-
 	buf = make([]byte, 6)
 	if n, err := r.ReadAt(buf, 4); err != nil || n != 6 || string(buf) != "efghij" {
 		t.Fatalf("cross read: n=%d err=%v data=%q", n, err, buf)
 	}
-	if got := fmt.Sprint(fetch.calls); got != "[part-1 part-2]" {
-		t.Fatalf("calls = %s", got)
+	// Read-ahead plus the segment cache: each of the two segments is fetched
+	// exactly once across the reads, never twice.
+	if fetch.duplicated() {
+		t.Fatalf("a segment was fetched more than once: %v", fetch.calls)
 	}
-	if fetch.groups[len(fetch.groups)-1] != "alt.test" {
-		t.Fatalf("group = %q", fetch.groups[len(fetch.groups)-1])
+	if fetch.count() != 2 {
+		t.Fatalf("want 2 distinct fetches, got %d: %v", fetch.count(), fetch.calls)
+	}
+	if fetch.lastGroup() != "alt.test" {
+		t.Fatalf("group = %q", fetch.lastGroup())
+	}
+}
+
+func TestReaderParallelReadaheadDedup(t *testing.T) {
+	parts := make([][]byte, 20)
+	for i := range parts {
+		parts[i] = bytes.Repeat([]byte{byte('A' + i)}, 100)
+	}
+	file, articles := testFile(parts...)
+	fetch := &fakeFetcher{articles: articles}
+	r, _ := NewReader(context.Background(), file, fetch)
+
+	// Stream the whole file in small chunks (as http.ServeContent does), which
+	// drives concurrent read-ahead across segment boundaries.
+	full := make([]byte, 20*100)
+	for off := 0; off < len(full); off += 37 {
+		end := off + 37
+		if end > len(full) {
+			end = len(full)
+		}
+		if _, err := r.ReadAt(full[off:end], int64(off)); err != nil && err != io.EOF {
+			t.Fatalf("read at %d: %v", off, err)
+		}
+	}
+
+	var want []byte
+	for _, p := range parts {
+		want = append(want, p...)
+	}
+	if !bytes.Equal(full, want) {
+		t.Fatal("reassembled stream does not match source")
+	}
+	if fetch.duplicated() {
+		t.Fatalf("a segment was fetched more than once under read-ahead: %v", fetch.calls)
+	}
+	if fetch.count() != 20 {
+		t.Fatalf("want 20 distinct fetches, got %d", fetch.count())
 	}
 }
 

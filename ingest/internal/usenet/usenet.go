@@ -20,7 +20,7 @@ import (
 	"github.com/torrin-app/torrin/shared/crypto"
 	"github.com/torrin-app/torrin/shared/failure"
 	"github.com/torrin-app/torrin/shared/jobs"
-	"github.com/torrin-app/torrin/shared/plans"
+	"github.com/torrin-app/torrin/shared/providers"
 	"github.com/torrin-app/torrin/shared/storage"
 	"github.com/torrin-app/torrin/shared/usenet/download"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
@@ -64,6 +64,9 @@ func (r *Runner) reason(job *jobs.Job, err error) error {
 
 func (r *Runner) process(ctx context.Context, job *jobs.Job) error {
 	slog.Info("usenet job started", "job", job.ID)
+	if id, ok := torboxUsenetRef(job.Magnet); ok {
+		return r.runTorBoxImport(ctx, job, id)
+	}
 	data, err := r.store.GetBytes(ctx, nzb.StorageKey(job.InfoHash))
 	if err != nil {
 		data, err = r.recoverNZB(ctx, job)
@@ -177,8 +180,19 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	for _, f := range parsed.Files {
 		names = append(names, f.Filename, f.Subject)
 	}
-	if screen.Blocked(ctx, r.ban, job, names...) {
+	if screen.BlockedAllow(ctx, r.ban, r.users.IsHashAllowlisted, job, names...) {
 		return nil, fmt.Errorf("content blocked by safety policy")
+	}
+
+	if key, _ := r.users.GetTBKey(ctx, job.UserID); key != "" {
+		files, err := r.fetchViaTorBox(ctx, job, parsed, dir, key, onProgress)
+		if err == nil {
+			return files, nil
+		}
+		if !errors.Is(err, providers.ErrTorBoxUsenetUnavailable) {
+			return nil, err
+		}
+		slog.Info("torbox usenet unavailable, using native", "job", job.ID)
 	}
 
 	credsList, system := r.credsList(ctx, job.UserID)
@@ -230,6 +244,9 @@ func (r *Runner) fetchToFiles(ctx context.Context, job *jobs.Job, parsed *nzb.NZ
 	pwds := postproc.PasswordCandidates(parsed.Meta["password"], job.Name, parsed.Name())
 	files, err := postproc.Process(dir, pwds, job.Name)
 	if err != nil {
+		if errors.Is(err, postproc.ErrUnrepairable) {
+			return nil, failure.Incomplete
+		}
 		return nil, fmt.Errorf("postproc: %w", err)
 	}
 	if len(files) == 0 {
@@ -309,28 +326,4 @@ func stallWatch(ctx context.Context, cancel context.CancelFunc, lastAt *atomic.I
 			}
 		}
 	}
-}
-
-func (r *Runner) HasProvider(ctx context.Context, userID string) bool {
-	list, _ := r.credsList(ctx, userID)
-	return len(list) > 0
-}
-
-func (r *Runner) credsList(ctx context.Context, userID string) ([]download.Credentials, bool) {
-	if ps, err := r.users.EnabledUsenetProviders(ctx, userID); err == nil && len(ps) > 0 {
-		out := make([]download.Credentials, 0, len(ps))
-		for _, p := range ps {
-			out = append(out, download.Credentials{Host: p.Host, Port: p.Port, Username: p.Username, Password: p.Password, SSL: p.SSL, MaxConns: p.MaxConns})
-		}
-		return out, false
-	}
-	if c, err := r.users.GetUsenetCreds(ctx, userID); err == nil && c.Host != "" {
-		return []download.Credentials{{Host: c.Host, Port: c.Port, Username: c.Username, Password: c.Password, SSL: c.SSL, MaxConns: c.MaxConns}}, false
-	}
-	if u, err := r.users.GetByID(ctx, userID); err == nil && u != nil {
-		if p, ok := plans.Get(u.PlanID); ok && p.SystemUsenet {
-			return r.sysCreds, true
-		}
-	}
-	return nil, false
 }

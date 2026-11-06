@@ -84,7 +84,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	overrides, _ := s.users.WebdavOverrides(r.Context(), user.ID)
 	tree := buildTree(s.completed(r.Context(), user.ID), overrides)
-	s.mergeCairns(r.Context(), user.ID, tree)
+	s.mergeCairns(r.Context(), user.ID, tree, overrides)
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		s.get(sw, r, user.ID, tree)
 		return

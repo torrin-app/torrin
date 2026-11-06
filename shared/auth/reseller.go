@@ -90,7 +90,7 @@ func (s *Store) BackfillResellerRetail(ctx context.Context, price func(planID, p
 	return n, nil
 }
 
-func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since *time.Time, limit, offset int) ([]*ResellerCode, error) {
+func (s *Store) ListResellerCodes(ctx context.Context, reseller string, redeemedOnly bool, since *time.Time, limit, offset int) ([]*ResellerCode, error) {
 	dateCol := "created_at"
 	if redeemedOnly {
 		dateCol = "redeemed_at"
@@ -100,9 +100,13 @@ func (s *Store) ListResellerCodes(ctx context.Context, redeemedOnly bool, since 
 	if redeemedOnly {
 		q += ` AND redeemed_by != ''`
 	}
+	if reseller != "" {
+		args = append(args, reseller)
+		q += ` AND reseller = $` + strconv.Itoa(len(args))
+	}
 	if since != nil {
 		args = append(args, *since)
-		q += ` AND ` + dateCol + ` >= $1`
+		q += ` AND ` + dateCol + ` >= $` + strconv.Itoa(len(args))
 	}
 	q += ` ORDER BY ` + dateCol + ` DESC LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
 	args = append(args, limit, offset)
@@ -142,6 +146,34 @@ func (s *Store) UnsettleResellerCodes(ctx context.Context, reseller string) (int
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE reseller_codes SET settled_at=NULL, settlement_ref='' WHERE reseller=$1`,
 		reseller)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (s *Store) MarkResellerCodeSettled(ctx context.Context, reseller, code, ref string) (int64, error) {
+	q := `UPDATE reseller_codes SET settled_at=now(), settlement_ref=$2 WHERE code=$1 AND settled_at IS NULL`
+	args := []any{code, ref}
+	if reseller != "" {
+		q += ` AND reseller=$3`
+		args = append(args, reseller)
+	}
+	ct, err := s.pool.Exec(ctx, q, args...)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (s *Store) UnsettleResellerCode(ctx context.Context, reseller, code string) (int64, error) {
+	q := `UPDATE reseller_codes SET settled_at=NULL, settlement_ref='' WHERE code=$1`
+	args := []any{code}
+	if reseller != "" {
+		q += ` AND reseller=$2`
+		args = append(args, reseller)
+	}
+	ct, err := s.pool.Exec(ctx, q, args...)
 	if err != nil {
 		return 0, err
 	}

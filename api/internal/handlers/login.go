@@ -139,6 +139,19 @@ func (s *Server) loginVerify(w http.ResponseWriter, r *http.Request) {
 	web.WriteJSON(w, 200, map[string]string{"session": s.issueSession(w, uid)})
 }
 
+func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "tr_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteLaxMode,
+	})
+	web.WriteJSON(w, 200, map[string]string{"status": "ok"})
+}
+
 func (s *Server) setPassword(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUser(r)
 	var req struct {

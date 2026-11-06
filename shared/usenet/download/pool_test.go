@@ -65,3 +65,17 @@ func TestSharedPoolLingersAndReuses(t *testing.T) {
 		t.Error("pool should be evicted from the shared map after linger")
 	}
 }
+
+func TestResilientPoolDoesNotFatalClose(t *testing.T) {
+	// A non-zero MaxConnErrors makes the library fatally Close() the pool after
+	// a transient burst, wedging the long-lived cairn poster until restart.
+	if got := poolConfig(Credentials{MaxConns: 4}, 0).MaxConnErrors; got != 0 {
+		t.Errorf("resilient pool MaxConnErrors = %d, want 0 (self-heal)", got)
+	}
+	if got := poolConfig(Credentials{MaxConns: 4}, 5).MaxConnErrors; got != 5 {
+		t.Errorf("download pool MaxConnErrors = %d, want 5 (fail-fast)", got)
+	}
+	if got := poolConfig(Credentials{}, 0).MaxConns; got != 10 {
+		t.Errorf("default MaxConns = %d, want 10", got)
+	}
+}

@@ -23,8 +23,18 @@ import (
 )
 
 func (s *Server) blockedBySafety(w http.ResponseWriter, r *http.Request, userID string, texts ...string) bool {
+	return s.blockedBySafetyHash(w, r, userID, "", texts...)
+}
+
+// blockedBySafetyHash is blockedBySafety with a release hash: a soft flag (not a
+// ban) is overridden when the hash is on the allowlist (false-positive handling).
+// Hard terms and bans are never overridden.
+func (s *Server) blockedBySafetyHash(w http.ResponseWriter, r *http.Request, userID, hash string, texts ...string) bool {
 	v := safety.Screen(texts...)
 	if !v.Blocked {
+		return false
+	}
+	if !v.Ban && hash != "" && s.Users.IsHashAllowlisted(r.Context(), hash) {
 		return false
 	}
 	if v.Ban {

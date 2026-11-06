@@ -19,9 +19,11 @@ import (
 )
 
 type fakeCairns struct {
-	items  []auth.CairnItem
-	nzbs   map[string][]byte
-	listed string
+	items    []auth.CairnItem
+	nzbs     map[string][]byte
+	listed   string
+	missing  []string
+	setFiles map[string][]auth.CairnFile
 }
 
 type fakeCachedLookup map[string]*jobs.Job
@@ -78,6 +80,16 @@ func (f *fakeCairns) GetCairnNZB(_ context.Context, hash string) ([]byte, bool) 
 }
 func (*fakeCairns) AddUserCairn(context.Context, string, string) error    { return nil }
 func (*fakeCairns) DeleteUserCairn(context.Context, string, string) error { return nil }
+func (f *fakeCairns) CairnArchivesMissingFiles(context.Context, int) ([]string, error) {
+	return f.missing, nil
+}
+func (f *fakeCairns) SetCairnFiles(_ context.Context, hash string, files []auth.CairnFile) error {
+	if f.setFiles == nil {
+		f.setFiles = map[string][]auth.CairnFile{}
+	}
+	f.setFiles[hash] = files
+	return nil
+}
 func (f *fakeCairns) HasUserCairn(_ context.Context, _, hash string) bool {
 	for _, item := range f.items {
 		if item.InfoHash == hash {
@@ -145,7 +157,7 @@ func TestCairnListReportsWarmAndDirectStreamsAsCached(t *testing.T) {
 	archive := &countingStorage{Storage: archiveStore, gets: map[string]int{}, has: map[string]int{}}
 	repo := &fakeCairns{items: []auth.CairnItem{
 		{InfoHash: warmHash, Name: "Warm", Archived: true},
-		{InfoHash: coldHash, Name: "Cold", Archived: true},
+		{InfoHash: coldHash, Name: "Cold", Archived: true, Files: []auth.CairnFile{{Name: "cold.mkv", Size: coldPlainSize}}},
 		{InfoHash: pendingHash, Name: "Pending", Archived: false},
 		{InfoHash: remoteHash, Name: "Remote", Archived: true},
 		{InfoHash: legacyHash, Name: "Legacy", Archived: true},
@@ -201,12 +213,9 @@ func TestCairnListReportsWarmAndDirectStreamsAsCached(t *testing.T) {
 	if got := primary.has["blobs/b_legacy"]; got != 1 {
 		t.Fatalf("legacy warm file checks=%d, want 1", got)
 	}
-	if got := archive.gets[nzb.StorageKey(coldHash)]; got != 1 {
-		t.Fatalf("cold NZB reads=%d, want 1", got)
-	}
-	for _, hash := range []string{warmHash, pendingHash, remoteHash} {
+	for _, hash := range []string{warmHash, coldHash, pendingHash, remoteHash} {
 		if got := archive.gets[nzb.StorageKey(hash)]; got != 0 {
-			t.Fatalf("unnecessary NZB reads for %s=%d, want 0", hash, got)
+			t.Fatalf("list must not read NZBs; reads for %s=%d, want 0", hash, got)
 		}
 	}
 	warm := response.Cairns[0]
@@ -297,7 +306,7 @@ func TestCairnRestoreKeepsWarmAndColdBehavior(t *testing.T) {
 }
 
 func TestWarmCachedNode(t *testing.T) {
-	s := &Server{Deps{CachedJobs: fakeCachedLookup{
+	s := &Server{Deps: Deps{CachedJobs: fakeCachedLookup{
 		"h1": &jobs.Job{Node: "box2"},
 	}}}
 	if n, ok := s.warmCachedNode(context.Background(), "h1"); !ok || n != "box2" {
@@ -305,5 +314,28 @@ func TestWarmCachedNode(t *testing.T) {
 	}
 	if n, ok := s.warmCachedNode(context.Background(), "missing"); ok || n != "" {
 		t.Fatalf("uncached hash = (%q,%v), want (\"\",false)", n, ok)
+	}
+}
+
+func TestCairnBackfillSweep(t *testing.T) {
+	hash := strings.Repeat("f", 40)
+	cipher, err := crypto.NewStream(strings.Repeat("ab", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := int64(50000)
+	encSize, _ := cipher.EncryptedSize(plain)
+	nzbData := nzb.Generate([]nzb.OutFile{{Name: "movie.mkv", Group: "alt.test", Segments: []nzb.Segment{
+		{MessageID: "m1", Number: 1, Bytes: encSize},
+	}}})
+	archive := &fakeStore{bytesByKey: map[string][]byte{nzb.StorageKey(hash): nzbData}}
+	repo := &fakeCairns{missing: []string{hash}}
+	s := New(Deps{Cairns: repo, CairnStore: archive, CairnCipher: cipher})
+
+	s.cairnBackfillSweep(context.Background())
+
+	got := repo.setFiles[hash]
+	if len(got) != 1 || got[0].Name != "movie.mkv" || got[0].Size != plain {
+		t.Fatalf("backfill stored layout = %+v, want one movie.mkv size %d", got, plain)
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/mmcdole/gofeed"
 	"github.com/moistari/rls"
 	"github.com/moistari/rls/taginfo"
-	"github.com/torrin-app/torrin/shared/magnet"
 	"github.com/torrin-app/torrin/shared/safeurl"
 	"github.com/torrin-app/torrin/shared/useragent"
 )
@@ -21,6 +20,7 @@ type Item struct {
 	TorrentURL string
 	NzbURL     string
 	Link       string
+	Size       int64
 }
 
 func FetchFeed(ctx context.Context, feedURL string) ([]Item, error) {
@@ -35,7 +35,20 @@ func FetchFeed(ctx context.Context, feedURL string) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	return itemsFromFeed(feed), nil
+}
 
+// FetchFeedString parses feed XML that was fetched elsewhere (e.g. through the
+// browser solver for Cloudflare-gated hosts) rather than over a plain HTTP GET.
+func FetchFeedString(body string) ([]Item, error) {
+	feed, err := gofeed.NewParser().ParseString(body)
+	if err != nil {
+		return nil, err
+	}
+	return itemsFromFeed(feed), nil
+}
+
+func itemsFromFeed(feed *gofeed.Feed) []Item {
 	var items []Item
 	for _, entry := range feed.Items {
 		magnet := extractMagnet(entry)
@@ -64,70 +77,9 @@ func FetchFeed(ctx context.Context, feedURL string) ([]Item, error) {
 				guid = nzbURL
 			}
 		}
-		items = append(items, Item{GUID: guid, Title: entry.Title, Magnet: magnet, TorrentURL: torrentURL, NzbURL: nzbURL, Link: entry.Link})
+		items = append(items, Item{GUID: guid, Title: entry.Title, Magnet: magnet, TorrentURL: torrentURL, NzbURL: nzbURL, Link: entry.Link, Size: extractSize(entry)})
 	}
-	return items, nil
-}
-
-func extractEnclosure(entry *gofeed.Item, typeNeedle, urlNeedle string) string {
-	for _, enc := range entry.Enclosures {
-		if strings.Contains(strings.ToLower(enc.Type), typeNeedle) ||
-			strings.Contains(strings.ToLower(enc.URL), urlNeedle) {
-			return enc.URL
-		}
-	}
-	if strings.Contains(strings.ToLower(entry.Link), urlNeedle) {
-		return entry.Link
-	}
-	return ""
-}
-
-func extractTorrentURL(entry *gofeed.Item) string {
-	return extractEnclosure(entry, "bittorrent", ".torrent")
-}
-
-func extractNZB(entry *gofeed.Item) string {
-	return extractEnclosure(entry, "nzb", ".nzb")
-}
-
-func extractMagnet(entry *gofeed.Item) string {
-	for _, enc := range entry.Enclosures {
-		if strings.HasPrefix(enc.URL, "magnet:") {
-			return enc.URL
-		}
-	}
-	if strings.HasPrefix(entry.Link, "magnet:") {
-		return entry.Link
-	}
-	for _, text := range []string{entry.Description, entry.Content} {
-		if m := magnet.Find(text); m != "" {
-			return m
-		}
-	}
-	if ih := infoHashFromExtensions(entry); ih != "" {
-		return magnet.Build(ih, entry.Title)
-	}
-	return ""
-}
-
-func infoHashFromExtensions(entry *gofeed.Item) string {
-	for _, ns := range entry.Extensions {
-		for name, exts := range ns {
-			for _, e := range exts {
-				switch {
-				case strings.EqualFold(name, "infohash"):
-					if h := magnet.Hash(e.Value); h != "" {
-						return h
-					}
-				case strings.EqualFold(name, "attr") && strings.EqualFold(e.Attrs["name"], "infohash"):
-					if h := magnet.Hash(e.Attrs["value"]); h != "" {
-						return h
-					}
-				}
-			}
-		}
-	}
-	return ""
+	return items
 }
 
 func MatchesFilter(title, filter string) bool {
@@ -145,17 +97,19 @@ func MatchesFilter(title, filter string) bool {
 }
 
 type Filter struct {
-	Resolutions []string `json:"resolutions,omitempty"`
-	Sources     []string `json:"sources,omitempty"`
-	Codecs      []string `json:"codecs,omitempty"`
-	HDR         []string `json:"hdr,omitempty"`
-	Audio       []string `json:"audio,omitempty"`
-	Containers  []string `json:"containers,omitempty"`
-	Groups      []string `json:"groups,omitempty"`
-	YearMin     int      `json:"year_min,omitempty"`
-	YearMax     int      `json:"year_max,omitempty"`
-	Match       string   `json:"match,omitempty"`
-	Except      string   `json:"except,omitempty"`
+	Resolutions  []string `json:"resolutions,omitempty"`
+	Sources      []string `json:"sources,omitempty"`
+	Codecs       []string `json:"codecs,omitempty"`
+	HDR          []string `json:"hdr,omitempty"`
+	Audio        []string `json:"audio,omitempty"`
+	Containers   []string `json:"containers,omitempty"`
+	Groups       []string `json:"groups,omitempty"`
+	YearMin      int      `json:"year_min,omitempty"`
+	YearMax      int      `json:"year_max,omitempty"`
+	SizeMinBytes int64    `json:"size_min_bytes,omitempty"`
+	SizeMaxBytes int64    `json:"size_max_bytes,omitempty"`
+	Match        string   `json:"match,omitempty"`
+	Except       string   `json:"except,omitempty"`
 }
 
 func ParseFilter(raw []byte) Filter {
@@ -169,7 +123,21 @@ func ParseFilter(raw []byte) Filter {
 func (f Filter) Empty() bool {
 	return len(f.Resolutions) == 0 && len(f.Sources) == 0 && len(f.Codecs) == 0 &&
 		len(f.HDR) == 0 && len(f.Audio) == 0 && len(f.Containers) == 0 && len(f.Groups) == 0 &&
-		f.YearMin == 0 && f.YearMax == 0 && f.Match == "" && f.Except == ""
+		f.YearMin == 0 && f.YearMax == 0 && f.SizeMinBytes == 0 && f.SizeMaxBytes == 0 &&
+		f.Match == "" && f.Except == ""
+}
+
+func (f Filter) SizeOK(size int64) bool {
+	if size <= 0 {
+		return true
+	}
+	if f.SizeMinBytes > 0 && size < f.SizeMinBytes {
+		return false
+	}
+	if f.SizeMaxBytes > 0 && size > f.SizeMaxBytes {
+		return false
+	}
+	return true
 }
 
 func (f Filter) Matches(title string) bool {

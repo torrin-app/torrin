@@ -2,23 +2,54 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 )
 
-type CairnItem struct {
-	InfoHash  string    `json:"info_hash"`
-	Name      string    `json:"name"`
-	Size      int64     `json:"size"`
-	CreatedAt time.Time `json:"created_at"`
-	Archived  bool      `json:"archived"`
+type CairnFile struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
 }
 
-func (s *Store) SetCairnArchive(ctx context.Context, infoHash, nzbKey, name string, size int64, nzb []byte) error {
+type CairnItem struct {
+	InfoHash  string      `json:"info_hash"`
+	Name      string      `json:"name"`
+	Size      int64       `json:"size"`
+	CreatedAt time.Time   `json:"created_at"`
+	Archived  bool        `json:"archived"`
+	Files     []CairnFile `json:"files,omitempty"`
+}
+
+func (s *Store) SetCairnArchive(ctx context.Context, infoHash, nzbKey, name string, size int64, nzb []byte, files []CairnFile) error {
+	fj, _ := json.Marshal(files)
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO cairn_archives (info_hash, nzb_key, name, size, nzb) VALUES ($1,$2,$3,$4,$5)
-		 ON CONFLICT (info_hash) DO UPDATE SET nzb_key = $2, name = $3, size = $4, nzb = $5`,
-		infoHash, nzbKey, name, size, nzb)
+		`INSERT INTO cairn_archives (info_hash, nzb_key, name, size, nzb, files) VALUES ($1,$2,$3,$4,$5,$6)
+		 ON CONFLICT (info_hash) DO UPDATE SET nzb_key = $2, name = $3, size = $4, nzb = $5, files = $6`,
+		infoHash, nzbKey, name, size, nzb, fj)
 	return err
+}
+
+func (s *Store) SetCairnFiles(ctx context.Context, infoHash string, files []CairnFile) error {
+	fj, _ := json.Marshal(files)
+	_, err := s.pool.Exec(ctx, `UPDATE cairn_archives SET files = $2 WHERE info_hash = $1`, infoHash, fj)
+	return err
+}
+
+func (s *Store) CairnArchivesMissingFiles(ctx context.Context, limit int) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT info_hash FROM cairn_archives WHERE files IS NULL LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) GetCairnArchive(ctx context.Context, infoHash string) (nzbKey, name string, ok bool) {
@@ -102,7 +133,7 @@ func (s *Store) HasUserCairn(ctx context.Context, userID, infoHash string) bool 
 
 func (s *Store) ListUserCairns(ctx context.Context, userID string) ([]CairnItem, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT c.info_hash, COALESCE(a.name, ''), COALESCE(a.size, 0), c.created_at, a.info_hash IS NOT NULL
+		SELECT c.info_hash, COALESCE(a.name, ''), COALESCE(a.size, 0), c.created_at, a.info_hash IS NOT NULL, a.files
 		FROM user_cairns c
 		LEFT JOIN cairn_archives a ON a.info_hash = c.info_hash
 		WHERE c.user_id = $1
@@ -114,8 +145,12 @@ func (s *Store) ListUserCairns(ctx context.Context, userID string) ([]CairnItem,
 	out := []CairnItem{}
 	for rows.Next() {
 		var it CairnItem
-		if err := rows.Scan(&it.InfoHash, &it.Name, &it.Size, &it.CreatedAt, &it.Archived); err != nil {
+		var fj []byte
+		if err := rows.Scan(&it.InfoHash, &it.Name, &it.Size, &it.CreatedAt, &it.Archived, &fj); err != nil {
 			return nil, err
+		}
+		if len(fj) > 0 {
+			json.Unmarshal(fj, &it.Files)
 		}
 		out = append(out, it)
 	}

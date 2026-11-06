@@ -1,6 +1,7 @@
 package nzb
 
 import (
+	"bytes"
 	"fmt"
 	"html"
 
@@ -37,6 +38,14 @@ func (f File) Size() int64 {
 func ParseBytes(data []byte) (*NZB, error) {
 	parsed, err := nzbparser.ParseString(string(data))
 	if err != nil {
+		// Some posters emit decimal values in integer attributes (e.g.
+		// bytes="123.45" or date="123.45"), which the parser rejects on
+		// ParseInt. Truncate them and retry before giving up.
+		if clean := sanitizeDecimalAttrs(data); clean != nil {
+			parsed, err = nzbparser.ParseString(string(clean))
+		}
+	}
+	if err != nil {
 		return nil, fmt.Errorf("parse nzb: %w", err)
 	}
 	nzbparser.ScanNzbFile(parsed)
@@ -57,6 +66,62 @@ func ParseBytes(data []byte) (*NZB, error) {
 		n.Files = append(n.Files, file)
 	}
 	return n, nil
+}
+
+// sanitizeDecimalAttrs truncates decimal integer attributes (bytes=, date=) to
+// their integer part so a malformed NZB still parses. Returns nil if nothing
+// changed (so the caller keeps the original parse error).
+func sanitizeDecimalAttrs(data []byte) []byte {
+	out := data
+	changed := false
+	for _, attr := range []string{"bytes", "date"} {
+		if c := truncateDecimalAttr(out, attr); c != nil {
+			out = c
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return out
+}
+
+// truncateDecimalAttr rewrites any attr="<int>.<frac>" to its integer part.
+// Returns nil if there is nothing to fix.
+func truncateDecimalAttr(data []byte, attr string) []byte {
+	needle := []byte(attr + `="`)
+	var out []byte
+	changed := false
+	i := 0
+	for {
+		j := bytes.Index(data[i:], needle)
+		if j < 0 {
+			out = append(out, data[i:]...)
+			break
+		}
+		j += i
+		valStart := j + len(needle)
+		q := bytes.IndexByte(data[valStart:], '"')
+		if q < 0 {
+			out = append(out, data[i:]...)
+			break
+		}
+		valEnd := valStart + q
+		val := data[valStart:valEnd]
+		if dot := bytes.IndexByte(val, '.'); dot >= 0 {
+			out = append(out, data[i:valStart]...)
+			out = append(out, val[:dot]...)
+			i = valEnd
+			changed = true
+		} else {
+			out = append(out, data[i:valEnd]...)
+			i = valEnd
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return out
 }
 
 func (n *NZB) Name() string {

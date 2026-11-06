@@ -3,6 +3,7 @@ package indexer
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/torrin-app/torrin/shared/useragent"
@@ -116,5 +117,59 @@ func TestValidateURL(t *testing.T) {
 	}
 	if ValidateURL("ftp://example.com") == nil {
 		t.Error("non-http scheme should be rejected")
+	}
+}
+
+func TestGetRetriesTransient(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) < 2 {
+			w.WriteHeader(http.StatusBadGateway) // first attempt: transient 502
+			return
+		}
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	resp, err := NewTestClient(srv.URL, "k").get(srv.URL, "ua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200 after retry", resp.StatusCode)
+	}
+	if n := atomic.LoadInt32(&calls); n != 2 {
+		t.Fatalf("calls = %d, want 2 (one retry)", n)
+	}
+}
+
+func TestGetDoesNotRetry4xx(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	resp, _ := NewTestClient(srv.URL, "k").get(srv.URL, "ua")
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("calls = %d, want 1 (404 is not retryable)", n)
+	}
+}
+
+func TestRetryableStatus(t *testing.T) {
+	for _, c := range []int{408, 429, 500, 502, 503, 504} {
+		if !retryableStatus(c) {
+			t.Errorf("%d should be retryable", c)
+		}
+	}
+	for _, c := range []int{200, 400, 401, 403, 404} {
+		if retryableStatus(c) {
+			t.Errorf("%d should not be retryable", c)
+		}
 	}
 }

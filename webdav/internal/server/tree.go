@@ -64,11 +64,16 @@ func buildTree(list []*jobs.Job, overrides map[string]auth.WebdavOverride) *node
 		if j.Status != jobs.StatusComplete || len(j.Files) == 0 {
 			continue
 		}
-		folder := newDir(foldername.Unique(folders, foldername.Of(j), foldername.Short(j.InfoHash)))
+		fov := overrides[auth.WebdavKey(j.InfoHash, -1)]
+		folderName := foldername.Of(j)
+		if fov.Alias != "" {
+			folderName = fov.Alias
+		}
+		folder := newDir(foldername.Unique(folders, folderName, foldername.Short(j.InfoHash)))
 		folder.mod = j.UpdatedAt
 		folder.hash = j.InfoHash
 		folder.idx = -1
-		folder.hidden = overrides[auth.WebdavKey(j.InfoHash, -1)].Excluded
+		folder.hidden = fov.Excluded
 		names := map[string]bool{}
 		for i, f := range j.Files {
 			ov := overrides[auth.WebdavKey(j.InfoHash, i)]

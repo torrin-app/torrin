@@ -68,7 +68,7 @@ func New(cfg Config) (*Poster, error) {
 	if partSize <= 0 {
 		partSize = defaultPartSize
 	}
-	pool, err := download.NewPool(download.Credentials{
+	pool, err := download.NewResilientPool(download.Credentials{
 		Host: cfg.Host, Port: port, SSL: true,
 		Username: cfg.Username, Password: cfg.Password, MaxConns: maxConns,
 	})

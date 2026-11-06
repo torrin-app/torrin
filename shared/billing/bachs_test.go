@@ -117,6 +117,22 @@ func TestBachsWebhookPaymentLinkDonation(t *testing.T) {
 	}
 }
 
+func TestBachsCheckoutEnabled(t *testing.T) {
+	b := NewBachsHandler("http://x", "sk", "whsec", "prod_1", "", "", "", "", nil)
+	defer func() { BachsCheckoutEnabled = true }()
+	BachsCheckoutEnabled = false
+	if b.CheckoutEnabled() {
+		t.Error("checkout must be off when BachsCheckoutEnabled=false")
+	}
+	if !b.Enabled() {
+		t.Error("the handler itself must stay enabled so portal + webhook keep working")
+	}
+	BachsCheckoutEnabled = true
+	if !b.CheckoutEnabled() {
+		t.Error("checkout must be on when enabled and configured")
+	}
+}
+
 func TestBachsIsDonation(t *testing.T) {
 	cases := []struct {
 		name string
@@ -125,7 +141,8 @@ func TestBachsIsDonation(t *testing.T) {
 	}{
 		{"topup is not a donation", map[string]string{"type": "topup", "credits": "2000"}, false},
 		{"plan is not a donation", map[string]string{"plan": "pro", "period": "monthly"}, false},
-		{"bare payment is a donation", map[string]string{"payment_link_id": "pl_x"}, true},
+		{"subscription cycle (no metadata) is not a donation", map[string]string{}, false},
+		{"payment-link payment is a donation", map[string]string{"payment_link_id": "pl_x"}, true},
 	}
 	for _, c := range cases {
 		if got := isDonation(c.meta); got != c.want {

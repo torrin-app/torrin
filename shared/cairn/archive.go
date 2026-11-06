@@ -74,6 +74,7 @@ func (a *Archiver) Archive(ctx context.Context, hash string) {
 		return
 	}
 	var files []post.FileInput
+	var layout []auth.CairnFile
 	var total int64
 	for i, f := range man.Files {
 		key := manifest.ResolveKey(hash, i, f.DirectURL, f.FileName)
@@ -81,6 +82,7 @@ func (a *Archiver) Archive(ctx context.Context, hash string) {
 			Name: f.FileName, Size: f.FileSize,
 			Open: func() (io.ReadCloser, error) { return a.store.GetReader(ctx, key) },
 		})
+		layout = append(layout, auth.CairnFile{Name: f.FileName, Size: f.FileSize})
 		total += f.FileSize
 	}
 	slog.Info("cairn: streaming", "hash", hash, "files", len(files), "bytes", total)
@@ -94,7 +96,7 @@ func (a *Archiver) Archive(ctx context.Context, hash string) {
 		slog.Warn("cairn: store nzb", "hash", hash, "err", err)
 		return
 	}
-	if err := a.users.SetCairnArchive(ctx, hash, nzb.StorageKey(hash), man.Name, total, dbNzb); err != nil {
+	if err := a.users.SetCairnArchive(ctx, hash, nzb.StorageKey(hash), man.Name, total, dbNzb, layout); err != nil {
 		slog.Warn("cairn: record", "hash", hash, "err", err)
 		return
 	}
