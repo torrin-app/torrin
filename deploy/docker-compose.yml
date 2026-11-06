@@ -307,11 +307,12 @@ services:
     volumes: [rclone_config:/data]
     restart: *restart
 
-  byos-rc-tunnel:
+  byos-rc-tunnel: # multi-node only: exposes rclone's rc over wgcache for remote cache nodes; single box doesn't need it
     image: alpine/socat
     restart: unless-stopped
     depends_on: [rclone]
-    ports: ["10.9.0.2:5572:5572"]
+    profiles: ["cluster"]
+    ports: ["${WGCACHE_BIND_IP:-0.0.0.0}:5572:5572"]
     command: TCP-LISTEN:5572,fork,reuseaddr TCP:rclone:5572
 
   byos:
