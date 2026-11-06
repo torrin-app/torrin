@@ -23,6 +23,7 @@ type User struct {
 	SeedSlotSub          string    `json:"-"`
 	SystemIndexerEnabled bool      `json:"system_indexer_enabled"`
 	TOTPEnabled          bool      `json:"totp_enabled"`
+	UsenetStreaming      bool      `json:"usenet_streaming"`
 }
 
 func (u *User) IsPaused() bool {

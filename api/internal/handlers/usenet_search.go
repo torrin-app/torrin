@@ -25,6 +25,7 @@ func (s *Server) registerUsenetSearchRoutes(mux *http.ServeMux, authMW func(http
 	mux.Handle("GET /api/usenet/search", authMW(http.HandlerFunc(s.usenetSearch)))
 	mux.Handle("GET /api/usenet/cached", authMW(http.HandlerFunc(s.usenetCached)))
 	mux.Handle("POST /api/usenet/grab", authMW(http.HandlerFunc(s.usenetGrab)))
+	mux.Handle("POST /api/usenet/stream", authMW(http.HandlerFunc(s.streamUsenetResult)))
 	mux.Handle("POST /api/usenet/indexer/test", authMW(http.HandlerFunc(s.testIndexer)))
 	mux.Handle("POST /api/usenet/indexer", authMW(http.HandlerFunc(s.setIndexer)))
 	mux.Handle("GET /api/usenet/indexer", authMW(http.HandlerFunc(s.getIndexer)))
@@ -197,7 +198,7 @@ func (s *Server) usenetGrab(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	imdb, _, _ := parseCachedTarget(req.IMDBID)
-	s.ingestNZB(w, r, user, plan, nzbData, req.Title, imdb, req.Explicit)
+	s.ingestNZB(w, r, user, plan, nzbData, req.Title, imdb, req.Explicit, req.NZBURL)
 }
 
 func pickSource(sources []indexer.Source, sourceID, nzbURL string) *indexer.Client {

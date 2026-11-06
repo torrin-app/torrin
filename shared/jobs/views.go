@@ -18,13 +18,17 @@ func (p *Postgres) RecordView(ctx context.Context, infoHash, userID string) (boo
 	if err != nil {
 		return false, err
 	}
+	// Views are frequently recorded before the job reaches 'complete' (debrid
+	// instant-play and play-while-downloading), so the access must land on any
+	// non-terminal row or it is lost and the content is later treated as
+	// never-watched and evicted early.
 	newViewer := ct.RowsAffected() > 0
 	if newViewer {
 		p.pool.Exec(ctx, `UPDATE jobs SET last_accessed_at=now(), access_count=access_count+1, updated_at=now()
-			WHERE info_hash=$1 AND status IN ('complete','seeding')`, infoHash)
+			WHERE info_hash=$1 AND status IN `+viewableStates, infoHash)
 	} else {
 		p.pool.Exec(ctx, `UPDATE jobs SET last_accessed_at=now(), updated_at=now()
-			WHERE info_hash=$1 AND status IN ('complete','seeding')`, infoHash)
+			WHERE info_hash=$1 AND status IN `+viewableStates, infoHash)
 	}
 	return newViewer, nil
 }

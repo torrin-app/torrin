@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +19,13 @@ import (
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/providers"
 )
+
+func torboxUsenetRef(id int) string { return fmt.Sprintf("torbox-usenet:%d", id) }
+
+func torboxUsenetHash(id int) string {
+	sum := sha256.Sum256([]byte(torboxUsenetRef(id)))
+	return hex.EncodeToString(sum[:20])
+}
 
 const libraryPageSize = 20
 
@@ -32,6 +42,7 @@ func (s *Server) registerLibraryRoutes(mux *http.ServeMux, authMW func(http.Hand
 
 type libraryItem struct {
 	Hash     string `json:"hash"`
+	UsenetID int    `json:"usenet_id,omitempty"`
 	Filename string `json:"filename"`
 	Bytes    int64  `json:"bytes"`
 	Status   string `json:"status"`
@@ -80,6 +91,11 @@ func (s *Server) library(w http.ResponseWriter, r *http.Request, key string, lis
 	end := min(start+libraryPageSize, len(all))
 	items := make([]libraryItem, 0, end-start)
 	for _, it := range all[start:end] {
+		if it.UsenetID != 0 {
+			cached, _ := s.Store.Has(r.Context(), manifest.Path(torboxUsenetHash(it.UsenetID)))
+			items = append(items, libraryItem{UsenetID: it.UsenetID, Filename: it.Filename, Bytes: it.Size, Status: "ready", Cached: cached})
+			continue
+		}
 		hash := strings.ToLower(it.Hash)
 		cached, _ := s.Store.Has(r.Context(), manifest.Path(hash))
 		items = append(items, libraryItem{Hash: hash, Filename: it.Filename, Bytes: it.Size, Status: "ready", Cached: cached})
@@ -95,7 +111,8 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Hashes []string `json:"hashes"`
+		Hashes    []string `json:"hashes"`
+		UsenetIDs []int    `json:"usenet_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		web.WriteError(w, 400, "hashes required")
@@ -142,6 +159,46 @@ func (s *Server) importHashes(w http.ResponseWriter, r *http.Request) {
 			s.assign(job)
 		}
 		created = append(created, h)
+	}
+	for _, id := range req.UsenetIDs {
+		if id <= 0 {
+			continue
+		}
+		label := strconv.Itoa(id)
+		hash := torboxUsenetHash(id)
+		if manifest.Playable(r.Context(), s.Store, hash) {
+			if _, err := s.buildCachedJob(r.Context(), hash, torboxUsenetRef(id), user.ID, jobs.SourceUsenet); err != nil {
+				errs = append(errs, label+": "+err.Error())
+				continue
+			}
+			created = append(created, label)
+			continue
+		}
+		if existing, _ := s.Jobs.GetByInfoHash(r.Context(), hash); existing != nil && existing.UserID == user.ID {
+			created = append(created, label)
+			continue
+		}
+		if over, _ := s.Users.MonthlyQuotaExceeded(r.Context(), user.ID, plan.MonthlyIngestBytes); over {
+			errs = append(errs, label+": monthly download limit reached")
+			continue
+		}
+		job := &jobs.Job{
+			UserID: user.ID, InfoHash: hash, Magnet: torboxUsenetRef(id), Source: jobs.SourceUsenet,
+			Status: jobs.StatusPending, MaxBytes: plan.MaxTorrentBytes, Priority: plan.Priority,
+		}
+		disposition, err := s.Slots.Admit(r.Context(), job, plan, true)
+		if err != nil {
+			if errors.Is(err, jobs.ErrQueueFull) {
+				errs = append(errs, label+": download queue full")
+			} else {
+				errs = append(errs, label+": could not queue this download")
+			}
+			continue
+		}
+		if disposition == jobs.AdmissionAdmitted {
+			s.assign(job)
+		}
+		created = append(created, label)
 	}
 	web.WriteJSON(w, 200, map[string]any{"created": created, "errors": errs})
 }

@@ -63,7 +63,31 @@ func TBLibrary(ctx context.Context, tbKey string) ([]LibraryItem, error) {
 			}
 		}
 		if len(resp.Data) < 1000 {
-			return out, nil
+			break
 		}
 	}
+	// usenet downloads have no infohash; carry the TorBox usenet id so import
+	// pulls them via requestdl instead of re-adding a magnet.
+	for offset := 0; ; offset += 1000 {
+		u := fmt.Sprintf("%s/usenet/mylist?offset=%d&limit=%d", tbBase, offset, 1000)
+		body, err := t.get(ctx, u)
+		if err != nil {
+			return out, nil // torrents still usable if usenet list errors
+		}
+		var resp struct {
+			Data []tbListItem `json:"data"`
+		}
+		if err := json.Unmarshal(body, &resp); err != nil {
+			return out, nil
+		}
+		for _, it := range resp.Data {
+			if it.ID != 0 && it.DownloadFinished && it.DownloadPresent {
+				out = append(out, LibraryItem{UsenetID: it.ID, Filename: it.Name, Size: it.Size})
+			}
+		}
+		if len(resp.Data) < 1000 {
+			break
+		}
+	}
+	return out, nil
 }

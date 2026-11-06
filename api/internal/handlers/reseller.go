@@ -18,14 +18,27 @@ import (
 
 var validPeriods = map[string]bool{"monthly": true, "yearly": true, "lifetime": true, "days": true}
 
-func dayCodeRetired(period string) bool {
-	return !plans.DayPlansEnabled && period == "days"
-}
-
 const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 func secretEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// authReseller resolves the X-Reseller-Key header. The operator's global key has
+// unscoped access (sees/settles every reseller's codes); a per-partner key is
+// scoped to its own id, so partners can only mint/list/settle their own codes.
+func (s *Server) authReseller(r *http.Request) (partnerID string, scoped, ok bool) {
+	key := r.Header.Get("X-Reseller-Key")
+	if key == "" {
+		return "", false, false
+	}
+	if s.ResellerKey != "" && secretEqual(key, s.ResellerKey) {
+		return "", false, true
+	}
+	if p, err := s.Users.GetPartnerByKeyHash(r.Context(), auth.HashPartnerKey(key)); err == nil && p != nil {
+		return p.ID, true, true
+	}
+	return "", false, false
 }
 
 var redeemLimiter = newAttemptLimiter(8, time.Minute)
@@ -67,12 +80,14 @@ func (s *Server) registerResellerRoutes(mux *http.ServeMux, authMW func(http.Han
 }
 
 func (s *Server) settleCodes(w http.ResponseWriter, r *http.Request) {
-	if s.ResellerKey == "" || !secretEqual(r.Header.Get("X-Reseller-Key"), s.ResellerKey) {
+	partnerID, scoped, ok := s.authReseller(r)
+	if !ok {
 		web.WriteError(w, 401, "invalid reseller key")
 		return
 	}
 	var req struct {
 		Reseller string `json:"reseller"`
+		Code     string `json:"code"`
 		Ref      string `json:"ref"`
 		Undo     bool   `json:"undo"`
 	}
@@ -80,17 +95,30 @@ func (s *Server) settleCodes(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "invalid json")
 		return
 	}
+	ref := strings.TrimSpace(req.Ref)
+	code := strings.TrimSpace(req.Code)
 	reseller := strings.TrimSpace(req.Reseller)
-	if reseller == "" {
-		web.WriteError(w, 400, "reseller required")
-		return
+	if scoped {
+		reseller = partnerID
 	}
 	var n int64
 	var err error
-	if req.Undo {
-		n, err = s.Users.UnsettleResellerCodes(r.Context(), reseller)
-	} else {
-		n, err = s.Users.MarkResellerCodesSettled(r.Context(), reseller, strings.TrimSpace(req.Ref))
+	switch {
+	case code != "":
+		if req.Undo {
+			n, err = s.Users.UnsettleResellerCode(r.Context(), reseller, code)
+		} else {
+			n, err = s.Users.MarkResellerCodeSettled(r.Context(), reseller, code, ref)
+		}
+	case reseller != "":
+		if req.Undo {
+			n, err = s.Users.UnsettleResellerCodes(r.Context(), reseller)
+		} else {
+			n, err = s.Users.MarkResellerCodesSettled(r.Context(), reseller, ref)
+		}
+	default:
+		web.WriteError(w, 400, "reseller or code required")
+		return
 	}
 	if err != nil {
 		web.WriteError(w, 500, "could not update settlement")
@@ -150,10 +178,6 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "this code is no longer valid")
 		return
 	}
-	if dayCodeRetired(rc.Period) {
-		web.WriteError(w, 422, "day passes are no longer offered")
-		return
-	}
 	claimed, err := s.Users.MarkResellerCodeRedeemed(r.Context(), code, user.ID)
 	if err != nil {
 		web.WriteError(w, 500, "could not redeem")
@@ -174,7 +198,8 @@ func (s *Server) redeemCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) mintCodes(w http.ResponseWriter, r *http.Request) {
-	if s.ResellerKey == "" || !secretEqual(r.Header.Get("X-Reseller-Key"), s.ResellerKey) {
+	partnerID, scoped, ok := s.authReseller(r)
+	if !ok {
 		web.WriteError(w, 401, "invalid reseller key")
 		return
 	}
@@ -197,10 +222,8 @@ func (s *Server) mintCodes(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "period must be one of: monthly, yearly, lifetime, days")
 		return
 	}
-	if dayCodeRetired(req.Period) {
-		web.WriteError(w, 422, "day passes are retired and can no longer be minted")
-		return
-	}
+	// Reseller trial codes (e.g. a 1-day Standard trial) are allowed even though
+	// the consumer-facing day plans are retired; they're a B2B provisioning tool.
 	if req.Period == "days" && req.Days <= 0 {
 		web.WriteError(w, 400, "days must be > 0 when period is 'days'")
 		return
@@ -214,6 +237,9 @@ func (s *Server) mintCodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reseller := req.Reseller
+	if scoped {
+		reseller = partnerID
+	}
 	if reseller == "" {
 		reseller = "reseller"
 	}
@@ -239,9 +265,14 @@ func (s *Server) mintCodes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listCodes(w http.ResponseWriter, r *http.Request) {
-	if s.ResellerKey == "" || !secretEqual(r.Header.Get("X-Reseller-Key"), s.ResellerKey) {
+	partnerID, scoped, ok := s.authReseller(r)
+	if !ok {
 		web.WriteError(w, 401, "invalid reseller key")
 		return
+	}
+	reseller := r.URL.Query().Get("reseller")
+	if scoped {
+		reseller = partnerID
 	}
 	redeemedOnly := r.URL.Query().Get("redeemed") == "true"
 	var since *time.Time
@@ -255,7 +286,7 @@ func (s *Server) listCodes(w http.ResponseWriter, r *http.Request) {
 		limit = 200
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	codes, err := s.Users.ListResellerCodes(r.Context(), redeemedOnly, since, limit, offset)
+	codes, err := s.Users.ListResellerCodes(r.Context(), reseller, redeemedOnly, since, limit, offset)
 	if err != nil {
 		web.WriteError(w, 500, "could not list codes")
 		return

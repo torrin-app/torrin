@@ -1,10 +1,53 @@
 package postproc
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestEnsurePar2Ext(t *testing.T) {
+	dir := t.TempDir()
+	obf := filepath.Join(dir, "GF8fl2Q5aS7tQSpAGskS")
+	if err := os.WriteFile(obf, fileDescPar2(make([]byte, 16), "movie.mkv", 10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plain := filepath.Join(dir, "notpar2.dat")
+	if err := os.WriteFile(plain, []byte("just data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ensurePar2Ext(dir)
+
+	if _, err := os.Stat(obf + ".par2"); err != nil {
+		t.Fatalf("obfuscated par2 should gain .par2: %v", err)
+	}
+	if _, err := os.Stat(obf); err == nil {
+		t.Fatal("extensionless par2 should be gone after rename")
+	}
+	if _, err := os.Stat(plain); err != nil {
+		t.Fatal("non-par2 file must be left untouched")
+	}
+	if findPar2(dir) == "" {
+		t.Fatal("findPar2 should locate the renamed set")
+	}
+}
+
+func TestRepairVerdict(t *testing.T) {
+	// par2cmdline: 0=complete, 1=repairable, 2=not enough blocks, 4=par corrupt,
+	// 5=repaired-but-still-corrupt. Only 0/1 are safe to publish.
+	for _, code := range []int{0, 1} {
+		if err := repairVerdict(code); err != nil {
+			t.Errorf("exit %d should be ok, got %v", code, err)
+		}
+	}
+	for _, code := range []int{2, 4, 5, 6, 8, -1} {
+		if err := repairVerdict(code); !errors.Is(err, ErrUnrepairable) {
+			t.Errorf("exit %d should be unrepairable, got %v", code, err)
+		}
+	}
+}
 
 func touch(t *testing.T, dir, name string) {
 	t.Helper()

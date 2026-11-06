@@ -2,6 +2,7 @@ package postproc
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -13,6 +14,11 @@ import (
 	"github.com/torrin-app/torrin/shared/video"
 )
 
+// ErrUnrepairable means a par2 set was present but the release is too damaged
+// (missing articles) for par2 to repair, so publishing it would ship a corrupt
+// file. The job should fail instead.
+var ErrUnrepairable = errors.New("postproc: release incomplete, par2 cannot repair")
+
 type File struct {
 	Name string
 	Path string
@@ -21,7 +27,9 @@ type File struct {
 
 func Process(dir string, passwords []string, release string) ([]File, error) {
 	deobfuscateByPar2(dir)
-	repair(dir)
+	if err := repair(dir); err != nil {
+		return nil, err
+	}
 	if err := extract(dir, passwords); err != nil {
 		return nil, err
 	}
@@ -83,15 +91,16 @@ func logDir(dir string) {
 	})
 }
 
-func repair(dir string) {
+func repair(dir string) error {
+	ensurePar2Ext(dir)
 	par2 := findPar2(dir)
 	if par2 == "" {
 		slog.Info("postproc: no par2 set found, skipping repair", "dir", dir)
-		return
+		return nil
 	}
 	if _, err := exec.LookPath("par2"); err != nil {
 		slog.Warn("postproc: par2 binary missing, cannot repair/deobfuscate")
-		return
+		return nil
 	}
 	cmd := exec.Command("par2", "repair", filepath.Base(par2))
 	cmd.Dir = dir
@@ -100,10 +109,54 @@ func repair(dir string) {
 	if len(tail) > 400 {
 		tail = tail[len(tail)-400:]
 	}
-	slog.Info("postproc: par2 repair", "file", filepath.Base(par2), "err", err, "out", tail)
+	code := exitCode(err)
+	slog.Info("postproc: par2 repair", "file", filepath.Base(par2), "exit", code, "out", tail)
+	return repairVerdict(code)
+}
+
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return -1
+}
+
+// repairVerdict maps a par2cmdline exit code to a result. 0 = files complete or
+// repaired, 1 = repair was possible; both are fine. 2+ mean the set is damaged
+// beyond repair (2 not enough blocks, 4 par files corrupt, 5 repaired-but-still-
+// corrupt, etc.) so the release must not be published.
+func repairVerdict(code int) error {
+	if code == 0 || code == 1 {
+		return nil
+	}
+	return ErrUnrepairable
 }
 
 var par2Magic = []byte("PAR2\x00PKT")
+
+func ensurePar2Ext(dir string) {
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || strings.HasSuffix(strings.ToLower(e.Name()), ".par2") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if !hasMagic(p, par2Magic) {
+			continue
+		}
+		renamed := p + ".par2"
+		if _, err := os.Stat(renamed); err == nil {
+			continue
+		}
+		if err := os.Rename(p, renamed); err != nil {
+			slog.Warn("postproc: could not add .par2 extension", "file", e.Name(), "err", err)
+		}
+	}
+}
 
 func findPar2(dir string) string {
 	if v := firstGlob(dir, "*.par2"); v != "" {

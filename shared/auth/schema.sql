@@ -88,6 +88,12 @@ CREATE TABLE IF NOT EXISTS blocklist_terms (
     tier TEXT NOT NULL DEFAULT 'hard'
 );
 
+CREATE TABLE IF NOT EXISTS allowlist_hashes (
+    info_hash  TEXT PRIMARY KEY,
+    note       TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS rd_credentials (
     user_id    TEXT PRIMARY KEY,
     api_key    TEXT NOT NULL,
@@ -227,6 +233,17 @@ ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS settled_at     TIMESTAMPTZ;
 ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS settlement_ref TEXT NOT NULL DEFAULT '';
 ALTER TABLE reseller_codes ADD COLUMN IF NOT EXISTS retail_cents   INTEGER NOT NULL DEFAULT 0;
 
+CREATE TABLE IF NOT EXISTS reseller_partners (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL DEFAULT '',
+    key_hash         TEXT NOT NULL UNIQUE,
+    suppress_welcome BOOLEAN NOT NULL DEFAULT FALSE,
+    active           BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS partner_id TEXT NOT NULL DEFAULT '';
+
 CREATE TABLE IF NOT EXISTS ad_library (
     info_hash TEXT PRIMARY KEY,
     filename  TEXT NOT NULL DEFAULT '',
@@ -273,6 +290,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS system_indexer_enabled BOOLEAN NOT NU
 ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret  TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS bachs_customer_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS usenet_streaming BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS webdav_overrides (
     user_id    TEXT NOT NULL,
@@ -323,6 +341,7 @@ CREATE TABLE IF NOT EXISTS ingest_usage (
 );
 
 ALTER TABLE cairn_archives ADD COLUMN IF NOT EXISTS nzb BYTEA;
+ALTER TABLE cairn_archives ADD COLUMN IF NOT EXISTS files JSONB;
 
 CREATE TABLE IF NOT EXISTS job_nzbs (
     info_hash  TEXT PRIMARY KEY,
@@ -362,3 +381,14 @@ CREATE TABLE IF NOT EXISTS login_otps (
     attempts   INT NOT NULL DEFAULT 0,
     expires_at TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS webauthn_credentials (
+    id            TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    credential_id TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL DEFAULT '',
+    data          JSONB NOT NULL,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_webauthn_creds_user ON webauthn_credentials(user_id);

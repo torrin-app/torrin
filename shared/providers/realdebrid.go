@@ -26,6 +26,7 @@ type LibraryItem struct {
 	Hash     string
 	Filename string
 	Size     int64
+	UsenetID int // non-zero = TorBox usenet download (no infohash); import pulls by id
 }
 
 func RDLibrary(ctx context.Context, rdKey string) ([]LibraryItem, error) {

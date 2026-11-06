@@ -76,6 +76,10 @@ func main() {
 			srv.SetBYOS(users, jobsRepo, rclonerc.New(rcURL), rcURL)
 			srv.SetNodeResolver(jobsRepo.NodeForInfoHash)
 			slog.Info("stream serving bring-your-own-storage via rclone", "url", rcURL)
+			if creds := systemUsenetCreds(); len(creds) > 0 {
+				srv.SetUsenet(users, creds)
+				slog.Info("stream serving usenet direct streams", "providers", len(creds))
+			}
 		} else {
 			slog.Warn("stream: byos disabled, db unavailable", "users_err", uErr, "jobs_err", jErr)
 		}
@@ -83,4 +87,31 @@ func main() {
 
 	slog.Info("stream server started")
 	service.Run("stream", "8084", srv.Handler(), service.WithWriteTimeout(0))
+}
+
+func systemUsenetCreds() []download.Credentials {
+	var creds []download.Credentials
+	if host := env.Get("USENET_HOST", ""); host != "" {
+		maxConns := int(env.Int("USENET_MAXCONNS", 20))
+		if maxConns < 1 {
+			maxConns = 20
+		}
+		creds = append(creds, download.Credentials{
+			Host: host, Port: int(env.Int("USENET_PORT", 563)),
+			Username: env.Get("USENET_USER", ""), Password: env.Get("USENET_PASS", ""),
+			SSL: env.Get("USENET_SSL", "true") != "false", MaxConns: maxConns,
+		})
+	}
+	if host := env.Get("USENET_FALLBACK_HOST", ""); host != "" {
+		maxConns := int(env.Int("USENET_FALLBACK_MAXCONNS", 20))
+		if maxConns < 1 {
+			maxConns = 20
+		}
+		creds = append(creds, download.Credentials{
+			Host: host, Port: int(env.Int("USENET_FALLBACK_PORT", 563)),
+			Username: env.Get("USENET_FALLBACK_USER", ""), Password: env.Get("USENET_FALLBACK_PASS", ""),
+			SSL: env.Get("USENET_FALLBACK_SSL", "true") != "false", MaxConns: maxConns,
+		})
+	}
+	return creds
 }

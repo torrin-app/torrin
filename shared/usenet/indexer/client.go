@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +16,28 @@ import (
 	"github.com/torrin-app/torrin/shared/safeurl"
 	"github.com/torrin-app/torrin/shared/useragent"
 )
+
+// Indexer requests are idempotent GETs, so transient upstream failures
+// (connection errors, 429, 5xx) are safely retried with exponential backoff and
+// full jitter before giving up. Aggregators like altHUB rate-limit concurrent
+// requests, so a momentary denial surfaces as a 502 to the user without this.
+const (
+	getAttempts  = 3
+	getBaseDelay = 500 * time.Millisecond
+	getMaxDelay  = 3 * time.Second
+)
+
+func retryableStatus(code int) bool {
+	return code == http.StatusTooManyRequests || code == http.StatusRequestTimeout || code >= 500
+}
+
+func getRetryDelay(attempt int) time.Duration {
+	window := getBaseDelay << (attempt - 1)
+	if window > getMaxDelay {
+		window = getMaxDelay
+	}
+	return time.Duration(rand.Int63n(int64(window) + 1))
+}
 
 type Client struct {
 	baseURL    string
@@ -158,12 +181,29 @@ func (c *Client) resolveGrabUA(category string) string {
 }
 
 func (c *Client) get(rawURL, userAgent string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
-	if err != nil {
-		return nil, err
+	var lastErr error
+	for attempt := 1; attempt <= getAttempts; attempt++ {
+		if attempt > 1 {
+			time.Sleep(getRetryDelay(attempt - 1))
+		}
+		req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", userAgent)
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if retryableStatus(resp.StatusCode) && attempt < getAttempts {
+			lastErr = fmt.Errorf("upstream status %d", resp.StatusCode)
+			resp.Body.Close()
+			continue
+		}
+		return resp, nil
 	}
-	req.Header.Set("User-Agent", userAgent)
-	return c.httpClient.Do(req)
+	return nil, lastErr
 }
 
 func (c *Client) search(params url.Values) ([]Result, error) {

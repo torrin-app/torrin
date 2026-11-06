@@ -47,3 +47,26 @@ func TestChallenge(t *testing.T) {
 		t.Error("a challenge token must not be usable as a session")
 	}
 }
+
+func TestBlob(t *testing.T) {
+	key := []byte("test-signing-key")
+	data := []byte(`{"challenge":"abc","userId":"xyz"}`)
+	tok := SignBlob(key, data, time.Hour)
+
+	got, ok := VerifyBlob(key, tok)
+	if !ok || string(got) != string(data) {
+		t.Fatalf("valid blob should round-trip, got %q ok=%v", got, ok)
+	}
+	if _, ok := VerifyBlob([]byte("wrong-key"), tok); ok {
+		t.Error("wrong key must not verify")
+	}
+	if _, ok := VerifyBlob(key, tok+"x"); ok {
+		t.Error("tampered blob must not verify")
+	}
+	if _, ok := VerifyBlob(key, SignBlob(key, data, -time.Minute)); ok {
+		t.Error("expired blob must not verify")
+	}
+	if _, _, ok := VerifyChallenge(key, tok); ok {
+		t.Error("a blob token must not be usable as a challenge")
+	}
+}

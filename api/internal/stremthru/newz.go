@@ -92,18 +92,27 @@ func (h *Handler) getNewz(w http.ResponseWriter, r *http.Request, user *auth.Use
 		return
 	}
 	name, files, cached := h.cachedFiles(r.Context(), user.ID, contentHash)
-	if !cached {
+	status := stStatus(job.Status)
+	size := job.FileSize
+	switch {
+	case cached:
+		status = "downloaded"
+	case user.UsenetStreaming:
+		if sfiles, sname, ssize, ok := h.usenetStreamEntry(r.Context(), user.ID, contentHash); ok {
+			files, status, size = sfiles, "downloaded", ssize
+			if sname != "" {
+				name = sname
+			}
+		}
+	}
+	if files == nil {
 		files = []map[string]any{}
 	}
 	if name == "" {
 		name = job.Name
 	}
-	status := stStatus(job.Status)
-	if cached {
-		status = "downloaded"
-	}
 	stJSON(w, 200, map[string]any{"data": map[string]any{
-		"id": id, "hash": id, "name": name, "size": job.FileSize,
+		"id": id, "hash": id, "name": name, "size": size,
 		"status": status, "files": files, "added_at": job.CreatedAt.Format(time.RFC3339),
 	}})
 }

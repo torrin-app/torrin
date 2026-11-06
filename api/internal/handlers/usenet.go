@@ -18,6 +18,7 @@ import (
 	"github.com/torrin-app/torrin/shared/plans"
 	"github.com/torrin-app/torrin/shared/usenet/download"
 	"github.com/torrin-app/torrin/shared/usenet/nzb"
+	"github.com/torrin-app/torrin/shared/usenet/nzburl"
 )
 
 const maxUsenetConns = 30
@@ -43,7 +44,7 @@ func (s *Server) submitNZB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := strings.TrimSuffix(r.URL.Query().Get("name"), ".nzb")
-	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name, "", true)
+	s.ingestNZB(w, r, middleware.GetUser(r), middleware.GetPlan(r), body, name, "", true, "")
 }
 
 func readNZBBody(r *http.Request) ([]byte, error) {
@@ -94,8 +95,18 @@ func recentlyFailed(sibs []*jobs.Job, userID string, within time.Duration) *jobs
 	return nil
 }
 
-func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint, imdb string, explicit bool) {
-	if _, err := s.Users.GetUsenetCreds(r.Context(), user.ID); !usenetEntitled(err == nil, plan) {
+func usenetConfigured(hasLegacyCreds bool, enabledProviders int) bool {
+	return hasLegacyCreds || enabledProviders > 0
+}
+
+func (s *Server) hasUsenetProvider(ctx context.Context, userID string) bool {
+	_, err := s.Users.GetUsenetCreds(ctx, userID)
+	ps, _ := s.Users.EnabledUsenetProviders(ctx, userID)
+	return usenetConfigured(err == nil, len(ps))
+}
+
+func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.User, plan plans.Plan, body []byte, nameHint, imdb string, explicit bool, nzbURL string) {
+	if !usenetEntitled(s.hasUsenetProvider(r.Context(), user.ID), plan) {
 		web.WriteError(w, 403, "usenet needs your own provider, add NNTP credentials in settings, or upgrade to a plan that includes usenet")
 		return
 	}
@@ -106,22 +117,39 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		return
 	}
 
+	hash := nzb.Hash(parsed)
+
 	screenTexts := []string{parsed.Name()}
 	for _, f := range parsed.Files {
 		screenTexts = append(screenTexts, f.Subject, f.Filename)
 	}
-	if s.blockedBySafety(w, r, user.ID, screenTexts...) {
+	if s.blockedBySafetyHash(w, r, user.ID, hash, screenTexts...) {
 		return
 	}
 
-	hash := nzb.Hash(parsed)
-	defer lockGrab(hash)()
+	dedupKey := hash
+	if nzbURL != "" {
+		dedupKey = nzburl.Hash(nzbURL)
+	}
+	defer lockGrab(dedupKey)()
+
+	// Obfuscated indexers re-roll message-ids (so a new content hash) on every
+	// fetch; players re-resolve on buffering. Dedup on the stable nzb link so a
+	// retry reuses the first job instead of starting another download.
+	if nzbURL != "" && s.JobsPG != nil {
+		if prior, err := s.JobsPG.ContentHashByURL(r.Context(), dedupKey); err == nil && prior != "" {
+			hash = prior
+		} else {
+			s.JobsPG.MapNzbURL(r.Context(), dedupKey, hash)
+		}
+	}
 
 	sibs, _ := s.Jobs.ListByInfoHash(r.Context(), hash)
 	if j := userJobForHash(sibs, user.ID); j != nil {
 		if !j.Status.Active() {
 			j.StreamURLs = s.signStreams(j, r)
 		}
+		s.usenetStreamOverlay(r.Context(), user, body, parsed, j)
 		web.WriteJSON(w, 200, j)
 		return
 	}
@@ -200,6 +228,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 		if !linked.Status.Active() {
 			linked.StreamURLs = s.signStreams(linked, r)
 		}
+		s.usenetStreamOverlay(r.Context(), user, body, parsed, linked)
 		web.WriteJSON(w, responseStatus, linked)
 		return
 	}
@@ -227,6 +256,7 @@ func (s *Server) ingestNZB(w http.ResponseWriter, r *http.Request, user *auth.Us
 	if disposition == jobs.AdmissionAdmitted {
 		s.assign(job)
 	}
+	s.usenetStreamOverlay(r.Context(), user, body, parsed, job)
 	web.WriteJSON(w, admissionStatus(disposition), job)
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 
@@ -16,7 +17,7 @@ var (
 )
 
 func hdenc() *hd.Client {
-	hdOnce.Do(func() { hdClient = hd.NewClient("") })
+	hdOnce.Do(func() { hdClient = hd.NewClient(os.Getenv("HDENCODE_SOLVER_URL")) })
 	return hdClient
 }
 

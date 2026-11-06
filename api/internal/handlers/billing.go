@@ -35,6 +35,10 @@ func checkoutRequest(w http.ResponseWriter, r *http.Request) (*auth.User, checko
 		web.WriteError(w, 422, "day passes are no longer offered")
 		return nil, checkoutReq{}, false
 	}
+	if !plans.LifetimeEnabled && req.Period == "lifetime" {
+		web.WriteError(w, 422, "lifetime plans are no longer offered")
+		return nil, checkoutReq{}, false
+	}
 	return user, req, true
 }
 
@@ -56,7 +60,7 @@ func (s *Server) cryptoCheckout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) bachsCheckout(w http.ResponseWriter, r *http.Request) {
-	if s.Bachs == nil || !s.Bachs.Enabled() {
+	if s.Bachs == nil || !s.Bachs.CheckoutEnabled() {
 		web.WriteError(w, 503, "card payments not available")
 		return
 	}

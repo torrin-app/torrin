@@ -37,6 +37,10 @@ func (s *Server) walletBuyPlan(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "invalid period")
 		return
 	}
+	if !plans.LifetimeEnabled && req.Period == "lifetime" {
+		web.WriteError(w, 422, "lifetime plans are no longer offered")
+		return
+	}
 	paid, err := billing.BuyPlanFromWallet(r.Context(), s.Users, user, req.Plan, req.Period, req.Recurring, req.IdempotencyKey)
 	if err != nil {
 		web.WriteError(w, 500, "could not complete purchase")
@@ -62,7 +66,7 @@ func (s *Server) walletTopup(w http.ResponseWriter, r *http.Request) {
 	}
 	switch req.Provider {
 	case "bachs":
-		if s.Bachs == nil || !s.Bachs.Enabled() {
+		if s.Bachs == nil || !s.Bachs.CheckoutEnabled() {
 			web.WriteError(w, 503, "card payments not available")
 			return
 		}

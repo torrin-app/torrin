@@ -60,7 +60,7 @@ func (s *Server) addFeed(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "url required")
 		return
 	}
-	if _, err := rss.FetchFeed(r.Context(), req.URL); err != nil {
+	if _, err := s.fetchFeedItems(r.Context(), req.URL); err != nil {
 		web.WriteError(w, 400, "invalid feed url")
 		return
 	}
@@ -87,7 +87,7 @@ func (s *Server) updateFeed(w http.ResponseWriter, r *http.Request) {
 		web.WriteError(w, 400, "url required")
 		return
 	}
-	if _, err := rss.FetchFeed(r.Context(), req.URL); err != nil {
+	if _, err := s.fetchFeedItems(r.Context(), req.URL); err != nil {
 		web.WriteError(w, 400, "invalid feed url")
 		return
 	}
@@ -149,7 +149,7 @@ func (s *Server) rssSweep(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		items, err := rss.FetchFeed(ctx, feed.URL)
+		items, err := s.fetchFeedItems(ctx, feed.URL)
 		if err != nil {
 			slog.Warn("rss: fetch failed", "feed", feed.Name, "err", err)
 			continue
@@ -171,7 +171,7 @@ func (s *Server) rssSweep(ctx context.Context) {
 			if s.Users.IsRSSSeen(ctx, feed.ID, item.GUID) {
 				continue
 			}
-			if !feedMatches(feed, item.Title) {
+			if !feedMatches(feed, item) {
 				s.Users.MarkRSSSeen(ctx, feed.ID, item.GUID)
 				continue
 			}
@@ -202,11 +202,15 @@ func (s *Server) rssSweep(ctx context.Context) {
 	}
 }
 
-func feedMatches(feed *auth.RSSFeed, title string) bool {
-	if !rss.ParseFilter(feed.Criteria).Matches(title) {
+func feedMatches(feed *auth.RSSFeed, item rss.Item) bool {
+	f := rss.ParseFilter(feed.Criteria)
+	if !f.SizeOK(item.Size) {
 		return false
 	}
-	return rss.MatchesFilter(title, feed.Filter)
+	if !f.Matches(item.Title) {
+		return false
+	}
+	return rss.MatchesFilter(item.Title, feed.Filter)
 }
 
 func (s *Server) skipExisting(ctx context.Context, hash string) bool {
@@ -217,6 +221,20 @@ func (s *Server) skipExisting(ctx context.Context, hash string) bool {
 		return true
 	}
 	return false
+}
+
+// fetchFeedItems fetches + parses a feed, routing Cloudflare-gated hosts
+// (hdencode) through the browser solver instead of a plain GET, which Cloudflare
+// bot-management now blocks by the Go client's TLS fingerprint.
+func (s *Server) fetchFeedItems(ctx context.Context, feedURL string) ([]rss.Item, error) {
+	if releaseSourceFor(feedURL) == jobs.SourceHDEncode {
+		body, err := hdenc().FetchRaw(ctx, feedURL)
+		if err != nil {
+			return nil, err
+		}
+		return rss.FetchFeedString(body)
+	}
+	return rss.FetchFeed(ctx, feedURL)
 }
 
 func releaseSourceFor(feedURL string) jobs.Source {

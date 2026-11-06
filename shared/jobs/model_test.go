@@ -38,6 +38,9 @@ func TestActiveStatesSQL(t *testing.T) {
 	if budgetStates != "('pending','downloading','processing','publishing','seeding')" {
 		t.Errorf("budgetStates drifted: %s", budgetStates)
 	}
+	if viewableStates != "('pending','queued','downloading','processing','publishing','seeding','complete')" {
+		t.Errorf("viewableStates drifted: %s", viewableStates)
+	}
 }
 
 func TestConsumesDownloadSlot(t *testing.T) {

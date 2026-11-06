@@ -169,6 +169,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	if !job.Status.Active() || job.Status == jobs.StatusSeeding {
 		job.StreamURLs = s.signStreams(job, r)
 	}
+	s.applyUsenetStreamLink(r.Context(), user, job)
 	web.WriteJSON(w, 200, job)
 }
 
@@ -211,6 +212,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 		if (!j.Status.Active() || j.Status == jobs.StatusSeeding) && len(j.Files) > 0 {
 			j.StreamURLs = s.signStreams(j, r)
 		}
+		s.applyUsenetStreamLink(r.Context(), user, j)
 	}
 	web.WriteJSON(w, 200, list)
 }

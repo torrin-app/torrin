@@ -88,6 +88,45 @@ func TestListedStripsDayPricesWhenRetired(t *testing.T) {
 	}
 }
 
+func TestBlackFridayLifetimePricing(t *testing.T) {
+	defer func() { BlackFridayActive = false }()
+
+	BlackFridayActive = false
+	if c, _ := PriceCents("pro", "lifetime", 0); c != 32900 {
+		t.Errorf("pro lifetime off-sale = %d, want 32900", c)
+	}
+
+	BlackFridayActive = true
+	if c, _ := PriceCents("pro", "lifetime", 0); c != 21500 {
+		t.Errorf("pro lifetime on BF = %d, want 21500", c)
+	}
+	if c, _ := PriceCents("standard", "monthly", 0); c != 449 {
+		t.Errorf("standard monthly on BF = %d, want 449", c)
+	}
+	if c, _ := PriceCents("pro", "yearly", 0); c != 8599 {
+		t.Errorf("pro yearly on BF = %d, want 8599", c)
+	}
+	std := Listed()["standard"]
+	if std.LifetimePrice != 10900 || std.LifetimeFullPrice != 16900 {
+		t.Errorf("BF listed standard lifetime = %d (full %d), want 10900 (full 16900)", std.LifetimePrice, std.LifetimeFullPrice)
+	}
+	if std.MonthlyPrice != 449 || std.MonthlyFullPrice != 599 {
+		t.Errorf("BF listed standard monthly = %d (full %d), want 449 (full 599)", std.MonthlyPrice, std.MonthlyFullPrice)
+	}
+}
+
+func TestLifetimeSunset(t *testing.T) {
+	defer func() { LifetimeEnabled = true }()
+
+	LifetimeEnabled = false
+	if Listed()["pro"].LifetimePrice != 0 {
+		t.Error("sunset must zero the listed lifetime price so the web hides it")
+	}
+	if All["pro"].LifetimePrice == 0 {
+		t.Error("Listed must not mutate All")
+	}
+}
+
 func TestIndexerPolicy(t *testing.T) {
 	cases := []struct {
 		name                string
