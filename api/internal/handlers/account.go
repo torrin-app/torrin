@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -65,7 +66,14 @@ func (s *Server) updateEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Users.UpdateEmail(r.Context(), user.ID, req.Email); err != nil {
-		web.WriteError(w, 400, err.Error())
+		switch {
+		case errors.Is(err, auth.ErrEmailTaken):
+			web.WriteError(w, 409, "this email is already in use")
+		case errors.Is(err, auth.ErrEmailChangeLimit):
+			web.WriteError(w, 400, "email change limit reached (max 2 per month)")
+		default:
+			web.WriteError(w, 400, "could not update your email, try again")
+		}
 		return
 	}
 	s.Users.AuditLog(r.Context(), user.ID, "email_changed", "", clientIP(r))

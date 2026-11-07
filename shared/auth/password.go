@@ -20,10 +20,10 @@ func (s *Store) SetPassword(ctx context.Context, userID, plain string) error {
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(plain), passwordCost)
 	if err != nil {
-		return err
+		return internalErr(err, "could not update your password, try again")
 	}
 	_, err = s.pool.Exec(ctx, `UPDATE users SET password_hash=$2 WHERE id=$1`, userID, string(hash))
-	return err
+	return internalErr(err, "could not update your password, try again")
 }
 
 func (s *Store) HasPassword(ctx context.Context, userID string) bool {
