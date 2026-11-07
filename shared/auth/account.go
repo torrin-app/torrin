@@ -15,6 +15,8 @@ import (
 // ErrEmailTaken means the requested email already belongs to another account.
 var ErrEmailTaken = errors.New("this email is already in use")
 
+var ErrEmailChangeLimit = errors.New("email change limit reached (max 2 per month)")
+
 // internalErr logs a raw error and returns a safe, generic message so internal
 // details (db constraints, driver errors) never reach the client. Nil passes through.
 func internalErr(err error, msg string) error {
@@ -79,7 +81,7 @@ func (s *Store) UpdateEmail(ctx context.Context, userID, email string) error {
 		`SELECT COUNT(*) FROM audit_log WHERE user_id=$1 AND action='email_changed' AND created_at > now() - interval '30 days'`,
 		userID).Scan(&changes)
 	if changes >= 2 {
-		return errors.New("email change limit reached (max 2 per month)")
+		return ErrEmailChangeLimit
 	}
 	_, err := s.pool.Exec(ctx, `UPDATE users SET email=$1, updated_at=$2 WHERE id=$3`, email, time.Now(), userID)
 	if err == nil {
