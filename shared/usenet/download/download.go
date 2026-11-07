@@ -2,7 +2,6 @@ package download
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -255,7 +254,11 @@ func fetchFromPool(ctx context.Context, pool nntpPool.ConnectionPool, msgID, gro
 				continue
 			}
 		}
-		body, err := conn.Body("<" + msgID + ">")
+		data, err := readBody(ctx, conn, msgID)
+		if ctx.Err() != nil {
+			pool.Put(conn) // readBody already closed the conn on cancel
+			return nil, ctx.Err()
+		}
 		if err != nil {
 			conn.Close()
 			pool.Put(conn)
@@ -265,12 +268,7 @@ func fetchFromPool(ctx context.Context, pool nntpPool.ConnectionPool, msgID, gro
 			lastErr = err
 			continue
 		}
-		data, err := io.ReadAll(body)
 		pool.Put(conn)
-		if err != nil {
-			lastErr = err
-			continue
-		}
 		return data, nil
 	}
 	return nil, failure.Wrap(failure.Interrupted, "segment %s after %d attempts: %v", msgID, segAttempts, lastErr)

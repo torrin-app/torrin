@@ -105,7 +105,9 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 	for last+1 < len(r.segs) && r.segs[last].end < end {
 		last++
 	}
-	r.prefetch(first, last+readAhead)
+	// Fetch the segments this read needs first so the byte the caller is waiting
+	// for claims connections before read-ahead does; only then warm the window.
+	r.prefetch(first, last)
 
 	written := 0
 	idx := first
@@ -121,10 +123,30 @@ func (r *Reader) ReadAt(p []byte, off int64) (int, error) {
 		off += int64(n)
 		idx++
 	}
+	r.prefetch(last+1, last+readAhead)
 	if written < len(p) {
 		return written, io.EOF
 	}
 	return written, nil
+}
+
+// Warm fetches the segments covering [off, off+length) in the background. Used to
+// pre-pull a file's header and trailing index (MKV cues) when a stream opens, so
+// a player's seek does not pay a cold round trip to read the index first.
+func (r *Reader) Warm(off, length int64) {
+	if off < 0 || off >= r.size || length <= 0 {
+		return
+	}
+	end := off + length
+	if end > r.size {
+		end = r.size
+	}
+	first := sort.Search(len(r.segs), func(i int) bool { return r.segs[i].end > off })
+	last := first
+	for last+1 < len(r.segs) && r.segs[last].end < end {
+		last++
+	}
+	r.prefetch(first, last)
 }
 
 // prefetch warms [from, to] in the background without blocking the caller, so a
