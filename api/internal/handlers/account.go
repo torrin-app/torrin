@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
@@ -65,7 +66,11 @@ func (s *Server) updateEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.Users.UpdateEmail(r.Context(), user.ID, req.Email); err != nil {
-		web.WriteError(w, 400, err.Error())
+		status := 400
+		if errors.Is(err, auth.ErrEmailTaken) {
+			status = 409
+		}
+		web.WriteError(w, status, err.Error())
 		return
 	}
 	s.Users.AuditLog(r.Context(), user.ID, "email_changed", "", clientIP(r))

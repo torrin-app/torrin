@@ -16,6 +16,11 @@ import (
 	"github.com/torrin-app/torrin/shared/video"
 )
 
+const (
+	cairnWarmHead = 1 << 20 // header bytes to pre-pull on open
+	cairnWarmTail = 2 << 20 // trailing bytes (MKV cues) to pre-pull on open
+)
+
 func (s *Server) serveCairn(w http.ResponseWriter, r *http.Request, key string) {
 	hash, index, requestedName, ok := cairn.ParseStreamPath(key)
 	if !ok {
@@ -76,7 +81,8 @@ func (s *Server) serveCairn(w http.ResponseWriter, r *http.Request, key string) 
 		return
 	}
 	if r.Method == http.MethodGet {
-		if offset, probe := s.cairnProbeOffset(r, reader, encrypted); probe {
+		offset, probe := s.cairnProbeOffset(r, reader, encrypted)
+		if probe {
 			var first [1]byte
 			if _, err := reader.ReadAt(first[:], offset); err != nil {
 				slog.Warn("stream: cairn article preflight failed", "key", key,
@@ -84,6 +90,13 @@ func (s *Server) serveCairn(w http.ResponseWriter, r *http.Request, key string) 
 				httpError(w, http.StatusBadGateway, "cairn article unavailable")
 				return
 			}
+		}
+		// On the opening read (offset 0) pre-pull the header and trailing index so
+		// the player's first seek, which reads the MKV cues at the end, is warm.
+		// Seeks (offset > 0) skip this so they don't re-warm on every jump.
+		if offset == 0 {
+			reader.Warm(0, cairnWarmHead)
+			reader.Warm(reader.Size()-cairnWarmTail, cairnWarmTail)
 		}
 	}
 

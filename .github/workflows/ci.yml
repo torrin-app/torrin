@@ -75,6 +75,20 @@ jobs:
           cache: true
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
+  semgrep:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install semgrep
+      - name: error-leak scan (new findings only)
+        run: semgrep --config .semgrep/ --error --baseline-commit "${{ github.event.pull_request.base.sha }}"
+
   edge-images:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     permissions:

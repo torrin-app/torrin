@@ -154,6 +154,34 @@ func TestReaderParallelReadaheadDedup(t *testing.T) {
 	}
 }
 
+func TestReaderWarm(t *testing.T) {
+	parts := make([][]byte, 10)
+	for i := range parts {
+		parts[i] = bytes.Repeat([]byte{byte('A' + i)}, 100)
+	}
+	file, articles := testFile(parts...)
+	fetch := &fakeFetcher{articles: articles}
+	r, _ := NewReader(context.Background(), file, fetch)
+
+	// Warm the tail, then reading it must be correct and must not re-fetch the
+	// segments the warm already pulled.
+	r.Warm(700, 300) // segments 8, 9, 10
+	buf := make([]byte, 300)
+	if _, err := r.ReadAt(buf, 700); err != nil {
+		t.Fatalf("read warmed tail: %v", err)
+	}
+	var want []byte
+	for _, p := range parts[7:] {
+		want = append(want, p...)
+	}
+	if !bytes.Equal(buf, want) {
+		t.Fatal("warmed-tail bytes mismatch")
+	}
+	if fetch.duplicated() {
+		t.Fatalf("warm + read double-fetched a segment: %v", fetch.calls)
+	}
+}
+
 func TestReaderEOFAndInvalidInput(t *testing.T) {
 	file, articles := testFile([]byte("abc"))
 	r, _ := NewReader(context.Background(), file, &fakeFetcher{articles: articles})

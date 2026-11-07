@@ -1,0 +1,17 @@
+rules:
+  - id: raw-error-to-response
+    languages: [go]
+    severity: ERROR
+    message: >
+      Do not pass a raw error to a user-facing response. err.Error() leaks
+      internal details (database constraints, driver errors, hosts). Return a
+      typed sentinel or a sanitized message, and log the raw error separately.
+    patterns:
+      - pattern-either:
+          - pattern: web.WriteError($W, $S, $E.Error())
+          - pattern: web.WriteJSON($W, $S, $E.Error())
+          - pattern: stError($W, $S, $E.Error())
+          - pattern: http.Error($W, $E.Error(), $S)
+    paths:
+      exclude:
+        - "*_test.go"

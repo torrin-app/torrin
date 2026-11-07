@@ -28,7 +28,7 @@ func (s *Store) CreateAPIKey(ctx context.Context, userID, label string, loginAll
 		`INSERT INTO api_keys (id, user_id, key, label, login_allowed, created_at) VALUES ($1,$2,$3,$4,$5,$6)`,
 		k.ID, userID, k.Key, k.Label, k.LoginAllowed, k.CreatedAt)
 	if err != nil {
-		return nil, err
+		return nil, internalErr(err, "could not create the api key, try again")
 	}
 	return k, nil
 }
