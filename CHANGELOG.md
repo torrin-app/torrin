@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.22.1](https://github.com/torrin-app/torrin/compare/v1.22.0...v1.22.1) (2026-11-08)
+
+
+### Bug Fixes
+
+* **byos:** reconnect to the rclone rc daemon so exports self-heal ([#155](https://github.com/torrin-app/torrin/issues/155)) ([06a40e4](https://github.com/torrin-app/torrin/commit/06a40e415b0d71aba2dd0d21aca5340c4da11d48))
+
 ## [1.22.0](https://github.com/torrin-app/torrin/compare/v1.21.0...v1.22.0) (2026-11-07)
 
 
