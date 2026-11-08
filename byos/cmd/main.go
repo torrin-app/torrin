@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/torrin-app/torrin/byos/internal/mirror"
@@ -24,7 +25,7 @@ type deps struct {
 	repo          *jobs.Postgres
 	users         *auth.Store
 	src           *storage.Client
-	rc            *rclonerc.Client
+	rc            atomic.Pointer[rclonerc.Client]
 	cipher        *crypto.Stream
 	nodeID        string
 	srcBase       string
@@ -72,7 +73,6 @@ func main() {
 	if d.parallel < 1 {
 		d.parallel = 1
 	}
-	d.rc = connectRclone(ctx)
 
 	b, err := bus.Connect(mustEnv("NATS_URL"))
 	if err != nil {
@@ -93,6 +93,7 @@ func main() {
 	}); err != nil {
 		fatal("subscribe rehydrate", err)
 	}
+	go d.ensureRclone(ctx)
 	go d.runQueue(ctx)
 	go d.reconcile(ctx)
 	go d.runStorageEviction(ctx, int(env.Int("BYOS_EVICT_HOUR", 5)))
@@ -110,11 +111,33 @@ func connectRclone(ctx context.Context) *rclonerc.Client {
 	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := rc.WaitReady(wctx); err != nil {
-		slog.Warn("byos: rclone rcd not reachable, rclone targets skipped", "err", err)
 		return nil
 	}
-	slog.Info("byos: rclone rcd ready")
 	return rc
+}
+
+func (d *deps) ensureRclone(ctx context.Context) {
+	if os.Getenv("RCLONE_RC_URL") == "" {
+		return
+	}
+	warned := false
+	for {
+		if d.rc.Load() == nil {
+			if rc := connectRclone(ctx); rc != nil {
+				d.rc.Store(rc)
+				slog.Info("byos: rclone rcd ready")
+				warned = false
+			} else if !warned {
+				slog.Warn("byos: rclone rcd not reachable, rclone exports paused until it returns")
+				warned = true
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+	}
 }
 
 func (d *deps) enqueueHash(ctx context.Context, infoHash string) {
@@ -203,14 +226,15 @@ func (d *deps) processItem(ctx context.Context, it jobs.BYOSQueueItem) {
 	}
 
 	rcl := creds.IsRclone()
-	if rcl && d.rc == nil {
+	rc := d.rc.Load()
+	if rcl && rc == nil {
 		return
 	}
 	mctx, cancel := context.WithTimeout(ctx, d.mirrorTimeout)
 	defer cancel()
 	var mErr error
 	if rcl {
-		mErr = mirror.MirrorRclone(mctx, d.rc, d.srcBase, d.srcToken, job, creds, d.stallTimeout)
+		mErr = mirror.MirrorRclone(mctx, rc, d.srcBase, d.srcToken, job, creds, d.stallTimeout)
 	} else {
 		mErr = mirror.Mirror(mctx, d.src, d.cipher, job, creds, d.stallTimeout)
 	}

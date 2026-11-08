@@ -13,7 +13,8 @@ import (
 )
 
 func (d *deps) rehydrate(ctx context.Context, e events.RehydrateBYOS) {
-	if e.Node != d.nodeID || d.rc == nil {
+	rc := d.rc.Load()
+	if e.Node != d.nodeID || rc == nil {
 		return
 	}
 	if has, _ := d.src.Has(ctx, manifest.Path(e.InfoHash)); has {
@@ -30,7 +31,7 @@ func (d *deps) rehydrate(ctx context.Context, e events.RehydrateBYOS) {
 
 	rctx, cancel := context.WithTimeout(ctx, d.mirrorTimeout)
 	defer cancel()
-	if err := mirror.Rehydrate(rctx, d.rc, d.src, d.cipher, obj, creds, d.stallTimeout); err != nil {
+	if err := mirror.Rehydrate(rctx, rc, d.src, d.cipher, obj, creds, d.stallTimeout); err != nil {
 		slog.Warn("byos: rehydrate failed", "hash", e.InfoHash, "user", e.UserID, "err", err)
 		return
 	}
